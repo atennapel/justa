@@ -60,8 +60,8 @@ object Syntax:
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} = $v; $b)"
       case LetRec(x, ty, v, b) =>
         s"(let rec $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
-      case U0(cv)                         => s"(Ty $cv)"
-      case U1                             => "Meta"
+      case U0(cv)                         => s"(type $cv)"
+      case U1                             => "meta"
       case Pi(DontBind, Expl, ty, b)      => s"($ty -> $b)"
       case Pi(x, i, ty, b)                => s"(${i.wrap(s"$x : $ty")} -> $b)"
       case Lam(x, ArgIcit(Expl), None, b) => s"(\\$x => $b)"
