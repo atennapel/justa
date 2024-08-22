@@ -36,6 +36,7 @@ object Common:
       if !isOperator || (x.head == '(' || x.head == '[') then x else s"($x)"
     inline def isOperator: Boolean = !x.head.isLetter && x.head != '_'
     inline def expose: String = x
+    inline def toBind: Bind = DoBind(this)
 
   object Name:
     val underscore = Name("_")

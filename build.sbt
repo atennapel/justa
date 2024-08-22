@@ -6,6 +6,10 @@ lazy val root = project
     name := "justa",
     version := "0.1.0-SNAPSHOT",
     scalaVersion := scala3Version,
-    scalacOptions ++= Seq("-Wunused:imports", "-Xfatal-warnings"),
+    scalacOptions ++= Seq(
+      "-Wunused:imports",
+      "-Xfatal-warnings",
+      "-explain-cyclic"
+    ),
     libraryDependencies += "com.github.j-mie6" %% "parsley" % "4.5.2"
   )
