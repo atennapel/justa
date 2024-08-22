@@ -9,7 +9,16 @@ import State.GlobalEntry.*
 
 import scala.annotation.tailrec
 
-final class Evaluation(state: State):
+object Evaluation:
+  enum QuoteOption:
+    case UnfoldAll
+    case UnfoldMetas
+    case UnfoldNone
+    case UnfoldStage
+
+final class Evaluation(val state: State):
+  import Evaluation.QuoteOption
+  import Evaluation.QuoteOption.*
   import state.*
 
   // closures
@@ -193,13 +202,6 @@ final class Evaluation(state: State):
     case v                => v
 
   // quoting
-  enum QuoteOption:
-    case UnfoldAll
-    case UnfoldMetas
-    case UnfoldNone
-    case UnfoldStage
-  export QuoteOption.*
-
   private def quote1(h: Tm1, sp: Spine, q: QuoteOption)(implicit
       lvl: Lvl
   ): Tm1 = sp match

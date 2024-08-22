@@ -41,12 +41,13 @@ object Unification:
   private object PSub:
     val empty = PSub(None, lvl0, lvl0, IntMap.empty)
 
-class Unification(state: State, evaluation: Evaluation):
+class Unification(evaluation: Evaluation):
+  import Evaluation.QuoteOption.*
   import Unification.*
   import Unification.PSEntry.*
 
-  import state.*
   import evaluation.*
+  import evaluation.state.*
 
   // invert
   private type Invert = (Lvl, Set[Lvl], IntMap[PSEntry], Pruning, Boolean)
