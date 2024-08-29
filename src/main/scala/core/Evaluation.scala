@@ -55,7 +55,8 @@ final class Evaluation(val state: State):
     state.getGlobal(x) match
       case Some(GlobalEntry1(_, _, _, v, _)) =>
         VUnfold(UGlobal(x), SId, () => v)
-      case _ => impossible()
+      case Some(GlobalEntryNative(_, _, _)) => VNative(x)
+      case _                                => impossible()
 
   inline def vmeta(id: MetaId): Val1 = getMeta(id) match
     case Unsolved(_)      => VFlex(id, SId)
@@ -125,6 +126,7 @@ final class Evaluation(val state: State):
     t match
       case Var1(ix)          => vvar1(ix)
       case Global1(x)        => vglobal1(x)
+      case Native(x)         => VNative(x)
       case Let1(_, _, v, b)  => eval1(b)(E1(env, eval1(v)))
       case U0(cv)            => VU0(eval1(cv))
       case U1                => VU1
@@ -229,7 +231,8 @@ final class Evaluation(val state: State):
     force(v) match
       case VRigid(hd, sp) =>
         hd match
-          case HVar(lvl) => goSp(Var1(lvl.toIx), sp)
+          case HVar(lvl)  => goSp(Var1(lvl.toIx), sp)
+          case HNative(x) => goSp(Native(x), sp)
       case VFlex(id, sp)              => goSp(Meta(id), sp)
       case VUnfold(UMeta(id), sp, _)  => goSp(Meta(id), sp)
       case VUnfold(UGlobal(x), sp, _) => goSp(Global1(x), sp)

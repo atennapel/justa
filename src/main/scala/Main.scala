@@ -57,6 +57,8 @@ object Main:
             println(
               s"def $x : ${ctx.pretty1(vty)} = ${ctx.pretty1(tm)}"
             )
+          case State.GlobalEntry.GlobalEntryNative(x, ty, vty) =>
+            println(s"native $x : ${ctx.pretty1(vty)}")
         }
     val etime = System.nanoTime() - etimeStart
     println(s"elaboration time: ${etime / 1000000}ms (${etime}ns)")

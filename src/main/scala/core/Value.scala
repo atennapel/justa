@@ -105,6 +105,7 @@ object Value:
 
   enum Head:
     case HVar(lvl: Lvl)
+    case HNative(name: Name)
   export Head.*
 
   enum UHead:
@@ -155,3 +156,9 @@ object Value:
     def unapply(value: Val1): Option[Lvl] = value match
       case VRigid(HVar(hd), SId) => Some(hd)
       case _                     => None
+
+  object VNative:
+    def apply(name: Name): Val1 = VRigid(HNative(name), SId)
+    def unapply(value: Val1): Option[Name] = value match
+      case VRigid(HNative(name), SId) => Some(name)
+      case _                          => None

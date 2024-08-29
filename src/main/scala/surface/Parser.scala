@@ -20,7 +20,7 @@ object Parser:
     Lexer.id.filter(x => !x.startsWith("_")).map(Name.apply)
   private val idOrOp: Parsley[Name] = ("(" ~> userOp <~ ")") | id
   private val bind: Parsley[Bind] =
-    idOrOp.map(DoBind.apply) | Lexer.id.map {
+    ("(" ~> userOp <~ ")").map(DoBind.apply) | Lexer.id.map {
       case x if x.startsWith("_") => DontBind
       case x                      => DoBind(Name(x))
     }
@@ -145,36 +145,40 @@ object Parser:
 
   // defs
   private val defP: Parsley[Def] =
-    (pos <~> "def" ~> (("rec" ~> idOrOp <~> many(defParam) <~> option(
-      ":" ~> tm
-    ) <~>
-      ":=" ~> tm) <+>
-      (idOrOp <~> many(defParam) <~> option(
+    (pos <~> "native" ~> idOrOp <~> many(defParam) <~> ":" ~> tm).map {
+      case (((p, x), ps), rt) =>
+        DNative(p, x, typeFromParams(true, ps, rt))
+    } |
+      (pos <~> "def" ~> (("rec" ~> idOrOp <~> many(defParam) <~> option(
         ":" ~> tm
-      ) <~> (":=" <+> "=") <~> tm)))
-      .map {
-        case (p, Left((((x, ps), t), v))) =>
-          DDefRec(
-            p,
-            x,
-            t.map(typeFromParams(false, ps, _)),
-            lamFromDefParams(ps, v, t.isEmpty)
-          )
-        case (p, Right(((((x, ps), t), Left(_)), v))) =>
-          DDef0(
-            p,
-            x,
-            t.map(typeFromParams(false, ps, _)),
-            lamFromDefParams(ps, v, t.isEmpty)
-          )
-        case (p, Right(((((x, ps), t), Right(_)), v))) =>
-          DDef1(
-            p,
-            x,
-            t.map(typeFromParams(true, ps, _)),
-            lamFromDefParams(ps, v, t.isEmpty)
-          )
-      }
+      ) <~>
+        ":=" ~> tm) <+>
+        (idOrOp <~> many(defParam) <~> option(
+          ":" ~> tm
+        ) <~> (":=" <+> "=") <~> tm)))
+        .map {
+          case (p, Left((((x, ps), t), v))) =>
+            DDefRec(
+              p,
+              x,
+              t.map(typeFromParams(false, ps, _)),
+              lamFromDefParams(ps, v, t.isEmpty)
+            )
+          case (p, Right(((((x, ps), t), Left(_)), v))) =>
+            DDef0(
+              p,
+              x,
+              t.map(typeFromParams(false, ps, _)),
+              lamFromDefParams(ps, v, t.isEmpty)
+            )
+          case (p, Right(((((x, ps), t), Right(_)), v))) =>
+            DDef1(
+              p,
+              x,
+              t.map(typeFromParams(true, ps, _)),
+              lamFromDefParams(ps, v, t.isEmpty)
+            )
+        }
 
   private val defs: Parsley[Defs] = many(defP).map(Defs.apply)
 

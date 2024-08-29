@@ -473,7 +473,9 @@ class Elaboration(evaluation: Evaluation):
     tm match
       case S.Pos(pos, tm) => infer(tm)(ctx.enter(pos))
 
-      // TODO: CV, Val, Comp
+      case S.Var(Name("CV"))   => Infer1(CV, VU1)
+      case S.Var(Name("Val"))  => Infer1(CVV, VCV)
+      case S.Var(Name("Comp")) => Infer1(CVC, VCV)
 
       case S.Var(x) =>
         ctx.lookup(x) match
@@ -486,6 +488,8 @@ class Elaboration(evaluation: Evaluation):
               case Some(GlobalEntry0(_, _, _, _, _, ty, cv)) =>
                 Infer0(Global0(x), ty, cv)
               case Some(GlobalEntry1(_, _, _, _, ty)) =>
+                Infer1(Global1(x), ty)
+              case Some(GlobalEntryNative(_, _, ty)) =>
                 Infer1(Global1(x), ty)
 
       case S.LetRec(x, mty, v, b) =>
@@ -591,6 +595,14 @@ class Elaboration(evaluation: Evaluation):
       case S.Hole(_) => error("cannot infer hole")
 
   // elaboration
+  // TODO: use frozen metas instead of this check
+  private def checkUnsolvedMetas()(implicit ctx: Ctx): Unit =
+    val ums = unsolvedMetas()
+    if ums.nonEmpty then
+      val str =
+        ums.map((id, ty) => s"?$id : ${ctx.pretty1(ty)}").mkString("\n")
+      error(s"there are unsolved metas:\n$str")
+
   def elaborate(d: S.Def): Unit =
     debug(s"elaborate $d")
     d match
@@ -611,13 +623,8 @@ class Elaboration(evaluation: Evaluation):
             // if rec then ensureFun(vty, vcv)
             val ev = check0(v, vty, vcv)(ctx)
             (ev, ety, cv, vty, vcv)
-        val entry = GlobalEntry0(x, ev, ty, cv, ctx.eval0(ev), vty, vcv)
-        val ums = unsolvedMetas()
-        if ums.nonEmpty then
-          val str =
-            ums.map((id, ty) => s"?$id : ${ctx.pretty1(ty)}").mkString("\n")
-          error(s"there are unsolved metas:\n$str")
-        setGlobal(entry)
+        checkUnsolvedMetas()
+        setGlobal(GlobalEntry0(x, ev, ty, cv, ctx.eval0(ev), vty, vcv))
       case S.DDefRec(pos, x, mty, v) =>
         implicit val ctx: Ctx = Ctx.empty(pos)
         if getGlobal(x).isDefined then error(s"duplicated definition $x")
@@ -631,13 +638,8 @@ class Elaboration(evaluation: Evaluation):
           // if rec then ensureFun(vty, vcv)
           val ev = check0(v, vty, vcv)(ctx.bind0(DoBind(x), ety, vty, cv, vcv))
           (LetRec(x, ety, ev, Var0(ix0)), ety, cv, vty, vcv)
-        val entry = GlobalEntry0(x, ev, ty, cv, ctx.eval0(ev), vty, vcv)
-        val ums = unsolvedMetas()
-        if ums.nonEmpty then
-          val str =
-            ums.map((id, ty) => s"?$id : ${ctx.pretty1(ty)}").mkString("\n")
-          error(s"there are unsolved metas:\n$str")
-        setGlobal(entry)
+        checkUnsolvedMetas()
+        setGlobal(GlobalEntry0(x, ev, ty, cv, ctx.eval0(ev), vty, vcv))
       case S.DDef1(pos, x, mty, v) =>
         implicit val ctx: Ctx = Ctx.empty(pos)
         if getGlobal(x).isDefined then error(s"duplicated definition $x")
@@ -650,12 +652,14 @@ class Elaboration(evaluation: Evaluation):
             val vty = ctx.eval1(ety)
             val ev = check1(v, vty)
             (ev, ety, ctx.eval1(ev), vty)
-        val entry = GlobalEntry1(x, ev, ty, vv, vty)
-        val ums = unsolvedMetas()
-        if ums.nonEmpty then
-          val str =
-            ums.map((id, ty) => s"?$id : ${ctx.pretty1(ty)}").mkString("\n")
-          error(s"there are unsolved metas:\n$str")
-        setGlobal(entry)
+        checkUnsolvedMetas()
+        setGlobal(GlobalEntry1(x, ev, ty, vv, vty))
+      case S.DNative(pos, x, sty) =>
+        implicit val ctx: Ctx = Ctx.empty(pos)
+        if getGlobal(x).isDefined then error(s"duplicated definition $x")
+        val ety = check1(sty, VU1)
+        val vty = ctx.eval1(ety)
+        checkUnsolvedMetas()
+        setGlobal(GlobalEntryNative(x, ety, vty))
 
   def elaborate(d: S.Defs): Unit = d.toList.foreach(elaborate)

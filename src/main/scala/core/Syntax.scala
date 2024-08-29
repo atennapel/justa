@@ -39,6 +39,7 @@ object Syntax:
   enum Tm1:
     case Var1(ix: Ix)
     case Global1(name: Name)
+    case Native(name: Name)
     case Let1(name: Name, ty: Ty, value: Tm1, body: Tm1)
 
     case U0(cv: Tm1)
@@ -82,6 +83,7 @@ object Syntax:
     override def toString: String = this match
       case Var1(ix)            => s"'$ix"
       case Global1(x)          => s"$x"
+      case Native(x)           => s"$x"
       case Let1(x, ty, v, b)   => s"(let $x : $ty = $v; $b)"
       case U0(cv)              => s"(type $cv)"
       case U1                  => "meta"

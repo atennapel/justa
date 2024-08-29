@@ -263,6 +263,7 @@ class Unification(evaluation: Evaluation):
     inline def goClos(c: Clos1) = psubst1(c(VVar1(psub.cod)))(psub.lift1)
     inline def goClos0(c: Clos1) = psubst1(c(VVar0(psub.cod)))(psub.lift1)
     forceMetas1(v) match
+      case VRigid(HNative(x), sp) => goSp(Native(x), sp)
       case VRigid(HVar(x), sp) =>
         psub.sub.get(x.expose) match
           case None         => throw UnifyError(s"out of scope $x")

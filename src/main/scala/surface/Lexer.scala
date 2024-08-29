@@ -14,7 +14,7 @@ import parsley.token.predicate.{Unicode, Basic}
 
 object Lexer:
   private val userOps = "`~!@$%^&*-+=|:/?><,."
-  private val userOpsTail = s"$userOps#_;"
+  private val userOpsTail = s"$userOps#;"
 
   private val desc = LexicalDesc(
     NameDesc.plain.copy(
@@ -25,7 +25,7 @@ object Lexer:
       operatorLetter = Unicode(userOpsTail.contains(_))
     ),
     SymbolDesc.plain.copy(
-      hardKeywords = Set("def", "let", "rec", "type", "meta"),
+      hardKeywords = Set("def", "native", "let", "rec", "type", "meta"),
       hardOperators = Set(":=", "=", ":", ";", "^", "`", "$", "\\", "->", "=>")
     ),
     numeric.NumericDesc.plain.copy(

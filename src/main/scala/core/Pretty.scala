@@ -72,6 +72,7 @@ object Pretty:
     tm match
       case Var1(_)               => pretty1(tm)
       case Global1(_)            => pretty1(tm)
+      case Native(_)             => pretty1(tm)
       case Meta(_)               => pretty1(tm)
       case Lift(_, _)            => pretty1(tm)
       case Quote(_)              => pretty1(tm)
@@ -122,6 +123,7 @@ object Pretty:
           s"$x@${ns.size - ix.expose - 1}"
         case DoBind(x) => s"$x"
     case Global1(x) => s"$x"
+    case Native(x)  => s"$x"
     case Let1(x, t, v, b) =>
       s"let $x : ${pretty1(t)} = ${pretty1(v)}; ${prettyLift1(x.toBind, b)}"
 

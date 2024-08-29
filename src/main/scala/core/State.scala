@@ -89,6 +89,8 @@ object State:
         value: Val1,
         vty: VTy
     )
+    case GlobalEntryNative(x: Name, ty: Ty, vty: VTy)
     def name: Name = this match
       case GlobalEntry0(x, _, _, _, _, _, _) => x
       case GlobalEntry1(x, _, _, _, _)       => x
+      case GlobalEntryNative(x, _, _)        => x

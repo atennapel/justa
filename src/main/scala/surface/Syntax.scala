@@ -11,6 +11,7 @@ object Syntax:
     case DDef0(pos: PosInfo, name: Name, ty: Option[Ty], value: Tm)
     case DDef1(pos: PosInfo, name: Name, ty: Option[Ty], value: Tm)
     case DDefRec(pos: PosInfo, name: Name, ty: Option[Ty], value: Tm)
+    case DNative(pos: PosInfo, name: Name, ty: Ty)
 
     override def toString: String = this match
       case DDef0(_, x, t, v) =>
@@ -19,6 +20,7 @@ object Syntax:
         s"def $x${t.map(t => s" : $t").getOrElse("")} = $v"
       case DDefRec(_, x, t, v) =>
         s"def rec $x${t.map(t => s" : $t").getOrElse("")} := $v"
+      case DNative(_, x, t) => s"native $x : $t"
   export Def.*
 
   enum ArgInfo:
