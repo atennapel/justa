@@ -25,7 +25,17 @@ object Lexer:
       operatorLetter = Unicode(userOpsTail.contains(_))
     ),
     SymbolDesc.plain.copy(
-      hardKeywords = Set("def", "native", "let", "rec", "type", "meta"),
+      hardKeywords = Set(
+        "def",
+        "native",
+        "let",
+        "rec",
+        "type",
+        "meta",
+        "if",
+        "then",
+        "else"
+      ),
       hardOperators = Set(":=", "=", ":", ";", "^", "`", "$", "\\", "->", "=>")
     ),
     numeric.NumericDesc.plain.copy(

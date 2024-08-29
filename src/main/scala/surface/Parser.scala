@@ -45,7 +45,7 @@ object Parser:
       varOrHole
   )
 
-  private lazy val tm: Parsley[Tm] = atomic(pi) | let | lam |
+  private lazy val tm: Parsley[Tm] = atomic(pi) | let | lam | ifP |
     precedence[Tm](app)(
       Ops(InfixR)("->".as((l, r) => Pi(DontBind, Expl, l, r)))
     )
@@ -130,9 +130,10 @@ object Parser:
   }
 
   private lazy val appAtom: Parsley[Tm] = positioned(
-    (atom <~> many(arg) <~> option(lam)).map { case ((fn, args), optArg) =>
-      (args.flatten ++ optArg.map(t => (t, ArgIcit(Expl))))
-        .foldLeft(fn) { case (fn, (arg, i)) => App(fn, arg, i) }
+    (atom <~> many(arg) <~> option(lam | ifP)).map {
+      case ((fn, args), optArg) =>
+        (args.flatten ++ optArg.map(t => (t, ArgIcit(Expl))))
+          .foldLeft(fn) { case (fn, (arg, i)) => App(fn, arg, i) }
     }
   )
 
@@ -142,6 +143,18 @@ object Parser:
       .map((xs, t) => xs.map(x => (t, ArgNamed(x)))) |
       ("{" ~> tm <~ "}").map(t => List((t, ArgIcit(Impl)))) |
       atom.map(t => List((t, ArgIcit(Expl))))
+
+  private lazy val ifP: Parsley[Tm] =
+    positioned(
+      ("if" *> tm <~> "then" *> tm <~> "else" *> tm)
+        .map { case ((c, t), f) =>
+          App(
+            App(App(Var(Name("cond")), t, ArgIcit(Expl)), f, ArgIcit(Expl)),
+            c,
+            ArgIcit(Expl)
+          )
+        }
+    )
 
   // defs
   private val defP: Parsley[Def] =
