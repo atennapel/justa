@@ -125,11 +125,15 @@ object Value:
     case VMetaPi0(ty: VTy, body: Clos1)
     case VMetaLam0(body: Clos1)
 
-    case VU0(cv: VCV)
+    case VU0(cv: VTy)
     case VU1
 
-    case VFun(boxity: VTy, pty: VTy, cv: VCV, rty: VTy)
-    case VLift(cv: VCV, ty: VTy)
+    case VCV
+    case VCVV
+    case VCVC
+
+    case VFun(pty: VTy, cv: VTy, rty: VTy)
+    case VLift(cv: VTy, ty: VTy)
 
     case VQuote(tm: Val0)
   export Val1.*

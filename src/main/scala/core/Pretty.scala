@@ -18,7 +18,7 @@ object Pretty:
     case f                => prettyParen1(f)
 
   private def prettyPi(tm: Ty)(implicit ns: List[Bind]): String = tm match
-    case Fun(_, a, _, b) => s"${prettyParen1(a, true)} -> ${prettyPi(b)}"
+    case Fun(a, _, b) => s"${prettyParen1(a, true)} -> ${prettyPi(b)}"
     case Pi(DontBind, Expl, t, b) =>
       s"${prettyParen1(t, true)} -> ${prettyPi(b)(DontBind :: ns)}"
     case Pi(bx @ DoBind(x), Expl, t, b) =>
@@ -79,8 +79,10 @@ object Pretty:
       case App1(_, _, _) if app  => pretty1(tm)
       case MetaApp1(_, _) if app => pretty1(tm)
       case MetaApp0(_, _) if app => pretty1(tm)
-      case U0(_)                 => pretty1(tm)
       case U1                    => pretty1(tm)
+      case CV                    => pretty1(tm)
+      case CVV                   => pretty1(tm)
+      case CVC                   => pretty1(tm)
       case Wk01(tm)              => prettyParen1(tm, app)(ns.tail)
       case Wk11(tm)              => prettyParen1(tm, app)(ns.tail)
       case _                     => s"(${pretty1(tm)})"
@@ -123,11 +125,15 @@ object Pretty:
     case Let1(x, t, v, b) =>
       s"let $x : ${pretty1(t)} = ${pretty1(v)}; ${prettyLift1(x.toBind, b)}"
 
-    case U0(s) => s"Ty ${prettyParen1(s)}"
-    case U1    => "Meta"
+    case U0(s) => s"type ${prettyParen1(s)}"
+    case U1    => "meta"
+
+    case CV  => "CV"
+    case CVV => "Val"
+    case CVC => "Comp"
 
     case Pi(_, _, _, _)   => prettyPi(tm)
-    case Fun(_, _, _, _)  => prettyPi(tm)
+    case Fun(_, _, _)     => prettyPi(tm)
     case MetaPi1(_, _)    => prettyPi(tm)
     case MetaPi0(_, _)    => prettyPi(tm)
     case Lam1(_, _, _, _) => prettyLam1(tm)

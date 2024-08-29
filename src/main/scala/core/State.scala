@@ -80,7 +80,7 @@ object State:
         cv: CV,
         value: Val0,
         vty: VTy,
-        vcv: VCV
+        vcv: VTy
     )
     case GlobalEntry1(
         x: Name,

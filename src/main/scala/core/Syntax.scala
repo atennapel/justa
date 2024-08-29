@@ -44,11 +44,15 @@ object Syntax:
     case U0(cv: Tm1)
     case U1
 
+    case CV
+    case CVV
+    case CVC
+
     case Pi(name: Bind, icit: Icit, ty: Ty, body: Ty)
     case Lam1(name: Bind, icit: Icit, ty: Ty, body: Tm1)
     case App1(fn: Tm1, arg: Tm1, icit: Icit)
 
-    case Fun(boxity: Ty, pty: Ty, cv: CV, rty: Ty)
+    case Fun(pty: Ty, cv: CV, rty: Ty)
 
     case Lift(cv: CV, ty: Ty)
     case Quote(tm: Tm0)
@@ -81,11 +85,14 @@ object Syntax:
       case Let1(x, ty, v, b)   => s"(let $x : $ty = $v; $b)"
       case U0(cv)              => s"(type $cv)"
       case U1                  => "meta"
+      case CV                  => "CV"
+      case CVV                 => "Val"
+      case CVC                 => "Comp"
       case Pi(x, i, ty, b)     => s"(${i.wrap(s"$x : $ty")} -> $b)"
       case Lam1(x, i, ty, b)   => s"(\\${i.wrap(s"$x : $ty")} => $b)"
       case App1(fn, arg, Expl) => s"($fn $arg)"
       case App1(fn, arg, i)    => s"($fn ${i.wrap(arg)})"
-      case Fun(_, pty, _, rty) => s"($pty -> $rty)"
+      case Fun(pty, _, rty)    => s"($pty -> $rty)"
       case Lift(_, ty)         => s"^$ty"
       case Quote(tm)           => s"`$tm"
       case AppPruning(id, p)   => s"(?$id ...(${p.size}))"

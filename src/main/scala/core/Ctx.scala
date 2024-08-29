@@ -91,7 +91,7 @@ final case class Ctx(
       pos
     )
 
-  def bind0(x: Bind, ty: Ty, vty: VTy, cv: CV, vcv: VCV): Ctx =
+  def bind0(x: Bind, ty: Ty, vty: VTy, cv: CV, vcv: VTy): Ctx =
     Ctx(
       lvl + 1,
       E0(env, VVar0(lvl)),
@@ -143,7 +143,7 @@ object Ctx:
   def empty(pos: PosInfo) = Ctx(lvl0, EEmpty, LEmpty, Nil, Nil, Map.empty, pos)
 
   enum NameInfo:
-    case Name0(_lvl: Lvl, ty: VTy, cv: VCV)
+    case Name0(_lvl: Lvl, ty: VTy, cv: VTy)
     case Name1(_lvl: Lvl, ty: VTy)
     def lvl: Lvl = this match
       case Name0(_lvl, ty, cv) => _lvl

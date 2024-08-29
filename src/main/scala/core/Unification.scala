@@ -277,13 +277,16 @@ class Unification(evaluation: Evaluation):
       case VLam1(x, i, ty, b)         => Lam1(x, i, go1(ty), goClos(b))
       case VU0(cv)                    => U0(go1(cv))
       case VU1                        => U1
-      case VFun(l, pty, cv, rty) => Fun(go1(l), go1(pty), go1(cv), go1(rty))
-      case VLift(cv, ty)         => Lift(go1(cv), go1(ty))
-      case VQuote(tm)            => quote(go0(tm))
-      case VMetaPi1(t, b)        => MetaPi1(go1(t), goClos(b))
-      case VMetaPi0(t, b)        => MetaPi0(go1(t), goClos0(b))
-      case VMetaLam1(b)          => MetaLam1(goClos(b))
-      case VMetaLam0(b)          => MetaLam0(goClos0(b))
+      case VCV                        => CV
+      case VCVV                       => CVV
+      case VCVC                       => CVC
+      case VFun(pty, cv, rty)         => Fun(go1(pty), go1(cv), go1(rty))
+      case VLift(cv, ty)              => Lift(go1(cv), go1(ty))
+      case VQuote(tm)                 => quote(go0(tm))
+      case VMetaPi1(t, b)             => MetaPi1(go1(t), goClos(b))
+      case VMetaPi0(t, b)             => MetaPi0(go1(t), goClos0(b))
+      case VMetaLam1(b)               => MetaLam1(goClos(b))
+      case VMetaLam0(b)               => MetaLam0(goClos0(b))
 
   // solving
   private def solve(id: MetaId, sp: Spine, rhs: Val1)(implicit lvl: Lvl): Unit =
@@ -406,10 +409,13 @@ class Unification(evaluation: Evaluation):
         unify1(ty1, ty2); goClos(b1, b2)
       case (VMetaPi0(ty1, b1), VMetaPi0(ty2, b2)) =>
         unify1(ty1, ty2); goClos0(b1, b2)
-      case (VFun(l1, t1, cv1, r1), VFun(l2, t2, cv2, r2)) =>
-        unify1(l1, l2); unify1(t1, t2); unify1(cv1, cv2); unify1(r1, r2)
+      case (VFun(t1, cv1, r1), VFun(t2, cv2, r2)) =>
+        unify1(t1, t2); unify1(cv1, cv2); unify1(r1, r2)
       case (VU1, VU1)           => ()
       case (VU0(cv1), VU0(cv2)) => unify1(cv1, cv2)
+      case (VCV, VCV)           => ()
+      case (VCVV, VCVV)         => ()
+      case (VCVC, VCVC)         => ()
 
       case (VLam1(_, _, _, b1), VLam1(_, _, _, b2)) => goClos(b1, b2)
       case (VLam1(_, i, _, b), f) =>
