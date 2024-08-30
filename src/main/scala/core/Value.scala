@@ -1,7 +1,5 @@
 package core
 
-package core
-
 import common.Common.*
 import Syntax as S
 

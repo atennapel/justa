@@ -5,6 +5,7 @@ import core.Evaluation
 import core.Elaboration
 import core.Elaboration.*
 import core.Ctx
+import optimization.Normalize
 
 import scala.io.Source
 import scala.util.Using
@@ -60,5 +61,10 @@ object Main:
           case State.GlobalEntry.GlobalEntryNative(x, ty, vty) =>
             println(s"native $x : ${ctx.pretty1(vty)}")
         }
+
+        // normalization
+        val ndefs = Normalize.normalize(state)
+        println()
+        ndefs.foreach(println)
     val etime = System.nanoTime() - etimeStart
     println(s"elaboration time: ${etime / 1000000}ms (${etime}ns)")

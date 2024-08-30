@@ -1,7 +1,7 @@
 package core
 
 import common.Common.*
-import core.Value.*
+import Value.*
 import Syntax.*
 
 import scala.collection.mutable.ArrayBuffer

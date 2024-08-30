@@ -2,7 +2,7 @@ package core
 
 import common.Common.*
 import Syntax.*
-import core.Value.*
+import Value.*
 import Evaluation.QuoteOption
 import Evaluation.QuoteOption.*
 import Pretty.{

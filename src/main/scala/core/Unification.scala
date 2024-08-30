@@ -2,7 +2,7 @@ package core
 
 import common.Common.*
 import Syntax.*
-import core.Value.*
+import Value.*
 import common.Debug.debug
 
 import scala.collection.immutable.IntMap

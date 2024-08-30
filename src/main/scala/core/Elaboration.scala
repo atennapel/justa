@@ -4,7 +4,7 @@ import common.Common.*
 import common.Debug.*
 import surface.Syntax as S
 import Syntax.*
-import core.Value.*
+import Value.*
 import Evaluation.*
 import Ctx.*
 
