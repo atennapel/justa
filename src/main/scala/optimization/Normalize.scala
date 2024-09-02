@@ -84,11 +84,13 @@ object Normalize:
           case stack => addLet(LetApp(env(ix.expose), stack.toList))
       case S.Global0(x) => addLet(LetGlobal(x, stack.toList))
 
+      /*
       case S.Let0(x, ty, S.Let0(x2, ty2, v2, b2), b) =>
         go0(S.Let0(x2, ty2, v2, S.Let0(x, ty, b2, b)))
       case S.Let0(x, ty, S.LetRec(x2, ty2, v2, b2), b) =>
         go0(S.LetRec(x2, ty2, v2, S.Let0(x, ty, b2, b)))
       // TODO: what about letrec(letrec) and letrec(let)?
+       */
 
       case S.Let0(x, ty, v, b) =>
         goTDef(ty) match

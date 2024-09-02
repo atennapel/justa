@@ -51,6 +51,9 @@ object Main:
         println()
         state.allGlobals.foreach {
           case State.GlobalEntry.GlobalEntry0(x, tm, ty, cv, vv, vty, vcv) =>
+            /*println(
+              s"def $x : ${ctx.pretty1(vty)} := ${ctx.pretty0(tm)}"
+            )*/
             println(
               s"def $x : ${ctx.pretty1(vty)} := ${ctx.pretty0(evaluation.stage(tm))}"
             )
