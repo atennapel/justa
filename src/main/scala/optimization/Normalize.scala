@@ -51,19 +51,17 @@ object Normalize:
       case Arg(stack, arg) => arg :: stack.toList
   import Stack.*
 
-  private def mkStack(ty: TDef)(implicit r: R): Stack =
-    def go(arity: Int): Stack =
-      arity match
-        case 0 => Id
-        case n =>
-          val a = weaken()
-          Arg(go(n - 1), a)
-    go(ty.ps.size)
+  private def mkStack(arity: Int, stack: Stack = Id)(implicit r: R): Stack =
+    arity match
+      case 0 => stack
+      case n =>
+        val a = weaken()
+        Arg(mkStack(n - 1, stack), a)
 
   private def normalize(tm: S.Tm0, ty: TDef)(implicit e: Evaluation): Tm =
     val stm = e.stage(tm)
     implicit val normState: R = new Ref((mkLvl(0), Nil))
-    val ret = go(stm, Nil, V.EEmpty, mkStack(ty))
+    val ret = go(stm, Nil, V.EEmpty, mkStack(ty.ps.size))
     val lets = normState.value._2.reverse
     Tm(lets, ret)
 
@@ -71,10 +69,12 @@ object Normalize:
       r: R,
       e: Evaluation
   ): Lvl =
-    debug(s"go $tm $env $stack")
+    debug(s"go $tm $env $venv $stack")
     inline def underVEnv(l: Lvl): V.Env = V.E0(venv, V.VVar0(l))
     inline def go0(tm: S.Tm0, st: Stack = stack): Lvl = go(tm, env, venv, st)
-    inline def go1(tm: S.Tm1): Lvl = go0(e.stageUnder(S.splice(tm), venv))
+    inline def go1(tm: S.Tm1, st: Stack = stack): Lvl =
+      go0(e.stageUnder(S.splice(tm), venv), st)
+    inline def go1s(tms: S.Tm1*): List[Lvl] = tms.map(x => go1(x)).toList
     def goUnder(tm: S.Tm0, l: Lvl, st: Stack = stack): Lvl =
       go(tm, l :: env, underVEnv(l), st)
     tm match
@@ -97,7 +97,7 @@ object Normalize:
           case TDef(Nil, rt) => goUnder(b, go0(v, Id))
           case nty @ TDef(ps, rt) =>
             val lam = locally {
-              val ret = go0(v, mkStack(nty))
+              val ret = go0(v, mkStack(nty.ps.size))
               val lets = summon[R].value._2.reverse
               LetLam(nty, Tm(lets, ret))
             }
@@ -107,7 +107,7 @@ object Normalize:
         val dom = r.value._1
         val lam = locally {
           weaken()
-          val ret = goUnder(v, dom, mkStack(nty))
+          val ret = goUnder(v, dom, mkStack(nty.ps.size))
           val lets = summon[R].value._2.reverse
           // TODO: what if let rec is not a function type?
           LetLam(nty, Tm(lets, ret))
@@ -124,7 +124,7 @@ object Normalize:
       case S.App0(fn, arg) => go0(fn, Arg(stack, go0(arg, Id)))
 
       case S.Wk10(tm) => go0(tm)
-      case S.Wk00(tm) => weaken(); go0(tm)
+      case S.Wk00(tm) => weaken(); go(tm, env.tail, venv.wk0, stack)
 
       case S.Splice(tm) =>
         @tailrec
@@ -137,7 +137,33 @@ object Normalize:
           case (x @ Name("True"), Nil)  => addLet(LetNative(x, Nil))
           case (x @ Name("False"), Nil) => addLet(LetNative(x, Nil))
           case (x @ Name("cond"), List(_, _, t, f, c)) =>
-            addLet(LetNative(x, List(t, f, c).map(t => go1(t))))
+            addLet(LetNative(x, go1s(t, f, c)))
+
+          case (x @ Name("Z"), Nil)     => addLet(LetNative(x, Nil))
+          case (x @ Name("S"), List(n)) => addLet(LetNative(x, List(go1(n))))
+          case (x @ Name("caseNat"), List(_, rt, n, z, s)) =>
+            val ty = TDef(TNative(Name("Nat"), Nil), goTDef(rt))
+            val lam = addLet(locally {
+              val ret = go1(s, mkStack(1, stack))
+              val lets = summon[R].value._2.reverse
+              LetLam(ty, Tm(lets, ret))
+            })
+            addLet(LetNative(x, go1s(n, z) ++ List(lam)))
+
+          case (x @ Name("Nil"), List(_)) => addLet(LetNative(x, Nil))
+          case (x @ Name("::"), List(_, hd, tl)) =>
+            addLet(LetNative(x, go1s(hd, tl)))
+          case (x @ Name("caseList"), List(pt, _, rt, l, n, c)) =>
+            val npt = goTy(pt)
+            val ty =
+              TDef(List(npt, TNative(Name("List"), List(npt))), goTDef(rt))
+            val lam = addLet(locally {
+              val ret = go1(c, mkStack(2, stack))
+              val lets = summon[R].value._2.reverse
+              LetLam(ty, Tm(lets, ret))
+            })
+            addLet(LetNative(x, go1s(l, n) ++ List(lam)))
+
           case _ => impossible()
 
   // types
@@ -155,4 +181,7 @@ object Normalize:
   private def goVTy(t: V.VTy)(implicit e: Evaluation): Ty =
     e.forceAll1(t) match
       case V.VRigid(V.HNative(x @ Name("Bool")), V.SId) => TNative(x)
-      case _                                            => impossible()
+      case V.VRigid(V.HNative(x @ Name("Nat")), V.SId)  => TNative(x)
+      case V.VRigid(V.HNative(x @ Name("List")), V.SApp(V.SId, a, Expl)) =>
+        TNative(x, List(goVTy(a)))
+      case _ => impossible()

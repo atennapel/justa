@@ -4,10 +4,11 @@ import common.Common.*
 
 object Syntax:
   enum Ty:
-    case TNative(name: Name)
+    case TNative(name: Name, args: List[Ty] = Nil)
 
     override def toString: String = this match
-      case TNative(x) => s"$x"
+      case TNative(x, Nil)  => s"$x"
+      case TNative(x, args) => s"$x${args.mkString("(", ", ", ")")}"
   export Ty.*
 
   final case class TDef(ps: List[Ty], rt: Ty):
@@ -15,6 +16,7 @@ object Syntax:
   object TDef:
     def apply(t: Ty): TDef = TDef(Nil, t)
     def apply(t: Ty, rt: TDef): TDef = TDef(t :: rt.ps, rt.rt)
+    def apply(ps: List[Ty], rt: TDef): TDef = TDef(ps ++ rt.ps, rt.rt)
 
   enum Def:
     case DDef(name: Name, ty: TDef, tm: Tm)

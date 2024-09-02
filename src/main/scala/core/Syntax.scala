@@ -24,8 +24,8 @@ object Syntax:
       case Lam0(x, ty, b)      => s"(\\($x : $ty) => $b)"
       case App0(fn, arg)       => s"($fn $arg)"
       case Splice(tm)          => s"$$$tm"
-      case Wk10(tm)            => s"$tm"
-      case Wk00(tm)            => s"$tm"
+      case Wk10(tm)            => s"Wk10($tm)"
+      case Wk00(tm)            => s"Wk00($tm)"
 
     def wk0N(n: Int) =
       @tailrec
@@ -98,8 +98,8 @@ object Syntax:
       case Lift(_, ty)         => s"^$ty"
       case Quote(tm)           => s"`$tm"
       case AppPruning(id, p)   => s"(?$id ...(${p.size}))"
-      case Wk01(tm)            => s"$tm"
-      case Wk11(tm)            => s"$tm"
+      case Wk01(tm)            => s"Wk01($tm)"
+      case Wk11(tm)            => s"Wk11($tm)"
       case Meta(id)            => s"?$id"
       case MetaPi1(t, b)       => s"($t 1-> $b)"
       case MetaLam1(b)         => s"(\\1 => $b)"
