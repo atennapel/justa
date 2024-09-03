@@ -17,9 +17,11 @@ import scala.annotation.tailrec
 - eta-expand
 - saturated applications
 - convert to ANF form
+
+algorithm adapted from https://github.com/AndrasKovacs/staged/blob/main/opt/SimpleANF.hs
  */
 object Normalize:
-  def normalize(state: State): List[Def] =
+  def normalize(state: State): List[Def[NTm]] =
     implicit val e: Evaluation = new Evaluation(state)
     state.allGlobals.flatMap {
       case GlobalEntry.GlobalEntry0(x, tm, ty, cv, value, vty, vcv) =>
@@ -29,9 +31,9 @@ object Normalize:
       case _ => Nil
     }
 
-  private type R = Ref[(Lvl, List[LetEntry])]
+  private type R = Ref[(Lvl, List[LetEntry[NTm]])]
 
-  private def addLet(let: LetEntry)(implicit r: R): Lvl =
+  private def addLet(let: LetEntry[NTm])(implicit r: R): Lvl =
     r.updateGetOld((dom, lets) => (dom + 1, let :: lets))._1
   private def weaken()(implicit r: R): Lvl =
     r.updateGetOld((dom, lets) => (dom + 1, lets))._1
@@ -58,12 +60,12 @@ object Normalize:
         val a = weaken()
         Arg(mkStack(n - 1, stack), a)
 
-  private def normalize(tm: S.Tm0, ty: TDef)(implicit e: Evaluation): Tm =
+  private def normalize(tm: S.Tm0, ty: TDef)(implicit e: Evaluation): NTm =
     val stm = e.stage(tm)
-    implicit val normState: R = new Ref((mkLvl(0), Nil))
-    val ret = go(stm, Nil, V.EEmpty, mkStack(ty.ps.size))
+    implicit val normState: R = new Ref((lvl0, Nil))
+    val ret = go(stm, Nil, V.EEmpty, mkStack(ty.arity))
     val lets = normState.value._2.reverse
-    Tm(lets, ret)
+    NTm(Tm(lets, ret))
 
   private def go(tm: S.Tm0, env: List[Lvl], venv: V.Env, stack: Stack)(implicit
       r: R,
@@ -97,9 +99,9 @@ object Normalize:
           case TDef(Nil, rt) => goUnder(b, go0(v, Id))
           case nty @ TDef(ps, rt) =>
             val lam = locally {
-              val ret = go0(v, mkStack(nty.ps.size))
+              val ret = go0(v, mkStack(nty.arity))
               val lets = summon[R].value._2.reverse
-              LetLam(nty, Tm(lets, ret))
+              LetLam(nty, NTm(Tm(lets, ret)))
             }
             goUnder(b, addLet(lam))
       case S.LetRec(x, ty, v, b) =>
@@ -107,10 +109,9 @@ object Normalize:
         val dom = r.value._1
         val lam = locally {
           weaken()
-          val ret = goUnder(v, dom, mkStack(nty.ps.size))
+          val ret = goUnder(v, dom, mkStack(nty.arity))
           val lets = summon[R].value._2.reverse
-          // TODO: what if let rec is not a function type?
-          LetLam(nty, Tm(lets, ret))
+          LetRecLam(nty, NTm(Tm(lets, ret)))
         }
         val k = addLet(lam)
         if (dom != k) impossible()
@@ -146,7 +147,7 @@ object Normalize:
             val lam = addLet(locally {
               val ret = go1(s, mkStack(1, stack))
               val lets = summon[R].value._2.reverse
-              LetLam(ty, Tm(lets, ret))
+              LetLam(ty, NTm(Tm(lets, ret)))
             })
             addLet(LetNative(x, go1s(n, z) ++ List(lam)))
 
@@ -160,7 +161,7 @@ object Normalize:
             val lam = addLet(locally {
               val ret = go1(c, mkStack(2, stack))
               val lets = summon[R].value._2.reverse
-              LetLam(ty, Tm(lets, ret))
+              LetLam(ty, NTm(Tm(lets, ret)))
             })
             addLet(LetNative(x, go1s(l, n) ++ List(lam)))
 

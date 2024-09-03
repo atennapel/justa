@@ -30,6 +30,8 @@ object Common:
     inline def expose: Int = l
     inline def toIx(implicit k: Lvl): Ix = k - l - 1
 
+  type LvlSet = Set[Lvl]
+
   // names
   case class Name(x: String):
     override def toString: String =

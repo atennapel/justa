@@ -10,6 +10,7 @@ import optimization.Normalize
 import scala.io.Source
 import scala.util.Using
 import parsley.{Success, Failure}
+import optimization.Optimization
 
 object Main:
   @main def run(): Unit =
@@ -66,8 +67,11 @@ object Main:
         }
 
         // normalization
-        val ndefs = Normalize.normalize(state)
         println()
+        val ndefs = Normalize.normalize(state)
         ndefs.foreach(println)
+        println()
+        val odefs = Optimization.optimize(ndefs)
+        odefs.foreach(println)
     val etime = System.nanoTime() - etimeStart
     println(s"elaboration time: ${etime / 1000000}ms (${etime}ns)")
