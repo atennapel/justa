@@ -25,8 +25,8 @@ object Normalize:
     implicit val e: Evaluation = new Evaluation(state)
     state.allGlobals.flatMap {
       case GlobalEntry.GlobalEntry0(x, tm, ty, cv, value, vty, vcv) =>
-        def nty = goTDef(ty)
-        def ntm = normalize(tm, nty)
+        val nty = goVTDef(vty)
+        val ntm = normalize(tm, nty)
         List(DDef(x, nty, ntm))
       case _ => Nil
     }
