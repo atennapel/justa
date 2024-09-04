@@ -34,9 +34,9 @@ object Syntax:
     case LetNative(name: Name, args: List[Lvl])
 
     override def toString: String = this match
-      case LetGlobal(x, Nil)   => s"let = $x"
       case LetLam(ty, body)    => s"let : $ty = ($body)"
       case LetRecLam(ty, body) => s"let rec : $ty = ($body)"
+      case LetGlobal(x, Nil)   => s"let = $x"
       case LetGlobal(x, args) =>
         s"let = $x${args.map(x => s"'$x").mkString("(", ", ", ")")}"
       case LetNative(x, args) =>
@@ -54,7 +54,7 @@ object Syntax:
     override def toString: String = tm.toString
 
   type CTmId = Int
-  type Closure = (LvlSet, CTmId)
+  type Closure = (LvlBag, CTmId)
   type VLetEntry = LetEntry[Closure]
-  type OTm = Tm[Option[VLetEntry]]
-  type CTm = Tm[VLetEntry]
+  type OTm = Tm[Option[(Int, VLetEntry)]]
+  type CTm = Tm[(Int, VLetEntry)]

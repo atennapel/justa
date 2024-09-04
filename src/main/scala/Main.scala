@@ -71,7 +71,8 @@ object Main:
         val ndefs = Normalize.normalize(state)
         ndefs.foreach(println)
         println()
-        val odefs = Optimization.optimize(ndefs)
+        val (store, odefs) = Optimization.optimize(ndefs)
+        store.foreachEntry { case (id, (k, t)) => println(s"$id -> ($k) $t") }
         odefs.foreach(println)
     val etime = System.nanoTime() - etimeStart
     println(s"elaboration time: ${etime / 1000000}ms (${etime}ns)")
