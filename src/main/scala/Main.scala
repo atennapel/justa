@@ -5,12 +5,13 @@ import core.Evaluation
 import core.Elaboration
 import core.Elaboration.*
 import core.Ctx
-import optimization.Normalize
+import optimization.Normalization
+import optimization.Optimization
+import compilation.Compilation
 
 import scala.io.Source
 import scala.util.Using
 import parsley.{Success, Failure}
-import optimization.Optimization
 
 object Main:
   @main def run(): Unit =
@@ -68,11 +69,14 @@ object Main:
 
         // normalization
         println()
-        val ndefs = Normalize.normalize(state)
+        val ndefs = Normalization.normalize(state)
         ndefs.foreach(println)
         println()
         val (store, odefs) = Optimization.optimize(ndefs)
         store.foreachEntry { case (id, (k, t)) => println(s"$id -> ($k) $t") }
         odefs.foreach(println)
+        println()
+        val cdefs = Compilation.compile(store, odefs)
+        cdefs.foreach(println)
     val etime = System.nanoTime() - etimeStart
     println(s"elaboration time: ${etime / 1000000}ms (${etime}ns)")

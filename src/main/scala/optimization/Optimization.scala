@@ -10,7 +10,6 @@ import scala.annotation.tailrec
 object Optimization:
   // store
   private type Store = mutable.Map[(Lvl, CTm), CTmId]
-  type ClosureStore = Map[CTmId, (Lvl, CTm)]
 
   private def storeEntry(entry: (Lvl, CTm))(implicit store: Store): CTmId =
     store.get(entry) match
@@ -63,10 +62,8 @@ object Optimization:
     go(ren, tm.lets, Nil)
 
   // optimization
-  def optimize(ds: List[Def[NTm]]): (ClosureStore, List[Def[CTm]]) =
-    def sanityCheck(
-        is: Iterable[(common.Common.Lvl, optimization.Syntax.CTm)]
-    ): (common.Common.Lvl, optimization.Syntax.CTm) =
+  def optimize(ds: List[Def[NTm]]): (ClosureStore, List[CDef]) =
+    def sanityCheck(is: Iterable[(Lvl, CTm)]): (Lvl, CTm) =
       val res = is.toList.distinct
       if res.size != 1 then impossible()
       res.head
@@ -92,7 +89,6 @@ object Optimization:
   private def go(l: Lvl, env: List[Lvl], memo: Memo, tm: NTm)(implicit
       store: Store
   ): (OTm, LvlBag) =
-    inline def ix(env: List[Lvl], i: Lvl): Lvl = env(env.size - i.expose - 1)
     def go(
         k: Lvl,
         ls: List[LetEntry[NTm]],
@@ -101,9 +97,10 @@ object Optimization:
         memo: Memo,
         finalret: Lvl
     ): (OTm, LvlBag) =
+      inline def ix(i: Lvl): Lvl = env(env.size - i.expose - 1)
       ls match
         case Nil =>
-          val x = ix(env, finalret)
+          val x = ix(finalret)
           (Tm(acc.reverse, x), Map(x -> 1))
         case l :: next =>
           inline def cont(v: VLetEntry, vars: LvlBag): (OTm, LvlBag) =
@@ -120,16 +117,16 @@ object Optimization:
                 else (Tm(None :: retlets, ret), tvars)
           l match
             case LetGlobal(x, args) =>
-              val args2 = args.map(ix(env, _))
+              val args2 = args.map(ix(_))
               val v: VLetEntry = LetGlobal(x, args2)
               cont(v, singletonLvlBag(args2))
             case LetNative(x, args) =>
-              val args2 = args.map(ix(env, _))
+              val args2 = args.map(ix(_))
               val v: VLetEntry = LetNative(x, args2)
               cont(v, singletonLvlBag(args2))
             case LetApp(fn, args) =>
-              val x2 = ix(env, fn)
-              val args2 = args.map(ix(env, _))
+              val x2 = ix(fn)
+              val args2 = args.map(ix(_))
               val v: VLetEntry = LetApp(x2, args2)
               cont(v, singletonLvlBag(x2 :: args2))
             case LetLam(ty, body) =>
@@ -144,6 +141,10 @@ object Optimization:
                   memo,
                   body.tm.ret
                 )
+              println(ty)
+              println(body)
+              println(t)
+              println()
               val ren = Ren.closing(k + arity, tvars)
               val t2 = storeEntry((ren.dom, rename(ren, t)))
               val capture = tvars -- nenv

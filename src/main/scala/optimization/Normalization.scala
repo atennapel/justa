@@ -20,7 +20,7 @@ import scala.annotation.tailrec
 
 algorithm adapted from https://github.com/AndrasKovacs/staged/blob/main/opt/SimpleANF.hs
  */
-object Normalize:
+object Normalization:
   def normalize(state: State): List[Def[NTm]] =
     implicit val e: Evaluation = new Evaluation(state)
     state.allGlobals.flatMap {

@@ -55,6 +55,8 @@ object Syntax:
 
   type CTmId = Int
   type Closure = (LvlBag, CTmId)
+  type ClosureStore = Map[CTmId, (Lvl, CTm)]
   type VLetEntry = LetEntry[Closure]
   type OTm = Tm[Option[(Int, VLetEntry)]]
   type CTm = Tm[(Int, VLetEntry)]
+  type CDef = Def[CTm]
