@@ -29,6 +29,7 @@ object Common:
     @targetName("exposeLvl")
     inline def expose: Int = l
     inline def toIx(implicit k: Lvl): Ix = k - l - 1
+    inline def range(k: Lvl): List[Lvl] = (l until k).toList
 
   type LvlSet = Set[Lvl]
   type LvlBag = Map[Lvl, Int]

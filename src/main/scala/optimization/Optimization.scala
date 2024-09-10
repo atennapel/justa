@@ -33,11 +33,12 @@ object Optimization:
     def renameLvlBag(xs: LvlBag): LvlBag = xs.map((k, v) => (ren(k), v))
   private object Ren:
     def empty: Ren = Ren(lvl0, lvl0, Map.empty)
-    def closing(cod: Lvl, xs: LvlBag): Ren =
-      xs.foldLeft[Ren](Ren(lvl0, cod, Map.empty)) {
-        case (Ren(dom, cod, ren), (x, _)) =>
-          Ren(dom + 1, cod, ren + ((x, dom)))
-      }
+    def closing(cod: Lvl, arity: Int, xs: LvlBag): Ren =
+      (xs -- cod.range(cod + arity))
+        .foldLeft[Ren](Ren(lvl0, cod, Map.empty).liftN(arity)) {
+          case (Ren(dom, cod, ren), (x, _)) =>
+            Ren(dom + 1, cod, ren + ((x, dom)))
+        }
     def lifted(n: Int): Ren = Ren.empty.liftN(n)
 
   private def rename(ren: Ren, tm: OTm): CTm =
@@ -131,39 +132,35 @@ object Optimization:
               cont(v, singletonLvlBag(x2 :: args2))
             case LetLam(ty, body) =>
               val arity = ty.arity
-              val nenv = (k.expose until (k + arity).expose).map(mkLvl)
+              val nenv = k.range(k + arity)
               val (t, tvars) =
                 go(
                   k + arity,
                   body.tm.lets,
                   Nil,
-                  nenv.reverse.toList ++ env,
+                  nenv.reverse ++ env,
                   memo,
                   body.tm.ret
                 )
-              println(ty)
-              println(body)
-              println(t)
-              println()
-              val ren = Ren.closing(k + arity, tvars)
-              val t2 = storeEntry((ren.dom, rename(ren, t)))
+              val ren = Ren.closing(k, arity, tvars)
+              val t2 = storeEntry((ren.dom - arity, rename(ren, t)))
               val capture = tvars -- nenv
               val v = LetLam(ty, (capture, t2))
               cont(v, capture)
             case LetRecLam(ty, body) =>
               val arity = ty.arity + 1
-              val nenv = (k.expose until (k + arity).expose).map(mkLvl)
+              val nenv = k.range(k + arity)
               val (t, tvars) =
                 go(
                   k + arity,
                   body.tm.lets,
                   Nil,
-                  nenv.reverse.toList ++ env,
+                  nenv.reverse ++ env,
                   memo,
                   body.tm.ret
                 )
-              val ren = Ren.closing(k + arity, tvars)
-              val t2 = storeEntry((ren.dom, rename(ren, t)))
+              val ren = Ren.closing(k, arity, tvars)
+              val t2 = storeEntry((ren.dom - arity, rename(ren, t)))
               val capture = tvars -- nenv
               val v = LetRecLam(ty, (capture, t2))
               cont(v, capture)
