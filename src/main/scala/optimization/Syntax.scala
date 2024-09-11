@@ -14,6 +14,7 @@ object Syntax:
   final case class TDef(ps: List[Ty], rt: Ty):
     override def toString: String = s"${ps.mkString("(", ", ", ")")} -> $rt"
     def arity: Int = ps.size
+    def ty: Ty = if ps.isEmpty then rt else impossible()
   object TDef:
     def apply(t: Ty): TDef = TDef(Nil, t)
     def apply(t: Ty, rt: TDef): TDef = TDef(t :: rt.ps, rt.rt)
@@ -53,8 +54,27 @@ object Syntax:
   final case class NTm(tm: Tm[LetEntry[NTm]]):
     override def toString: String = tm.toString
 
+  type LvlBag = Map[Lvl, (Int, TDef)]
+
+  def insertLvlBag(l: Lvl, ty: TDef, a: LvlBag): LvlBag =
+    a.get(l) match
+      case None         => a + (l -> (1, ty))
+      case Some((n, _)) => (a - l) + (l -> (n + 1, ty))
+  def mergeLvlBags(a: LvlBag, b: LvlBag): LvlBag =
+    (a.keySet ++ b.keySet).map { k =>
+      (a.get(k), b.get(k)) match
+        case (None, None)                  => impossible()
+        case (Some((n, ty)), Some((m, _))) => (k, (n + m, ty))
+        case (Some(c), _)                  => (k, c)
+        case (_, Some(c))                  => (k, c)
+    }.toMap
+  def singletonLvlBag(ks: Iterable[(Lvl, TDef)]): LvlBag =
+    ks.foldLeft[LvlBag](Map.empty) { case (b, (k, ty)) =>
+      insertLvlBag(k, ty, b)
+    }
+
   type CTmId = Int
-  type Closure = (LvlBag, CTmId)
+  type Closure = (LvlBag, Map[Lvl, Lvl], CTmId)
   type ClosureStore = Map[CTmId, (Lvl, CTm)]
   type VLetEntry = LetEntry[Closure]
   type OTm = Tm[Option[(Int, VLetEntry)]]

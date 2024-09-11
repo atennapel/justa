@@ -32,18 +32,6 @@ object Common:
     inline def range(k: Lvl): List[Lvl] = (l until k).toList
 
   type LvlSet = Set[Lvl]
-  type LvlBag = Map[Lvl, Int]
-
-  def insertLvlBag(l: Lvl, a: LvlBag): LvlBag =
-    a.get(l) match
-      case None    => a + (l -> 1)
-      case Some(n) => (a - l) + (l -> (n + 1))
-  def mergeLvlBags(a: LvlBag, b: LvlBag): LvlBag =
-    (a.keySet ++ b.keySet)
-      .map(k => (k, a.get(k).getOrElse(0) + b.get(k).getOrElse(0)))
-      .toMap
-  def singletonLvlBag(ks: Iterable[Lvl]): LvlBag =
-    ks.foldLeft[LvlBag](Map.empty)((b, k) => insertLvlBag(k, b))
 
   // names
   case class Name(x: String):

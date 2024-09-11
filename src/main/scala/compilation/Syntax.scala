@@ -20,16 +20,21 @@ object Syntax:
     def apply(t: Ty, rt: TDef): TDef = TDef(t :: rt.ps, rt.rt)
     def apply(ps: List[Ty], rt: TDef): TDef = TDef(ps ++ rt.ps, rt.rt)
 
+  type Id = Int
+
   enum Def:
     case DDef(name: Name, ty: TDef, tm: Tm)
+    case DGen(id: Id, ty: TDef, tm: Tm)
 
     override def toString: String = this match
-      case DDef(x, ty, tm) => s"def $x : $ty = $tm"
+      case DDef(x, ty, tm)  => s"def $x : $ty = $tm"
+      case DGen(id, ty, tm) => s"def gen $id : $ty = $tm"
   export Def.*
 
   enum Tm:
     case Var(lvl: Lvl)
     case Global(name: Name, args: List[Tm] = Nil)
+    case Gen(id: Id, args: List[Tm])
     case Let(value: Tm, body: Tm)
 
     case Join(value: Tm, body: Tm)
@@ -45,6 +50,7 @@ object Syntax:
       case Var(lvl)        => s"'$lvl"
       case Global(x, Nil)  => s"$x"
       case Global(x, args) => s"$x${args.mkString("(", ", ", ")")}"
+      case Gen(x, args)    => s"$x${args.mkString("(", ", ", ")")}"
       case Let(v, b)       => s"(let $v; $b)"
       case Join(v, b)      => s"(join $v; $b)"
       case JoinRec(v, b)   => s"(join rec $v; $b)"
