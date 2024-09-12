@@ -70,8 +70,7 @@ object Compilation:
             if u == 1 then inl(v)
             else
               val body = go(dom + 1, cod + 1, next, ret, EVal(Var(cod)) :: env)
-              if usedInTailPositionOnly(cod, body) then Join(v, body)
-              else Let(v, body)
+              Let(v, body)
           l match
             case S.LetGlobal(x, args) => cont(Global(x, args.map(ixV)))
             case S.LetApp(fn, args) =>
@@ -127,19 +126,3 @@ object Compilation:
     case S.TNative(Name("Bool"), Nil) => TBool
     case S.TNative(Name("Nat"), Nil)  => TNat
     case _                            => impossible()
-
-  private def usedInTailPositionOnly(k: Lvl, tm: Tm): Boolean =
-    def go(tm: Tm, tail: Boolean): Boolean =
-      tm match
-        case Var(lvl)        => tail || lvl != k
-        case Global(_, args) => args.forall(go(_, false))
-        case Gen(id, args)   => args.forall(go(_, false))
-        case Let(v, b)       => go(v, false) && go(v, tail)
-        case Join(v, b)      => go(v, false) && go(v, tail)
-        case JoinRec(v, b)   => go(v, false) && go(v, tail)
-        case Jump(lvl, args) => (tail || lvl != k) && args.forall(go(_, false))
-        case True            => true
-        case False           => true
-        case NatZ            => true
-        case NatS(pred)      => go(pred, false)
-    go(tm, true)
