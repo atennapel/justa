@@ -7,6 +7,7 @@ import core.Elaboration.*
 import core.Ctx
 import optimization.Normalization2
 import optimization.Optimization2
+import compilation.Compilation2
 
 import scala.io.Source
 import scala.util.Using
@@ -74,6 +75,9 @@ object Main:
         val (store, odefs) = Optimization2.optimize(ndefs)
         store.foreachEntry { case (id, (k, t)) => println(s"$id -> ($k) $t") }
         odefs.foreach(println)
+        println()
+        val cdefs = Compilation2.compile(store, odefs)
+        cdefs.foreach(println)
       /*
         println()
         val ndefs = Normalization.normalize(state)

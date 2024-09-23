@@ -61,20 +61,20 @@ object Optimization2:
 
   private enum OTm:
     case Ret(lvl: Lvl)
-    case Let(value: Val, body: OTm)
+    case Let(usage: Int, value: Val, body: OTm)
     case DeadLet(body: OTm)
     case If(cond: Lvl, ifTrue: Closure, ifFalse: Closure)
   import OTm as O
 
   enum CTm:
     case Ret(lvl: Lvl)
-    case Let(value: Val, body: CTm)
+    case Let(usage: Int, value: Val, body: CTm)
     case If(cond: Lvl, ifTrue: Closure, ifFalse: Closure)
 
     override def toString: String = this match
-      case Ret(lvl)    => s"'$lvl"
-      case Let(v, b)   => s"let $v; $b"
-      case If(c, t, f) => s"if '$c then '${t.body} else '${f.body}"
+      case Ret(lvl)     => s"'$lvl"
+      case Let(u, v, b) => s"let $v; $b"
+      case If(c, t, f)  => s"if '$c then '${t.body} else '${f.body}"
   import CTm as C
 
   final case class Def(name: Name, ty: TDef, value: CTm):
@@ -109,14 +109,14 @@ object Optimization2:
           Closure(ren.renameLvlBag(c.fvs), c.ren, c.body)
         tm match
           case O.Ret(k) => C.Ret(ren.app(k))
-          case O.Let(v, b) =>
+          case O.Let(u, v, b) =>
             val cv = v match
               case App(fn, args)   => App(ren.app(fn), args.map(ren.app))
               case Global(x, args) => Global(x, args.map(ren.app))
               case Con(x, args)    => Con(x, args.map(ren.app))
               case Lam(ty, c)      => Lam(ty, goClos(ren, c))
               case Rec(ty, c)      => Rec(ty, goClos(ren.lift, c))
-            C.Let(cv, go(ren.lift, b))
+            C.Let(u, cv, go(ren.lift, b))
           case O.DeadLet(b)  => go(ren.str, b)
           case O.If(c, t, f) => C.If(ren.app(c), goClos(ren, t), goClos(ren, f))
       go(this, tm)
@@ -191,7 +191,7 @@ object Optimization2:
               val (rtm, tvars) =
                 go(l + 1, (l, ty) :: env, memo + ((v, (l, ty))), b)
               if tvars.contains(l) && tvars(l)._1 > 0 then
-                (O.Let(v, rtm), mergeLvlBags(tvars - l, vars))
+                (O.Let(tvars(l)._1, v, rtm), mergeLvlBags(tvars - l, vars))
               else (O.DeadLet(rtm), tvars)
         v match
           case N.Global(x, args) =>
