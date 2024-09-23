@@ -27,12 +27,13 @@ object Syntax:
       case DDef(x, ty, tm) => s"def $x : $ty = $tm"
   export Def.*
 
-  enum LetEntry[C]:
+  enum LetEntry[T, C]:
     case LetGlobal(name: Name, args: List[Lvl])
     case LetApp(fn: Lvl, args: List[Lvl])
     case LetLam(ty: TDef, body: C)
     case LetRecLam(ty: TDef, body: C)
     case LetNative(name: Name, args: List[Lvl])
+    case LetIf(rt: Ty, cond: Lvl, ifTrue: T, ifFalse: T)
 
     override def toString: String = this match
       case LetLam(ty, body)    => s"let : $ty = ($body)"
@@ -44,6 +45,8 @@ object Syntax:
         s"let = $x${args.map(x => s"'$x").mkString("(", ", ", ")")}"
       case LetApp(fn, args) =>
         s"let = '$fn${args.map(x => s"'$x").mkString("(", ", ", ")")}"
+      case LetIf(ty, c, t, f) =>
+        s"let : $ty = if $c then ($t) else ($f)"
   export LetEntry.*
 
   final case class Tm[L](lets: List[L], ret: Lvl):
@@ -51,7 +54,20 @@ object Syntax:
       case Nil  => s"'$ret"
       case lets => s"${lets.mkString("; ")}; '$ret"
 
-  final case class NTm(tm: Tm[LetEntry[NTm]]):
+  type NLetEntry = LetEntry[NTm, NTm]
+  final case class NTm(tm: Tm[NLetEntry]):
+    override def toString: String = tm.toString
+
+  type OLetEntry = LetEntry[OTm, Closure]
+  final case class OTm(tm: Tm[Option[(Int, OLetEntry)]]):
+    override def toString: String = tm.toString
+
+  type CLetEntry = LetEntry[CTm, Closure]
+  type CDef = Def[CTm]
+  type CTmId = Int
+  type Closure = (LvlBag, Map[Lvl, Lvl], CTmId)
+  type ClosureStore = Map[CTmId, (Lvl, CTm)]
+  final case class CTm(tm: Tm[(Int, CLetEntry)]):
     override def toString: String = tm.toString
 
   type LvlBag = Map[Lvl, (Int, TDef)]
@@ -68,15 +84,15 @@ object Syntax:
         case (Some(c), _)                  => (k, c)
         case (_, Some(c))                  => (k, c)
     }.toMap
+  def maxLvlBags(a: LvlBag, b: LvlBag): LvlBag =
+    (a.keySet ++ b.keySet).map { k =>
+      (a.get(k), b.get(k)) match
+        case (None, None)                  => impossible()
+        case (Some((n, ty)), Some((m, _))) => (k, (n max m, ty))
+        case (Some(c), _)                  => (k, c)
+        case (_, Some(c))                  => (k, c)
+    }.toMap
   def singletonLvlBag(ks: Iterable[(Lvl, TDef)]): LvlBag =
     ks.foldLeft[LvlBag](Map.empty) { case (b, (k, ty)) =>
       insertLvlBag(k, ty, b)
     }
-
-  type CTmId = Int
-  type Closure = (LvlBag, Map[Lvl, Lvl], CTmId)
-  type ClosureStore = Map[CTmId, (Lvl, CTm)]
-  type VLetEntry = LetEntry[Closure]
-  type OTm = Tm[Option[(Int, VLetEntry)]]
-  type CTm = Tm[(Int, VLetEntry)]
-  type CDef = Def[CTm]

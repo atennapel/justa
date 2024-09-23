@@ -31,9 +31,9 @@ object Normalization:
       case _ => Nil
     }
 
-  private type R = Ref[(Lvl, List[LetEntry[NTm]])]
+  private type R = Ref[(Lvl, List[NLetEntry])]
 
-  private def addLet(let: LetEntry[NTm])(implicit r: R): Lvl =
+  private def addLet(let: NLetEntry)(implicit r: R): Lvl =
     r.updateGetOld((dom, lets) => (dom + 1, let :: lets))._1
   private def weaken()(implicit r: R): Lvl =
     r.updateGetOld((dom, lets) => (dom + 1, lets))._1
@@ -98,7 +98,7 @@ object Normalization:
         goTDef(ty) match
           case TDef(Nil, rt) => goUnder(b, go0(v, Id))
           case nty @ TDef(ps, rt) =>
-            val lam = locally {
+            val lam: NLetEntry = locally {
               val ret = go0(v, mkStack(nty.arity))
               val lets = summon[R].value._2.reverse
               LetLam(nty, NTm(Tm(lets, ret)))
@@ -107,7 +107,7 @@ object Normalization:
       case S.LetRec(x, ty, v, b) =>
         val nty = goTDef(ty)
         val dom = r.value._1
-        val lam = locally {
+        val lam: NLetEntry = locally {
           weaken()
           val ret = goUnder(v, dom, mkStack(nty.arity))
           val lets = summon[R].value._2.reverse
@@ -137,8 +137,41 @@ object Normalization:
         apps(tm) match
           case (x @ Name("True"), Nil)  => addLet(LetNative(x, Nil))
           case (x @ Name("False"), Nil) => addLet(LetNative(x, Nil))
-          case (x @ Name("cond"), List(_, _, t, f, c)) =>
-            addLet(LetNative(x, go1s(t, f, c)))
+          case (x @ Name("cond"), List(_, ty, t, f, c)) =>
+            val rt = goTDef(ty)
+            val vty = rt.rt
+            if rt.ps.isEmpty then
+              val nc = go1(c)
+              val nt = locally {
+                val ret = go1(t, stack)
+                val lets = summon[R].value._2.reverse
+                NTm(Tm(lets, ret))
+              }
+              val nf = locally {
+                val ret = go1(f, stack)
+                val lets = summon[R].value._2.reverse
+                NTm(Tm(lets, ret))
+              }
+              addLet(LetIf(vty, nc, nt, nf))
+            else
+              val body = locally {
+                val nc = go1(c)
+                val nstack = mkStack(rt.arity, stack)
+                val nt = locally {
+                  val ret = go1(t, nstack)
+                  val lets = summon[R].value._2.reverse
+                  NTm(Tm(lets, ret))
+                }
+                val nf = locally {
+                  val ret = go1(f, nstack)
+                  val lets = summon[R].value._2.reverse
+                  NTm(Tm(lets, ret))
+                }
+                val ret = addLet(LetIf(vty, nc, nt, nf))
+                val lets = summon[R].value._2.reverse
+                NTm(Tm(lets, ret))
+              }
+              addLet(LetLam(rt, body))
 
           case (x @ Name("Z"), Nil)     => addLet(LetNative(x, Nil))
           case (x @ Name("S"), List(n)) => addLet(LetNative(x, List(go1(n))))

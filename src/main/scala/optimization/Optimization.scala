@@ -45,14 +45,16 @@ object Optimization:
     @tailrec
     def go(
         ren: Ren,
-        ls: List[Option[(Int, VLetEntry)]],
-        acc: List[(Int, VLetEntry)]
+        ls: List[Option[(Int, OLetEntry)]],
+        acc: List[(Int, CLetEntry)]
     ): CTm =
       ls match
-        case Nil          => Tm(acc.reverse, ren.app(tm.ret))
+        case Nil          => CTm(Tm(acc.reverse, ren.app(tm.tm.ret)))
         case None :: next => go(ren.str, next, acc)
         case Some((n, l)) :: next =>
-          val nl = l match
+          val nl: CLetEntry = l match
+            case LetIf(ty, c, t, f) =>
+              LetIf(ty, ren.app(c), rename(ren, t), rename(ren, f))
             case LetGlobal(x, args) => LetGlobal(x, args.map(ren.app))
             case LetApp(fn, args)   => LetApp(ren.app(fn), args.map(ren.app))
             case LetNative(x, args) => LetNative(x, args.map(ren.app))
@@ -61,7 +63,7 @@ object Optimization:
             case LetRecLam(ty, (xs, rs, t)) =>
               LetRecLam(ty, (ren.renameLvlBag(xs), rs, t))
           go(ren.lift, next, (n, nl) :: acc)
-    go(ren, tm.lets, Nil)
+    go(ren, tm.tm.lets, Nil)
 
   // optimization
   private type Globals = Map[Name, TDef]
@@ -80,7 +82,7 @@ object Optimization:
     }
     (store.groupMap(_._2)(_._1).mapValues(sanityCheck).toMap, res)
 
-  private type Memo = Map[VLetEntry, (Lvl, TDef)]
+  private type Memo = Map[CLetEntry, (Lvl, TDef)]
 
   private def optimize(ty: TDef, tm: NTm)(implicit
       store: Store,
@@ -92,18 +94,19 @@ object Optimization:
       if n < mkLvl(arity) then mkEnv(n + 1, n :: env)
       else env
     val env = mkEnv().zip(ty.ps.reverse.map(TDef.apply))
-    val (otm, xs) = go(mkLvl(arity), env, Map.empty, tm)
+    val (otm, xs) = optimize(mkLvl(arity), env, Map.empty, tm)
     if ((xs -- env.map(_._1)).nonEmpty) impossible()
     rename(Ren.lifted(arity), otm)
 
-  private def go(l: Lvl, env: List[(Lvl, TDef)], memo: Memo, tm: NTm)(implicit
+  private def optimize(l: Lvl, env: List[(Lvl, TDef)], memo: Memo, tm: NTm)(
+      implicit
       store: Store,
       globals: Globals
   ): (OTm, LvlBag) =
     def go(
         k: Lvl,
-        ls: List[LetEntry[NTm]],
-        acc: List[Option[(Int, VLetEntry)]],
+        ls: List[NLetEntry],
+        acc: List[Option[(Int, OLetEntry)]],
         env: List[(Lvl, TDef)],
         memo: Memo,
         finalret: Lvl
@@ -112,13 +115,23 @@ object Optimization:
       ls match
         case Nil =>
           val (x, ty) = ix(finalret)
-          (Tm(acc.reverse, x), Map(x -> (1, ty)))
+          (OTm(Tm(acc.reverse, x)), Map(x -> (1, ty)))
         case l :: next =>
-          inline def cont(v: VLetEntry, ty: TDef, vars: LvlBag): (OTm, LvlBag) =
+          inline def cont(v: CLetEntry, ty: TDef, vars: LvlBag): (OTm, LvlBag) =
             memo.get(v) match
               case Some(e) => go(k, next, acc, e :: env, memo, finalret)
               case None =>
-                val (Tm(retlets, ret), tvars) =
+                def convTm(t: CTm): OTm = t match
+                  case CTm(Tm(ls, r)) =>
+                    OTm(Tm(ls.map((n, l) => Some((n, conv(l)))), r))
+                def conv(v: CLetEntry): OLetEntry = v match
+                  case LetGlobal(x, args)  => LetGlobal(x, args)
+                  case LetApp(fn, args)    => LetApp(fn, args)
+                  case LetLam(ty, body)    => LetLam(ty, body)
+                  case LetRecLam(ty, body) => LetRecLam(ty, body)
+                  case LetNative(x, args)  => LetNative(x, args)
+                  case LetIf(ty, c, t, f)  => LetIf(ty, c, convTm(t), convTm(f))
+                val (OTm(Tm(retlets, ret)), tvars) =
                   go(
                     k + 1,
                     next,
@@ -129,23 +142,32 @@ object Optimization:
                   )
                 if tvars.contains(k) && tvars(k)._1 > 0 then
                   (
-                    Tm(Some((tvars(k)._1, v)) :: retlets, ret),
+                    OTm(Tm(Some((tvars(k)._1, conv(v))) :: retlets, ret)),
                     mergeLvlBags(tvars - k, vars)
                   )
-                else (Tm(None :: retlets, ret), tvars)
+                else (OTm(Tm(None :: retlets, ret)), tvars)
           l match
+            case LetIf(ty, c, t, f) =>
+              val oc = ix(c)._1
+              val (ot, fvt) = go(k, t.tm.lets, Nil, env, memo, t.tm.ret)
+              val (of, fvf) = go(k, f.tm.lets, Nil, env, memo, f.tm.ret)
+              val tren = Ren.closing(k, 0, fvt)
+              val fren = Ren.closing(k, 0, fvf)
+              val v: CLetEntry =
+                LetIf(ty, ix(c)._1, rename(tren, ot), rename(fren, of))
+              cont(v, TDef(ty), maxLvlBags(fvt, fvf))
             case LetGlobal(x, args) =>
               val args2 = args.map(ix(_))
-              val v: VLetEntry = LetGlobal(x, args2.map(_._1))
+              val v: CLetEntry = LetGlobal(x, args2.map(_._1))
               cont(v, TDef(globals(x).rt), singletonLvlBag(args2))
             case LetNative(x, args) =>
               val args2 = args.map(ix(_))
-              val v: VLetEntry = LetNative(x, args2.map(_._1))
+              val v: CLetEntry = LetNative(x, args2.map(_._1))
               cont(v, nativeReturnTy(x), singletonLvlBag(args2))
             case LetApp(fn, args) =>
               val x2 = ix(fn)
               val args2 = args.map(ix(_))
-              val v: VLetEntry = LetApp(x2._1, args2.map(_._1))
+              val v: CLetEntry = LetApp(x2._1, args2.map(_._1))
               cont(v, TDef(x2._2.rt), singletonLvlBag(x2 :: args2))
             case LetLam(ty, body) =>
               val arity = ty.arity
@@ -162,7 +184,7 @@ object Optimization:
               val ren = Ren.closing(k, arity, tvars)
               val t2 = storeEntry((ren.dom - arity, rename(ren, t)))
               val capture = tvars -- nenv.map(_._1)
-              val v = LetLam(ty, (capture, ren.ren, t2))
+              val v: CLetEntry = LetLam(ty, (capture, ren.ren, t2))
               cont(v, ty, capture)
             case LetRecLam(ty, body) =>
               val arity = ty.arity + 1
@@ -180,7 +202,7 @@ object Optimization:
               val ren = Ren.closing(k, arity, tvars)
               val t2 = storeEntry((ren.dom - arity, rename(ren, t)))
               val capture = tvars -- nenv.map(_._1)
-              val v = LetRecLam(ty, (capture, ren.ren, t2))
+              val v: CLetEntry = LetRecLam(ty, (capture, ren.ren, t2))
               cont(v, ty, capture)
     go(l, tm.tm.lets, Nil, env, memo, tm.tm.ret)
 

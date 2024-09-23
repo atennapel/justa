@@ -41,6 +41,8 @@ object Syntax:
     case JoinRec(value: Tm, body: Tm)
     case Jump(lvl: Lvl, args: List[Tm] = Nil)
 
+    case If(cond: Tm, ifTrue: Tm, ifFalse: Tm)
+
     case True
     case False
     case NatZ
@@ -55,6 +57,7 @@ object Syntax:
       case Join(v, b)      => s"(join $v; $b)"
       case JoinRec(v, b)   => s"(join rec $v; $b)"
       case Jump(lvl, args) => s"'$lvl${args.mkString("(", ", ", ")")}"
+      case If(c, t, f)     => s"(if $c then $t else $f)"
       case True            => "True"
       case False           => "False"
       case NatZ            => "Z"

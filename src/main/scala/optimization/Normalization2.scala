@@ -38,13 +38,13 @@ object Normalization2:
     case Con(x: Name, args: List[Lvl])
     case Lam(ty: TDef, body: ANF)
     case Rec(ty: TDef, body: ANF)
-  import Val.*
+  export Val.*
 
   enum ANF:
     case Ret(lvl: Lvl)
     case Let(value: Val, body: ANF)
     case If(cond: Lvl, ifTrue: ANF, ifFalse: ANF)
-  import ANF.*
+  export ANF.*
 
   final case class Def(x: Name, ty: TDef, value: ANF)
 

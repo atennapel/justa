@@ -47,7 +47,7 @@ object Compilation:
     def go(
         dom: Lvl,
         cod: Lvl,
-        lets: List[(Int, S.VLetEntry)],
+        lets: List[(Int, S.CLetEntry)],
         ret: Lvl,
         env: List[EnvEntry]
     ): Tm =
@@ -106,12 +106,17 @@ object Compilation:
               val funTy = TDef(origTy.ps ++ extraTypes, origTy.rt)
               addDef(id, funTy, cbody)
               go(dom + 1, cod, next, ret, EId(id, extraArgs) :: env)
+            case S.LetIf(ty, c, t, f) =>
+              val cc = ixV(c)
+              val ct = compile(store, 0, t)
+              val cf = compile(store, 0, f)
+              cont(If(cc, ct, cc))
             case S.LetNative(Name("True"), Nil)  => inl(True)
             case S.LetNative(Name("False"), Nil) => inl(False)
             case S.LetNative(Name("Z"), Nil)     => inl(NatZ)
             case S.LetNative(Name("S"), List(a)) => cont(NatS(ixV(a)))
             case S.LetNative(_, _)               => impossible()
-    val S.Tm(lets, ret) = tm
+    val S.CTm(S.Tm(lets, ret)) = tm
     val realArity = arity + free
     val env = (0 until realArity)
       .map(x => EVal(Var(mkLvl(x))))
