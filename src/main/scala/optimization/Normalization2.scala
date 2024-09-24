@@ -70,7 +70,7 @@ object Normalization2:
       args: List[Lvl]
   )(implicit ev: Evaluation): VComp =
     ps match
-      case Nil     => VBody(go(env, body, args, VRet.apply))
+      case Nil     => VBody(go(env, body, args.reverse, VRet.apply))
       case _ :: ps => VLam(v => go(v :: env, ps, body, v :: args))
 
   private def go(
@@ -81,7 +81,7 @@ object Normalization2:
   )(implicit ev: Evaluation): VANF =
     tm match
       case S.Var0(ix) =>
-        inline def x = env(ix.expose)
+        val x = env(ix.expose)
         args match
           case Nil  => k(x)
           case args => VLet(VApp(x, args), k)
@@ -108,7 +108,7 @@ object Normalization2:
       case S.Lam0(_, _, b) =>
         args match
           case Nil       => impossible()
-          case v :: args => go(v :: env, b, args, k)
+          case a :: args => go(a :: env, b, args, k)
 
       case S.Wk10(tm) => go(env, tm, args, k)
       case S.Wk00(tm) => go(env.tail, tm, args, k)

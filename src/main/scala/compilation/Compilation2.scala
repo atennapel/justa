@@ -92,7 +92,7 @@ object Compilation2:
               println(clos)
               val (k, body) = store(id)
               val extraArgsVals =
-                xs.map(x => (x, rs.get(x._1).getOrElse(x._1)))
+                xs.map(x => (x, rs(x._1)))
                   .toList
                   .sortBy((_, y) => y.expose)
               val extraArgs = extraArgsVals.map(_._1._1)

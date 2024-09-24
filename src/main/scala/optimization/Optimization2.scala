@@ -25,14 +25,6 @@ object Optimization2:
         case (Some(c), _)                  => (k, c)
         case (_, Some(c))                  => (k, c)
     }.toMap
-  private def maxLvlBags(a: LvlBag, b: LvlBag): LvlBag =
-    (a.keySet ++ b.keySet).map { k =>
-      (a.get(k), b.get(k)) match
-        case (None, None)                  => impossible()
-        case (Some((n, ty)), Some((m, _))) => (k, (n max m, ty))
-        case (Some(c), _)                  => (k, c)
-        case (_, Some(c))                  => (k, c)
-    }.toMap
   private def singletonLvlBag(ks: Iterable[(Lvl, TDef)]): LvlBag =
     ks.foldLeft[LvlBag](Map.empty) { case (b, (k, ty)) =>
       insertLvlBag(k, ty, b)
@@ -181,7 +173,7 @@ object Optimization2:
         val fid = storeEntry((fren.dom, fren.rename(ff)))
         (
           O.If(cx, Closure(fvt, tren.ren, tid), Closure(fvf, fren.ren, fid)),
-          maxLvlBags(Map(cx -> (1, ty)), maxLvlBags(fvt, fvf))
+          mergeLvlBags(Map(cx -> (1, ty)), mergeLvlBags(fvt, fvf))
         )
       case N.Let(v, b) =>
         inline def cont(v: Val, ty: TDef, vars: LvlBag): (OTm, LvlBag) =
