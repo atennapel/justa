@@ -22,4 +22,5 @@ object Syntax:
   object TDef:
     def apply(t: Ty): TDef = TDef(Nil, t)
     def apply(t: Ty, rt: TDef): TDef = TDef(t :: rt.ps, rt.rt)
+    def apply(t: Ty, rt: Ty): TDef = TDef(List(t), rt)
     def apply(ps: List[Ty], rt: TDef): TDef = TDef(ps ++ rt.ps, rt.rt)

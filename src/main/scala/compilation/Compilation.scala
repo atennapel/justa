@@ -31,6 +31,7 @@ object Compilation:
     case Jump(lvl: Lvl, args: List[Tm] = Nil)
 
     case If(cond: Tm, ifTrue: Tm, ifFalse: Tm)
+    case CaseNat(scrut: Tm, z: Tm, s: Tm)
 
     case True
     case False
@@ -38,19 +39,20 @@ object Compilation:
     case NatS(pred: Tm)
 
     override def toString: String = this match
-      case Var(lvl)        => s"'$lvl"
-      case Global(x, Nil)  => s"$x"
-      case Global(x, args) => s"$x${args.mkString("(", ", ", ")")}"
-      case Gen(x, args)    => s"$x${args.mkString("(", ", ", ")")}"
-      case Let(v, b)       => s"(let $v; $b)"
-      case Join(v, b)      => s"(join $v; $b)"
-      case JoinRec(v, b)   => s"(join rec $v; $b)"
-      case Jump(lvl, args) => s"'$lvl${args.mkString("(", ", ", ")")}"
-      case If(c, t, f)     => s"(if $c then $t else $f)"
-      case True            => "True"
-      case False           => "False"
-      case NatZ            => "Z"
-      case NatS(pred)      => s"S($pred)"
+      case Var(lvl)         => s"'$lvl"
+      case Global(x, Nil)   => s"$x"
+      case Global(x, args)  => s"$x${args.mkString("(", ", ", ")")}"
+      case Gen(x, args)     => s"$x${args.mkString("(", ", ", ")")}"
+      case Let(v, b)        => s"(let $v; $b)"
+      case Join(v, b)       => s"(join $v; $b)"
+      case JoinRec(v, b)    => s"(join rec $v; $b)"
+      case Jump(lvl, args)  => s"'$lvl${args.mkString("(", ", ", ")")}"
+      case If(c, t, f)      => s"(if $c then $t else $f)"
+      case CaseNat(n, z, s) => s"(caseNat $n $z $s)"
+      case True             => "True"
+      case False            => "False"
+      case NatZ             => "Z"
+      case NatS(pred)       => s"S($pred)"
   export Tm.*
 
   private type Out = mutable.Map[Id, (TDef, Tm)]
@@ -107,25 +109,29 @@ object Compilation:
         ix(i) match
           case EVal(tm) => tm
           case _        => impossible()
+      def handleClos(c: S.Closure, ty: TDef): Tm =
+        c match
+          case S.Closure(xs, rs, id) =>
+            val (k, body) = store(id)
+            val extraArgsVals =
+              xs.map(x => (x, rs(x._1)))
+                .toList
+                .sortBy((_, y) => y.expose)
+            val extraArgs = extraArgsVals.map(_._1._1)
+            val extraTypes = extraArgsVals.map(x => x._1._2._2.ty)
+            val cbody = compile(store, ty.arity, body, extraArgs.size)
+            val funTy = TDef(ty.ps ++ extraTypes, ty.rt)
+            Gen(addDef(id, funTy, cbody), extraArgs.map(ixV))
       tm match
         case C.Ret(lvl) => ixV(lvl)
         case C.If(c, ty, clos1, clos2) =>
-          def handleClos(c: S.Closure): Tm =
-            c match
-              case S.Closure(xs, rs, id) =>
-                val (k, body) = store(id)
-                val extraArgsVals =
-                  xs.map(x => (x, rs(x._1)))
-                    .toList
-                    .sortBy((_, y) => y.expose)
-                val extraArgs = extraArgsVals.map(_._1._1)
-                val extraTypes = extraArgsVals.map(x => x._1._2._2.ty)
-                val cbody = compile(store, 0, body, extraArgs.size)
-                val funTy = TDef(extraTypes, ty)
-                Gen(addDef(id, funTy, cbody), extraArgs.map(ixV))
-          val tm1 = handleClos(clos1)
-          val tm2 = handleClos(clos2)
+          val tm1 = handleClos(clos1, TDef(ty))
+          val tm2 = handleClos(clos2, TDef(ty))
           If(ixV(c), tm1, tm2)
+        case C.CaseNat(n, ty, z, s) =>
+          val tmz = handleClos(z, TDef(ty))
+          val tms = handleClos(s, TDef(TNat, ty))
+          CaseNat(ixV(n), tmz, tms)
         case C.Let(u, v, b) =>
           inline def inl(v: Tm): Tm =
             go(dom + 1, cod, b, EVal(v) :: env)

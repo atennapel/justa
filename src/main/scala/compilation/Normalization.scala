@@ -29,6 +29,7 @@ object Normalization:
     case VRet(lvl: Lvl)
     case VLet(value: VVal, body: Lvl => VANF)
     case VIf(cond: Lvl, rt: Ty, ifTrue: VANF, ifFalse: VANF)
+    case VCaseNat(scrut: Lvl, rt: Ty, z: VANF, s: Lvl => VANF)
   import VANF.*
 
   enum Val:
@@ -54,11 +55,13 @@ object Normalization:
     case Ret(lvl: Lvl)
     case Let(value: Val, body: ANF)
     case If(cond: Lvl, rt: Ty, ifTrue: ANF, ifFalse: ANF)
+    case CaseNat(scrut: Lvl, rt: Ty, z: ANF, s: ANF)
 
     override def toString: String = this match
-      case Ret(lvl)       => s"'$lvl"
-      case Let(v, b)      => s"let $v; $b"
-      case If(c, _, t, f) => s"if '$c then $t else $f"
+      case Ret(lvl)            => s"'$lvl"
+      case Let(v, b)           => s"let $v; $b"
+      case If(c, _, t, f)      => s"if '$c then ($t) else ($f)"
+      case CaseNat(n, _, z, s) => s"caseNat '$n ($z) ($s)"
   export ANF.*
 
   final case class Def(x: Name, ty: TDef, value: ANF):
@@ -141,24 +144,32 @@ object Normalization:
         apps(tm) match
           case (x @ Name("True"), Nil)  => VLet(VCon(x, Nil), k)
           case (x @ Name("False"), Nil) => VLet(VCon(x, Nil), k)
-          case (x @ Name("cond"), List(_, rt, t, f, c)) =>
-            val vrt = goTDef(rt, venv)
+          case (Name("cond"), List(_, rt, t, f, c)) =>
+            val vrt = goTDef(rt, venv).drop(args.size).ty
             go(
               env,
               st(c),
               Nil,
-              c =>
-                VIf(
-                  c,
-                  vrt.drop(args.size).ty,
-                  go(env, st(t), args, k),
-                  go(env, st(f), args, k)
-                )
+              c => VIf(c, vrt, go(env, st(t), args, k), go(env, st(f), args, k))
             )
 
           case (x @ Name("Z"), Nil) => VLet(VCon(x, Nil), k)
           case (x @ Name("S"), List(n)) =>
             go(env, st(n), Nil, n => VLet(VCon(x, List(n)), k))
+          case (Name("caseNat"), List(_, rt, n, z, s)) =>
+            val vrt = goTDef(rt, venv).drop(args.size).ty
+            go(
+              env,
+              st(n),
+              Nil,
+              n =>
+                VCaseNat(
+                  n,
+                  vrt,
+                  go(env, st(z), args, k),
+                  m => go(env, st(s), m :: args, k)
+                )
+            )
 
           case _ => impossible()
 
@@ -181,6 +192,8 @@ object Normalization:
       case VRet(lvl)        => Ret(lvl)
       case VLet(v, b)       => Let(quote(k, v), quote(k + 1, b(k)))
       case VIf(c, rt, t, f) => If(c, rt, quote(k, t), quote(k, f))
+      case VCaseNat(n, rt, z, s) =>
+        CaseNat(n, rt, quote(k, z), quote(k + 1, s(k)))
 
   // types
   private inline def goTDef(t: S.Ty, env: V.Env = V.EEmpty)(implicit
