@@ -29,7 +29,7 @@ object Normalization2:
   private enum VANF:
     case VRet(lvl: Lvl)
     case VLet(value: VVal, body: Lvl => VANF)
-    case VIf(cond: Lvl, rt: TDef, ifTrue: VANF, ifFalse: VANF)
+    case VIf(cond: Lvl, rt: Ty, ifTrue: VANF, ifFalse: VANF)
   import VANF.*
 
   enum Val:
@@ -43,7 +43,7 @@ object Normalization2:
   enum ANF:
     case Ret(lvl: Lvl)
     case Let(value: Val, body: ANF)
-    case If(cond: Lvl, rt: TDef, ifTrue: ANF, ifFalse: ANF)
+    case If(cond: Lvl, rt: Ty, ifTrue: ANF, ifFalse: ANF)
   export ANF.*
 
   final case class Def(x: Name, ty: TDef, value: ANF)
@@ -132,7 +132,13 @@ object Normalization2:
               env,
               st(c),
               Nil,
-              c => VIf(c, vrt, go(env, st(t), args, k), go(env, st(f), args, k))
+              c =>
+                VIf(
+                  c,
+                  vrt.drop(args.size).ty,
+                  go(env, st(t), args, k),
+                  go(env, st(f), args, k)
+                )
             )
 
           case _ => impossible()

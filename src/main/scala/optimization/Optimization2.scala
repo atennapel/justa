@@ -1,7 +1,7 @@
 package optimization
 
 import common.Common.*
-import Syntax.{TDef, TNative}
+import Syntax.{Ty, TDef, TNative}
 import Normalization2 as N
 
 import scala.collection.mutable
@@ -55,13 +55,13 @@ object Optimization2:
     case Ret(lvl: Lvl)
     case Let(usage: Int, value: Val, body: OTm)
     case DeadLet(body: OTm)
-    case If(cond: Lvl, rt: TDef, ifTrue: Closure, ifFalse: Closure)
+    case If(cond: Lvl, rt: Ty, ifTrue: Closure, ifFalse: Closure)
   import OTm as O
 
   enum CTm:
     case Ret(lvl: Lvl)
     case Let(usage: Int, value: Val, body: CTm)
-    case If(cond: Lvl, rt: TDef, ifTrue: Closure, ifFalse: Closure)
+    case If(cond: Lvl, rt: Ty, ifTrue: Closure, ifFalse: Closure)
 
     override def toString: String = this match
       case Ret(lvl)        => s"'$lvl"

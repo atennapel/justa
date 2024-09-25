@@ -15,6 +15,7 @@ object Syntax:
     override def toString: String = s"${ps.mkString("(", ", ", ")")} -> $rt"
     def arity: Int = ps.size
     def ty: Ty = if ps.isEmpty then rt else impossible()
+    def drop(n: Int): TDef = TDef(ps.drop(n), rt)
   object TDef:
     def apply(t: Ty): TDef = TDef(Nil, t)
     def apply(t: Ty, rt: TDef): TDef = TDef(t :: rt.ps, rt.rt)
