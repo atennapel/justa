@@ -1,8 +1,7 @@
-package optimization
+package compilation
 
 import common.Common.*
-import Syntax.{Ty, TDef}
-import Syntax.Ty.*
+import Syntax.*
 import core.Value as V
 import core.Syntax as S
 import core.Syntax.Tm0
@@ -12,7 +11,7 @@ import core.State.GlobalEntry
 
 import scala.annotation.tailrec
 
-object Normalization2:
+object Normalization:
   private enum VComp:
     case VLam(comp: Lvl => VComp)
     case VBody(body: VANF)
@@ -38,15 +37,32 @@ object Normalization2:
     case Con(x: Name, args: List[Lvl])
     case Lam(ty: TDef, body: ANF)
     case Rec(ty: TDef, body: ANF)
+
+    override def toString: String = this match
+      case App(fn, args) =>
+        s"'$fn${args.map(x => s"'$x").mkString("(", ", ", ")")}"
+      case Global(x, args) =>
+        s"$x${args.map(x => s"'$x").mkString("(", ", ", ")")}"
+      case Con(x, Nil) => x.toString
+      case Con(x, args) =>
+        s"$x${args.map(x => s"'$x").mkString("(", ", ", ")")}"
+      case Lam(ty, b) => s"\\($ty). $b"
+      case Rec(ty, b) => s"\\rec ($ty). $b"
   export Val.*
 
   enum ANF:
     case Ret(lvl: Lvl)
     case Let(value: Val, body: ANF)
     case If(cond: Lvl, rt: Ty, ifTrue: ANF, ifFalse: ANF)
+
+    override def toString: String = this match
+      case Ret(lvl)       => s"'$lvl"
+      case Let(v, b)      => s"let $v; $b"
+      case If(c, _, t, f) => s"if '$c then $t else $f"
   export ANF.*
 
-  final case class Def(x: Name, ty: TDef, value: ANF)
+  final case class Def(x: Name, ty: TDef, value: ANF):
+    override def toString: String = s"def $x : $ty = $value"
 
   def normalize(state: State): List[Def] =
     implicit val e: Evaluation = new Evaluation(state)
@@ -121,10 +137,9 @@ object Normalization2:
             case S.Native(x)     => (x, args)
             case x               => impossible()
         apps(tm) match
-          case (x @ Name("True"), Nil)                  => VLet(VCon(x, Nil), k)
-          case (x @ Name("False"), Nil)                 => VLet(VCon(x, Nil), k)
+          case (x @ Name("True"), Nil)  => VLet(VCon(x, Nil), k)
+          case (x @ Name("False"), Nil) => VLet(VCon(x, Nil), k)
           case (x @ Name("cond"), List(_, rt, t, f, c)) =>
-            // TODO: this is not correct! need to eta-expand
             val venv = env.foldRight(V.EEmpty)((k, e) => V.E0(e, V.VVar0(k)))
             def st(t: S.Tm1) = ev.stageUnder(S.splice(t), venv)
             val vrt = goTDef(rt, venv)
@@ -179,8 +194,8 @@ object Normalization2:
     goVTy(e.eval1(t)(env))
   private def goVTy(t: V.VTy)(implicit e: Evaluation): Ty =
     e.forceAll1(t) match
-      case V.VRigid(V.HNative(x @ Name("Bool")), V.SId) => TNative(x)
-      case V.VRigid(V.HNative(x @ Name("Nat")), V.SId)  => TNative(x)
-      case V.VRigid(V.HNative(x @ Name("List")), V.SApp(V.SId, a, Expl)) =>
-        TNative(x, List(goVTy(a)))
+      case V.VRigid(V.HNative(Name("Bool")), V.SId) => TBool
+      case V.VRigid(V.HNative(Name("Nat")), V.SId)  => TNat
+      case V.VRigid(V.HNative(Name("List")), V.SApp(V.SId, a, Expl)) =>
+        TList(goVTy(a))
       case _ => impossible()

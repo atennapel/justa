@@ -1,14 +1,13 @@
-package optimization
+package compilation
 
 import common.Common.*
-import Syntax.{Ty, TDef, TNative}
-import Normalization2 as N
+import Syntax.*
+import Normalization as N
 
 import scala.collection.mutable
 import scala.annotation.tailrec
-import optimization.Normalization2.ANF
 
-object Optimization2:
+object Optimization:
   type CTmId = Int
   type LvlBag = Map[Lvl, (Int, TDef)]
   type ClosureStore = Map[CTmId, (Lvl, CTm)]
@@ -48,7 +47,7 @@ object Optimization2:
       case Con(x, args) =>
         s"$x${args.map(x => s"'$x").mkString("(", ", ", ")")}"
       case Lam(ty, clos) => s"\\($ty). '${clos.body}"
-      case Rec(ty, clos) => s"\\rec ($ty). '${clos.body}"
+      case Rec(ty, clos) => s"\\rec ($ty). ${clos.body}"
   import Val.*
 
   private enum OTm:
@@ -66,7 +65,7 @@ object Optimization2:
     override def toString: String = this match
       case Ret(lvl)        => s"'$lvl"
       case Let(u, v, b)    => s"let $v; $b"
-      case If(c, rt, t, f) => s"if '$c then '${t.body} else '${f.body}"
+      case If(c, rt, t, f) => s"if '$c then ${t.body} else ${f.body}"
   import CTm as C
 
   final case class Def(name: Name, ty: TDef, value: CTm):
@@ -224,7 +223,7 @@ object Optimization2:
             val v = Rec(ty, Closure(capture, ren.ren, t2))
             cont(v, ty, capture)
 
-  private val tbool = TDef(TNative(Name("Bool")))
+  private val tbool = TDef(TBool)
   private def nativeReturnTy(x: Name): TDef =
     x.expose match
       case "True"  => tbool
