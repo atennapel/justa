@@ -29,7 +29,7 @@ object Normalization2:
   private enum VANF:
     case VRet(lvl: Lvl)
     case VLet(value: VVal, body: Lvl => VANF)
-    case VIf(cond: Lvl, ifTrue: VANF, ifFalse: VANF)
+    case VIf(cond: Lvl, rt: TDef, ifTrue: VANF, ifFalse: VANF)
   import VANF.*
 
   enum Val:
@@ -43,7 +43,7 @@ object Normalization2:
   enum ANF:
     case Ret(lvl: Lvl)
     case Let(value: Val, body: ANF)
-    case If(cond: Lvl, ifTrue: ANF, ifFalse: ANF)
+    case If(cond: Lvl, rt: TDef, ifTrue: ANF, ifFalse: ANF)
   export ANF.*
 
   final case class Def(x: Name, ty: TDef, value: ANF)
@@ -71,7 +71,7 @@ object Normalization2:
   )(implicit ev: Evaluation): VComp =
     ps match
       case Nil     => VBody(go(env, body, args.reverse, VRet.apply))
-      case _ :: ps => VLam(v => go(v :: env, ps, body, v :: args))
+      case _ :: ps => VLam(v => go(env, ps, body, v :: args))
 
   private def go(
       env: List[Lvl],
@@ -121,21 +121,18 @@ object Normalization2:
             case S.Native(x)     => (x, args)
             case x               => impossible()
         apps(tm) match
-          case (x @ Name("True"), Nil)  => VLet(VCon(x, Nil), k)
-          case (x @ Name("False"), Nil) => VLet(VCon(x, Nil), k)
-          case (x @ Name("cond"), List(_, _, t, f, c)) =>
+          case (x @ Name("True"), Nil)                  => VLet(VCon(x, Nil), k)
+          case (x @ Name("False"), Nil)                 => VLet(VCon(x, Nil), k)
+          case (x @ Name("cond"), List(_, rt, t, f, c)) =>
+            // TODO: this is not correct! need to eta-expand
             val venv = env.foldRight(V.EEmpty)((k, e) => V.E0(e, V.VVar0(k)))
             def st(t: S.Tm1) = ev.stageUnder(S.splice(t), venv)
+            val vrt = goTDef(rt, venv)
             go(
               env,
               st(c),
               Nil,
-              c =>
-                VIf(
-                  c,
-                  go(env, st(t), args, k),
-                  go(env, st(f), args, k)
-                )
+              c => VIf(c, vrt, go(env, st(t), args, k), go(env, st(f), args, k))
             )
 
           case _ => impossible()
@@ -156,13 +153,15 @@ object Normalization2:
 
   private def quote(k: Lvl, v: VANF): ANF =
     v match
-      case VRet(lvl)    => Ret(lvl)
-      case VLet(v, b)   => Let(quote(k, v), quote(k + 1, b(k)))
-      case VIf(c, t, f) => If(c, quote(k, t), quote(k, f))
+      case VRet(lvl)        => Ret(lvl)
+      case VLet(v, b)       => Let(quote(k, v), quote(k + 1, b(k)))
+      case VIf(c, rt, t, f) => If(c, rt, quote(k, t), quote(k, f))
 
   // types
-  private inline def goTDef(t: S.Ty)(implicit e: Evaluation): TDef =
-    goVTDef(e.eval1(t)(V.EEmpty))
+  private inline def goTDef(t: S.Ty, env: V.Env = V.EEmpty)(implicit
+      e: Evaluation
+  ): TDef =
+    goVTDef(e.eval1(t)(env))
   private def goVTDef(t: V.VTy)(implicit e: Evaluation): TDef =
     e.forceAll1(t) match
       case V.VFun(pty, _, rty) => TDef(goVTy(pty), goVTDef(rty))

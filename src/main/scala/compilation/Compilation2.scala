@@ -13,8 +13,12 @@ object Compilation2:
   private type Id = Int
   private type Out = mutable.Map[Id, (TDef, Tm)]
 
-  private def addDef(id: Id, ty: TDef, tm: Tm)(implicit out: Out): Unit =
-    out += (id -> (ty, tm))
+  private def addDef(id: Id, ty: TDef, tm: Tm)(implicit out: Out): Id =
+    out.find(e => e._2._1 == ty && e._2._2 == tm) match
+      case None =>
+        out += (id -> (ty, tm))
+        id
+      case Some((id, _)) => id
 
   def compile(store: S.ClosureStore, ds: List[S.Def]): List[Def] =
     implicit val out: Out = mutable.Map.empty
@@ -64,8 +68,25 @@ object Compilation2:
           case EVal(tm) => tm
           case _        => impossible()
       tm match
-        case C.Ret(lvl)    => ixV(lvl)
-        case C.If(c, t, f) => ???
+        case C.Ret(lvl) => ixV(lvl)
+        case C.If(c, ty, clos1, clos2) =>
+          def handleClos(c: S.Closure): Tm =
+            c match
+              case S.Closure(xs, rs, id) =>
+                val (k, body) = store(id)
+                val extraArgsVals =
+                  xs.map(x => (x, rs(x._1)))
+                    .toList
+                    .sortBy((_, y) => y.expose)
+                val extraArgs = extraArgsVals.map(_._1._1)
+                val extraTypes = extraArgsVals.map(x => goTy(x._1._2._2.ty))
+                val cbody = compile(store, ty.arity, body, extraArgs.size)
+                val origTy = goTDef(ty)
+                val funTy = TDef(origTy.ps ++ extraTypes, origTy.rt)
+                Gen(addDef(id, funTy, cbody), extraArgs.map(ixV))
+          val tm1 = handleClos(clos1)
+          val tm2 = handleClos(clos2)
+          If(ixV(c), tm1, tm2)
         case C.Let(u, v, b) =>
           inline def inl(v: Tm): Tm =
             go(dom + 1, cod, b, EVal(v) :: env)
@@ -88,8 +109,6 @@ object Compilation2:
             case V.Con(Name("S"), List(a)) => cont(NatS(ixV(a)))
             case V.Con(_, _)               => impossible()
             case V.Lam(ty, clos @ S.Closure(xs, rs, id)) =>
-              println(ty)
-              println(clos)
               val (k, body) = store(id)
               val extraArgsVals =
                 xs.map(x => (x, rs(x._1)))
@@ -100,8 +119,8 @@ object Compilation2:
               val cbody = compile(store, ty.arity, body, extraArgs.size)
               val origTy = goTDef(ty)
               val funTy = TDef(origTy.ps ++ extraTypes, origTy.rt)
-              addDef(id, funTy, cbody)
-              go(dom + 1, cod, b, EId(id, extraArgs) :: env)
+              val fid = addDef(id, funTy, cbody)
+              go(dom + 1, cod, b, EId(fid, extraArgs) :: env)
             case V.Rec(ty, S.Closure(xs, rs, id)) =>
               val (k, body) = store(id)
               val extraArgsVals =
@@ -114,8 +133,8 @@ object Compilation2:
                 compile(store, ty.arity, body, extraArgs.size, Some(id))
               val origTy = goTDef(ty)
               val funTy = TDef(origTy.ps ++ extraTypes, origTy.rt)
-              addDef(id, funTy, cbody)
-              go(dom + 1, cod, b, EId(id, extraArgs) :: env)
+              val fid = addDef(id, funTy, cbody)
+              go(dom + 1, cod, b, EId(fid, extraArgs) :: env)
     val realArity = arity + free
     val env = (0 until realArity)
       .map(x => EVal(Var(mkLvl(x))))

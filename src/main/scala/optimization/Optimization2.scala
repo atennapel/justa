@@ -55,18 +55,18 @@ object Optimization2:
     case Ret(lvl: Lvl)
     case Let(usage: Int, value: Val, body: OTm)
     case DeadLet(body: OTm)
-    case If(cond: Lvl, ifTrue: Closure, ifFalse: Closure)
+    case If(cond: Lvl, rt: TDef, ifTrue: Closure, ifFalse: Closure)
   import OTm as O
 
   enum CTm:
     case Ret(lvl: Lvl)
     case Let(usage: Int, value: Val, body: CTm)
-    case If(cond: Lvl, ifTrue: Closure, ifFalse: Closure)
+    case If(cond: Lvl, rt: TDef, ifTrue: Closure, ifFalse: Closure)
 
     override def toString: String = this match
-      case Ret(lvl)     => s"'$lvl"
-      case Let(u, v, b) => s"let $v; $b"
-      case If(c, t, f)  => s"if '$c then '${t.body} else '${f.body}"
+      case Ret(lvl)        => s"'$lvl"
+      case Let(u, v, b)    => s"let $v; $b"
+      case If(c, rt, t, f) => s"if '$c then '${t.body} else '${f.body}"
   import CTm as C
 
   final case class Def(name: Name, ty: TDef, value: CTm):
@@ -109,8 +109,9 @@ object Optimization2:
               case Lam(ty, c)      => Lam(ty, goClos(ren, c))
               case Rec(ty, c)      => Rec(ty, goClos(ren.lift, c))
             C.Let(u, cv, go(ren.lift, b))
-          case O.DeadLet(b)  => go(ren.str, b)
-          case O.If(c, t, f) => C.If(ren.app(c), goClos(ren, t), goClos(ren, f))
+          case O.DeadLet(b) => go(ren.str, b)
+          case O.If(c, rt, t, f) =>
+            C.If(ren.app(c), rt, goClos(ren, t), goClos(ren, f))
       go(this, tm)
   private object Ren:
     def empty: Ren = Ren(lvl0, lvl0, Map.empty)
@@ -163,7 +164,7 @@ object Optimization2:
       case N.Ret(k) =>
         val (x, ty) = ix(k)
         (O.Ret(x), Map(x -> (1, ty)))
-      case N.If(c, t, f) =>
+      case N.If(c, rt, t, f) =>
         val (cx, ty) = ix(c)
         val (tt, fvt) = go(l, env, memo, t)
         val (ff, fvf) = go(l, env, memo, f)
@@ -172,7 +173,12 @@ object Optimization2:
         val tid = storeEntry((tren.dom, tren.rename(tt)))
         val fid = storeEntry((fren.dom, fren.rename(ff)))
         (
-          O.If(cx, Closure(fvt, tren.ren, tid), Closure(fvf, fren.ren, fid)),
+          O.If(
+            cx,
+            rt,
+            Closure(fvt, tren.ren, tid),
+            Closure(fvf, fren.ren, fid)
+          ),
           mergeLvlBags(Map(cx -> (1, ty)), mergeLvlBags(fvt, fvf))
         )
       case N.Let(v, b) =>
