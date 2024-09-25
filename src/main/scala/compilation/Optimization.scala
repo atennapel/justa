@@ -224,8 +224,11 @@ object Optimization:
             cont(v, ty, capture)
 
   private val tbool = TDef(TBool)
+  private val tnat = TDef(TNat)
   private def nativeReturnTy(x: Name): TDef =
     x.expose match
       case "True"  => tbool
       case "False" => tbool
+      case "Z"     => tnat
+      case "S"     => tnat
       case _       => impossible()

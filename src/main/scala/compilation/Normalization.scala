@@ -136,12 +136,12 @@ object Normalization:
             case S.App1(f, a, _) => apps(f, a :: args)
             case S.Native(x)     => (x, args)
             case x               => impossible()
+        val venv = env.foldRight(V.EEmpty)((k, e) => V.E0(e, V.VVar0(k)))
+        def st(t: S.Tm1) = ev.stageUnder(S.splice(t), venv)
         apps(tm) match
           case (x @ Name("True"), Nil)  => VLet(VCon(x, Nil), k)
           case (x @ Name("False"), Nil) => VLet(VCon(x, Nil), k)
           case (x @ Name("cond"), List(_, rt, t, f, c)) =>
-            val venv = env.foldRight(V.EEmpty)((k, e) => V.E0(e, V.VVar0(k)))
-            def st(t: S.Tm1) = ev.stageUnder(S.splice(t), venv)
             val vrt = goTDef(rt, venv)
             go(
               env,
@@ -155,6 +155,10 @@ object Normalization:
                   go(env, st(f), args, k)
                 )
             )
+
+          case (x @ Name("Z"), Nil) => VLet(VCon(x, Nil), k)
+          case (x @ Name("S"), List(n)) =>
+            go(env, st(n), Nil, n => VLet(VCon(x, List(n)), k))
 
           case _ => impossible()
 
