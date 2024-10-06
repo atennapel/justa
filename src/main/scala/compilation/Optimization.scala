@@ -4,14 +4,10 @@ import common.Common.*
 import Syntax.*
 import Normalization as N
 
-import scala.collection.mutable
 import scala.annotation.tailrec
 
 object Optimization:
-  type CTmId = Int
   type LvlBag = Map[Lvl, (Int, TDef)]
-  type ClosureStore = Map[CTmId, (Lvl, CTm)]
-
   private def insertLvlBag(l: Lvl, ty: TDef, a: LvlBag): LvlBag =
     a.get(l) match
       case None         => a + (l -> (1, ty))
@@ -29,14 +25,12 @@ object Optimization:
       insertLvlBag(k, ty, b)
     }
 
-  final case class Closure(fvs: LvlBag, ren: Map[Lvl, Lvl], body: CTmId)
-
-  enum Val:
+  enum Val[T]:
     case App(fn: Lvl, args: List[Lvl])
     case Global(x: Name, args: List[Lvl])
     case Con(x: Name, args: List[Lvl])
-    case Lam(ty: TDef, clos: Closure)
-    case Rec(ty: TDef, clos: Closure)
+    case Lam(ty: TDef, body: T)
+    case Rec(ty: TDef, body: T)
 
     override def toString: String = this match
       case App(fn, args) =>
@@ -46,44 +40,33 @@ object Optimization:
       case Con(x, Nil) => x.toString
       case Con(x, args) =>
         s"$x${args.map(x => s"'$x").mkString("(", ", ", ")")}"
-      case Lam(ty, clos) => s"\\($ty). '${clos.body}"
-      case Rec(ty, clos) => s"\\rec ($ty). ${clos.body}"
+      case Lam(ty, body) => s"\\($ty). $body"
+      case Rec(ty, body) => s"\\rec ($ty). $body"
   import Val.*
 
   private enum OTm:
     case Ret(lvl: Lvl)
-    case Let(usage: Int, value: Val, body: OTm)
+    case Let(usage: Int, value: Val[OTm], body: OTm)
     case DeadLet(body: OTm)
-    case If(cond: Lvl, rt: Ty, ifTrue: Closure, ifFalse: Closure)
-    case CaseNat(scrut: Lvl, rt: Ty, z: Closure, s: Closure)
+    case If(cond: Lvl, rt: Ty, ifTrue: OTm, ifFalse: OTm)
+    case CaseNat(scrut: Lvl, rt: Ty, z: OTm, s: OTm)
   import OTm as O
 
   enum CTm:
     case Ret(lvl: Lvl)
-    case Let(usage: Int, value: Val, body: CTm)
-    case If(cond: Lvl, rt: Ty, ifTrue: Closure, ifFalse: Closure)
-    case CaseNat(scrut: Lvl, rt: Ty, z: Closure, s: Closure)
+    case Let(usage: Int, value: Val[CTm], body: CTm)
+    case If(cond: Lvl, rt: Ty, ifTrue: CTm, ifFalse: CTm)
+    case CaseNat(scrut: Lvl, rt: Ty, z: CTm, s: CTm)
 
     override def toString: String = this match
       case Ret(lvl)            => s"'$lvl"
       case Let(u, v, b)        => s"let $v; $b"
-      case If(c, rt, t, f)     => s"if '$c then ${t.body} else ${f.body}"
-      case CaseNat(n, _, z, s) => s"caseNat '$n ${z.body} ${s.body}"
+      case If(c, rt, t, f)     => s"if '$c then $t else $f"
+      case CaseNat(n, _, z, s) => s"caseNat '$n $z $s"
   import CTm as C
 
   final case class Def(name: Name, ty: TDef, value: CTm):
     override def toString: String = s"def $name : $ty = $value"
-
-  // store
-  private type Store = mutable.Map[(Lvl, CTm), CTmId]
-
-  private def storeEntry(entry: (Lvl, CTm))(implicit store: Store): CTmId =
-    store.get(entry) match
-      case Some(id) => id
-      case None =>
-        val id = store.size
-        store += ((entry, id))
-        id
 
   // closing terms
   private final case class Ren(dom: Lvl, cod: Lvl, ren: Map[Lvl, Lvl]):
@@ -96,11 +79,8 @@ object Optimization:
       ren.get(x) match
         case None    => impossible()
         case Some(y) => y
-    def renameLvlBag(xs: LvlBag): LvlBag = xs.map((k, v) => (ren(k), v))
     def rename(tm: OTm): CTm =
       def go(ren: Ren, tm: OTm): CTm =
-        inline def goClos(ren: Ren, c: Closure): Closure =
-          Closure(ren.renameLvlBag(c.fvs), c.ren, c.body)
         tm match
           case O.Ret(k) => C.Ret(ren.app(k))
           case O.Let(u, v, b) =>
@@ -108,14 +88,14 @@ object Optimization:
               case App(fn, args)   => App(ren.app(fn), args.map(ren.app))
               case Global(x, args) => Global(x, args.map(ren.app))
               case Con(x, args)    => Con(x, args.map(ren.app))
-              case Lam(ty, c)      => Lam(ty, goClos(ren, c))
-              case Rec(ty, c)      => Rec(ty, goClos(ren.lift, c))
+              case Lam(ty, b)      => Lam(ty, go(ren.lift, b))
+              case Rec(ty, c)      => Rec(ty, go(ren.lift, b))
             C.Let(u, cv, go(ren.lift, b))
           case O.DeadLet(b) => go(ren.str, b)
           case O.If(c, rt, t, f) =>
-            C.If(ren.app(c), rt, goClos(ren, t), goClos(ren, f))
+            C.If(ren.app(c), rt, go(ren, t), go(ren, f))
           case O.CaseNat(scrut, rt, z, s) =>
-            C.CaseNat(ren.app(scrut), rt, goClos(ren, z), goClos(ren.lift, s))
+            C.CaseNat(ren.app(scrut), rt, go(ren, z), go(ren.lift, s))
       go(this, tm)
   private object Ren:
     def empty: Ren = Ren(lvl0, lvl0, Map.empty)
@@ -129,26 +109,17 @@ object Optimization:
 
   // optimization
   private type Globals = Map[Name, TDef]
-  private type Memo = Map[Val, (Lvl, TDef)]
+  private type Memo[T] = Map[Val[T], (Lvl, TDef)]
 
-  def optimize(ds: List[N.Def]): (ClosureStore, List[Def]) =
-    def sanityCheck(is: Iterable[(Lvl, CTm)]): (Lvl, CTm) =
-      val res = is.toList.distinct
-      if res.size != 1 then impossible()
-      res.head
-    implicit val store: Store = mutable.Map.empty
+  def optimize(ds: List[N.Def]): List[Def] =
     implicit val globals: Globals =
       ds.map { case N.Def(x, ty, _) => (x -> ty) }.toMap
-    val res = ds.map { case N.Def(x, ty, tm) =>
+    ds.map { case N.Def(x, ty, tm) =>
       val otm = optimize(ty, tm)
       Def(x, ty, otm)
     }
-    (store.groupMap(_._2)(_._1).mapValues(sanityCheck).toMap, res)
 
-  private def optimize(ty: TDef, tm: N.ANF)(implicit
-      store: Store,
-      globals: Globals
-  ): CTm =
+  private def optimize(ty: TDef, tm: N.ANF)(implicit globals: Globals): CTm =
     val arity = ty.arity
     @tailrec
     def mkEnv(n: Lvl = lvl0, env: List[Lvl] = Nil): List[Lvl] =
@@ -159,9 +130,8 @@ object Optimization:
     if ((xs -- env.map(_._1)).nonEmpty) impossible()
     Ren.lifted(arity).rename(otm)
 
-  private def go(l: Lvl, env: List[(Lvl, TDef)], memo: Memo, tm: N.ANF)(implicit
-      store: Store,
-      globals: Globals
+  private def go(l: Lvl, env: List[(Lvl, TDef)], memo: Memo[OTm], tm: N.ANF)(
+      implicit globals: Globals
   ): (OTm, LvlBag) =
     inline def ix(i: Lvl): (Lvl, TDef) = env(env.size - i.expose - 1)
     tm match
@@ -171,42 +141,22 @@ object Optimization:
       case N.If(c, rt, t, f) =>
         val (cx, ty) = ix(c)
         val (tt, fvt) = go(l, env, memo, t)
-        val tren = Ren.closing(l, 0, fvt)
-        val tid = storeEntry((tren.dom, tren.rename(tt)))
         val (ff, fvf) = go(l, env, memo, f)
-        val fren = Ren.closing(l, 0, fvf)
-        val fid = storeEntry((fren.dom, fren.rename(ff)))
         (
-          O.If(
-            cx,
-            rt,
-            Closure(fvt, tren.ren, tid),
-            Closure(fvf, fren.ren, fid)
-          ),
+          O.If(cx, rt, tt, ff),
           mergeLvlBags(Map(cx -> (1, ty)), mergeLvlBags(fvt, fvf))
         )
       case N.CaseNat(n, rt, z, s) =>
         val (cn, ty) = ix(n)
-        // Z case
         val (zz, fvz) = go(l, env, memo, z)
-        val zren = Ren.closing(l, 0, fvz)
-        val zid = storeEntry((zren.dom, zren.rename(zz)))
-        // S case
         val (ss, fvs) = go(l + 1, (l, tnat) :: env, memo, s)
-        val sren = Ren.closing(l, 1, fvs)
-        val sid = storeEntry((sren.dom - 1, sren.rename(ss)))
         val scapture = fvs - l
         (
-          O.CaseNat(
-            cn,
-            rt,
-            Closure(fvz, zren.ren, zid),
-            Closure(scapture, sren.ren, sid)
-          ),
+          O.CaseNat(cn, rt, zz, ss),
           mergeLvlBags(Map(cn -> (1, ty)), mergeLvlBags(fvz, scapture))
         )
       case N.Let(v, b) =>
-        inline def cont(v: Val, ty: TDef, vars: LvlBag): (OTm, LvlBag) =
+        inline def cont(v: Val[OTm], ty: TDef, vars: LvlBag): (OTm, LvlBag) =
           memo.get(v) match
             case Some(e) => go(l, e :: env, memo, b)
             case None =>
@@ -218,35 +168,29 @@ object Optimization:
         v match
           case N.Global(x, args) =>
             val args2 = args.map(ix(_))
-            val nv = Global(x, args2.map(_._1))
+            val nv: Val[OTm] = Global(x, args2.map(_._1))
             cont(nv, TDef(globals(x).rt), singletonLvlBag(args2))
           case N.Con(x, args) =>
             val args2 = args.map(ix(_))
-            val nv = Con(x, args2.map(_._1))
+            val nv: Val[OTm] = Con(x, args2.map(_._1))
             cont(nv, nativeReturnTy(x), singletonLvlBag(args2))
           case N.App(fn, args) =>
             val x2 = ix(fn)
             val args2 = args.map(ix(_))
-            val v = App(x2._1, args2.map(_._1))
+            val v: Val[OTm] = App(x2._1, args2.map(_._1))
             cont(v, TDef(x2._2.rt), singletonLvlBag(x2 :: args2))
           case N.Lam(ty, b) =>
             val arity = ty.arity
             val nenv = l.range(l + arity).zip(ty.ps.map(TDef.apply))
             val (t, tvars) = go(l + arity, nenv.reverse ++ env, memo, b)
-            val ren = Ren.closing(l, arity, tvars)
-            val t2 = storeEntry((ren.dom - arity, ren.rename(t)))
             val capture = tvars -- nenv.map(_._1)
-            val v = Lam(ty, Closure(capture, ren.ren, t2))
-            cont(v, ty, capture)
+            cont(Lam(ty, t), ty, capture)
           case N.Rec(ty, b) =>
             val arity = ty.arity + 1
             val nenv = l.range(l + arity).zip(List(ty) ++ ty.ps.map(TDef.apply))
             val (t, tvars) = go(l + arity, nenv.reverse ++ env, memo, b)
-            val ren = Ren.closing(l, arity, tvars)
-            val t2 = storeEntry((ren.dom - arity, ren.rename(t)))
             val capture = tvars -- nenv.map(_._1)
-            val v = Rec(ty, Closure(capture, ren.ren, t2))
-            cont(v, ty, capture)
+            cont(Rec(ty, t), ty, capture)
 
   private val tbool = TDef(TBool)
   private val tnat = TDef(TNat)
