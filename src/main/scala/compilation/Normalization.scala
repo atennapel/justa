@@ -79,25 +79,29 @@ object Normalization:
 
   private def normalize(tm: S.Tm0, ty: TDef)(implicit e: Evaluation): ANF =
     val stm = e.stage(tm)
-    quote(lvl0, go(Nil, ty.ps, stm, Nil))
+    val v = go(Nil, V.EEmpty, ty.ps, stm, Nil)
+    quote(lvl0, v)
 
   // evaluation
   private def go(
       env: List[Lvl],
+      venv: V.Env,
       ps: List[Ty],
       body: S.Tm0,
       args: List[Lvl]
   )(implicit ev: Evaluation): VComp =
     ps match
-      case Nil     => VBody(go(env, body, args.reverse, VRet.apply))
-      case _ :: ps => VLam(v => go(env, ps, body, v :: args))
+      case Nil     => VBody(go(env, venv, body, args.reverse, VRet.apply))
+      case _ :: ps => VLam(v => go(env, venv, ps, body, v :: args))
 
   private def go(
       env: List[Lvl],
+      venv: V.Env,
       tm: S.Tm0,
       args: List[Lvl],
       k: Lvl => VANF
   )(implicit ev: Evaluation): VANF =
+    inline def extEnv = V.E0(venv, V.VVar0(mkLvl(venv.size)))
     tm match
       case S.Var0(ix) =>
         val x = env(ix.expose)
@@ -106,31 +110,33 @@ object Normalization:
           case args => VLet(VApp(x, args), k)
       case S.Global0(x) => VLet(VGlobal(x, args), k)
 
-      case S.App0(f, a) => go(env, a, Nil, a => go(env, f, a :: args, k))
+      case S.App0(f, a) =>
+        go(env, venv, a, Nil, a => go(env, venv, f, a :: args, k))
 
       case S.Let0(_, ty, v, b) =>
         goTDef(ty) match
-          case TDef(Nil, _) => go(env, v, Nil, v => go(v :: env, b, args, k))
+          case TDef(Nil, _) =>
+            go(env, venv, v, Nil, v => go(v :: env, extEnv, b, args, k))
           case ty @ TDef(ps, _) =>
             VLet(
-              VLetComp(ty, go(env, ps, v, Nil)),
-              v => go(v :: env, b, args, k)
+              VLetComp(ty, go(env, venv, ps, v, Nil)),
+              v => go(v :: env, extEnv, b, args, k)
             )
       case S.LetRec(_, ty, v, b) =>
         goTDef(ty) match
           case ty @ TDef(ps, _) =>
             VLet(
-              VLetRecComp(ty, r => go(r :: env, ps, v, Nil)),
-              v => go(v :: env, b, args, k)
+              VLetRecComp(ty, r => go(r :: env, venv, ps, v, Nil)),
+              v => go(v :: env, extEnv, b, args, k)
             )
 
       case S.Lam0(_, _, b) =>
         args match
           case Nil       => impossible()
-          case a :: args => go(a :: env, b, args, k)
+          case a :: args => go(a :: env, extEnv, b, args, k)
 
-      case S.Wk10(tm) => go(env, tm, args, k)
-      case S.Wk00(tm) => go(env.tail, tm, args, k)
+      case S.Wk10(tm) => go(env, venv, tm, args, k)
+      case S.Wk00(tm) => go(env, venv.tail, tm, args, k)
 
       case S.Splice(tm) =>
         @tailrec
@@ -138,9 +144,9 @@ object Normalization:
           tm match
             case S.App1(f, a, _) => apps(f, a :: args)
             case S.Native(x)     => (x, args)
-            case x               => impossible()
-        val venv = env.foldRight(V.EEmpty)((k, e) => V.E0(e, V.VVar0(k)))
-        def st(t: S.Tm1) = ev.stageUnder(S.splice(t), venv)
+            case _               => impossible()
+        def stWithEnv(t: S.Tm1, e: V.Env) = ev.stageUnder(S.splice(t), e)
+        inline def st(t: S.Tm1) = stWithEnv(t, venv)
         apps(tm) match
           case (x @ Name("True"), Nil)  => VLet(VCon(x, Nil), k)
           case (x @ Name("False"), Nil) => VLet(VCon(x, Nil), k)
@@ -148,26 +154,34 @@ object Normalization:
             val vrt = goTDef(rt, venv).drop(args.size).ty
             go(
               env,
+              venv,
               st(c),
               Nil,
-              c => VIf(c, vrt, go(env, st(t), args, k), go(env, st(f), args, k))
+              c =>
+                VIf(
+                  c,
+                  vrt,
+                  go(env, venv, st(t), args, k),
+                  go(env, venv, st(f), args, k)
+                )
             )
 
           case (x @ Name("Z"), Nil) => VLet(VCon(x, Nil), k)
           case (x @ Name("S"), List(n)) =>
-            go(env, st(n), Nil, n => VLet(VCon(x, List(n)), k))
+            go(env, venv, st(n), Nil, n => VLet(VCon(x, List(n)), k))
           case (Name("caseNat"), List(_, rt, n, z, s)) =>
             val vrt = goTDef(rt, venv).drop(args.size).ty
             go(
               env,
+              venv,
               st(n),
               Nil,
               n =>
                 VCaseNat(
                   n,
                   vrt,
-                  go(env, st(z), args, k),
-                  m => go(env, st(s), m :: args, k)
+                  go(env, venv, st(z), args, k),
+                  m => go(env, extEnv, st(s), m :: args, k)
                 )
             )
 

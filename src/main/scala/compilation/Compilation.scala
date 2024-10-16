@@ -78,15 +78,76 @@ object Compilation:
 
   private enum EnvEntry:
     case EVal(tm: Tm)
-    case EId(id: Id, args: List[Lvl])
-    case ERec(id: Id)
+    case EId(id: Id)
   import EnvEntry.*
 
-  private def compile(
-      arity: Int,
-      tm: S.CTm,
-      free: Int = 0,
-      rec: Option[Id] = None
-  )(implicit
-      out: Out
-  ): Tm = ???
+  private type Env = List[EnvEntry]
+
+  private def compile(arity: Int, tm: S.CTm)(implicit out: Out): Tm =
+    val env = (0 until arity).map(x => EVal(Var(mkLvl(x)))).reverse.toList
+    val dom = mkLvl(arity)
+    go(dom, dom, env, tm)._2
+
+  // true = in tail call position, false = not in tail call position
+  // not in the map means the variable did not occur
+  private type TCMap = Map[Lvl, Boolean]
+
+  private def merge(a: TCMap, b: TCMap): TCMap =
+    (a.keySet ++ b.keySet).foldLeft(Map.empty) { (m, k) =>
+      (a.get(k), b.get(k)) match
+        case (None, None)           => m
+        case (Some(tc), None)       => m + (k -> tc)
+        case (None, Some(tc))       => m + (k -> tc)
+        case (Some(tc1), Some(tc2)) => m + (k -> (tc1 && tc2))
+    }
+
+  private def notInTail(vs: List[Lvl]): TCMap = vs.map(l => l -> false).toMap
+
+  private def go(dom: Lvl, cod: Lvl, env: Env, tm: S.CTm): (TCMap, Tm) =
+    inline def ix(i: Lvl): EnvEntry = env(dom.expose - i.expose - 1)
+    def ixV(i: Lvl): Tm =
+      ix(i) match
+        case EVal(tm) => tm
+        case EId(id)  => impossible()
+    tm match
+      case C.Ret(lvl) => (Map(lvl -> true), ixV(lvl))
+      case C.If(c, rt, t, f) =>
+        val (mt, tt) = go(dom, cod, env, t)
+        val (mf, ff) = go(dom, cod, env, f)
+        val tc = merge(merge(Map(c -> false), mt), mf)
+        // TODO: join points for branches, or maybe handle that in normalization?
+        (tc, If(ixV(c), tt, ff))
+      case C.CaseNat(scrut, rt, z, s) =>
+        val (mz, zz) = go(dom, cod, env, z)
+        val (ms, ss) = go(dom + 1, cod + 1, EVal(Var(cod)) :: env, s)
+        val tc = merge(merge(Map(scrut -> false), mz), ms - dom)
+        // TODO: join points for branches
+        (tc, CaseNat(ixV(scrut), zz, ss))
+      case C.Let(u, v, b) =>
+        inline def inl(tc: TCMap, v: Tm): (TCMap, Tm) =
+          val (tc2, bb) = go(dom + 1, cod, EVal(v) :: env, b)
+          // TODO: is this merge correct if we inline?
+          (merge(tc, tc2), bb)
+        inline def cont(tc: TCMap, v: Tm): (TCMap, Tm) =
+          if u < 2 then inl(tc, v)
+          else
+            val (tc2, body) = go(dom + 1, cod + 1, EVal(Var(cod)) :: env, b)
+            // TODO: handle join points
+            (merge(tc, tc2 - dom), Let(v, body))
+        v match
+          case V.App(fn, args) =>
+            ix(fn) match
+              case EId(id) =>
+                cont(notInTail(fn :: args), Gen(id, args.map(ixV)))
+              case _ => impossible()
+          case V.Global(x, args) =>
+            cont(notInTail(args), Global(x, args.map(ixV)))
+
+          case V.Con(Name("True"), Nil)      => inl(Map.empty, True)
+          case V.Con(Name("False"), Nil)     => inl(Map.empty, False)
+          case V.Con(Name("Z"), Nil)         => inl(Map.empty, NatZ)
+          case V.Con(Name("S"), l @ List(a)) => cont(notInTail(l), NatS(ixV(a)))
+          case V.Con(_, _)                   => impossible()
+
+          case V.Lam(ty, b) => ???
+          case V.Rec(ty, b) => ???
