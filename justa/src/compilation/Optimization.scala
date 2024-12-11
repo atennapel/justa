@@ -65,8 +65,16 @@ object Optimization:
       case CaseNat(n, _, z, s) => s"caseNat '$n $z $s"
   import CTm as C
 
-  final case class Def(name: Name, ty: TDef, value: CTm):
-    override def toString: String = s"def $name : $ty = $value"
+  type Id = Int
+
+  enum Def:
+    case DDef(name: Name, ty: TDef, tm: CTm)
+    case DGen(id: Id, ty: TDef, tm: CTm)
+
+    override def toString: String = this match
+      case DDef(x, ty, tm)  => s"def $x : $ty = $tm"
+      case DGen(id, ty, tm) => s"def gen $id : $ty = $tm"
+  export Def.*
 
   // closing terms
   private final case class Ren(dom: Lvl, cod: Lvl, ren: Map[Lvl, Lvl]):
@@ -116,7 +124,7 @@ object Optimization:
       ds.map { case N.Def(x, ty, _) => (x -> ty) }.toMap
     ds.map { case N.Def(x, ty, tm) =>
       val otm = optimize(ty, tm)
-      Def(x, ty, otm)
+      DDef(x, ty, otm)
     }
 
   private def optimize(ty: TDef, tm: N.ANF)(implicit globals: Globals): CTm =

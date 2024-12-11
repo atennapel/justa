@@ -1,0 +1,11 @@
+package build
+
+import mill._, scalalib._
+
+object justa extends ScalaModule {
+  def scalaVersion = "3.3.4"
+
+  def ivyDeps = Agg(
+    ivy"com.github.j-mie6::parsley:4.5.2"
+  )
+}
