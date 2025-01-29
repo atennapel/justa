@@ -31,6 +31,12 @@ object Syntax:
       @tailrec
       def go(n: Int, t: Tm0): Tm0 = if n == 0 then t else go(n - 1, Wk00(t))
       go(n, this)
+
+    def flattenApps: (Tm0, List[Tm0]) = this match
+      case App0(f0, a) =>
+        val (f, args) = f0.flattenApps
+        (f, args ++ List(a))
+      case t => (t, Nil)
   export Tm0.*
 
   type Ty = Tm1

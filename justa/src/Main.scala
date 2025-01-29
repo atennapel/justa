@@ -5,9 +5,9 @@ import core.Evaluation
 import core.Elaboration
 import core.Elaboration.*
 import core.Ctx
-import compilation.Normalization
-import compilation.Optimization
-import compilation.Compilation
+import compilation.Normalization2
+// import compilation.Optimization
+// import compilation.Compilation
 
 import scala.io.Source
 import scala.util.Using
@@ -69,13 +69,13 @@ object Main:
 
         // normalization
         println()
-        val ndefs = Normalization.normalize(state)
+        val ndefs = Normalization2.normalize(state)
         ndefs.foreach(println)
         println()
-        val odefs = Optimization.optimize(ndefs)
+      /*val odefs = Optimization.optimize(ndefs)
         odefs.foreach(println)
         println()
         val cdefs = Compilation.compile(odefs)
-        cdefs.foreach(println)
+        cdefs.foreach(println)*/
     val etime = System.nanoTime() - etimeStart
     println(s"elaboration time: ${etime / 1000000}ms (${etime}ns)")

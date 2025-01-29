@@ -9,60 +9,108 @@ import core.State
 import core.Evaluation
 import core.State.GlobalEntry
 
-import scala.collection.mutable
+import scala.annotation.tailrec
 
-object Normalization:
+object Normalization2:
+  private enum VComp:
+    case VLam(comp: Lvl => VComp)
+    case VBody(body: VANF)
+  import VComp.*
+
+  private enum VVal:
+    case VApp(fn: Lvl, args: List[Lvl])
+    case VGlobal(x: Name, args: List[Lvl])
+    case VCon(x: Name, args: List[Lvl])
+    case VLetComp(ty: TDef, comp: VComp)
+    case VLetRecComp(ty: TDef, comp: Lvl => VComp)
+  import VVal.*
+
+  private enum VANF:
+    case VRet(lvl: Lvl)
+    case VLet(value: VVal, body: Lvl => VANF)
+    case VIf(cond: Lvl, rt: Ty, ifTrue: VANF, ifFalse: VANF)
+    case VCaseNat(scrut: Lvl, rt: Ty, z: VANF, s: Lvl => VANF)
+  import VANF.*
+
+  enum Val:
+    case App(fn: Lvl, args: List[Lvl])
+    case Global(x: Name, args: List[Lvl])
+    case Con(x: Name, args: List[Lvl])
+    case Lam(ty: TDef, body: ANF)
+    case Rec(ty: TDef, body: ANF)
+
+    override def toString: String = this match
+      case App(fn, args) =>
+        s"'$fn${args.map(x => s"'$x").mkString("(", ", ", ")")}"
+      case Global(x, args) =>
+        s"$x${args.map(x => s"'$x").mkString("(", ", ", ")")}"
+      case Con(x, Nil) => x.toString
+      case Con(x, args) =>
+        s"$x${args.map(x => s"'$x").mkString("(", ", ", ")")}"
+      case Lam(ty, b) => s"\\($ty). $b"
+      case Rec(ty, b) => s"\\rec ($ty). $b"
+  export Val.*
+
+  enum ANF:
+    case Ret(lvl: Lvl)
+    case Let(value: Val, body: ANF)
+    case If(cond: Lvl, rt: Ty, ifTrue: ANF, ifFalse: ANF)
+    case CaseNat(scrut: Lvl, rt: Ty, z: ANF, s: ANF)
+
+    override def toString: String = this match
+      case Ret(lvl)            => s"'$lvl"
+      case Let(v, b)           => s"let $v; $b"
+      case If(c, _, t, f)      => s"if '$c then ($t) else ($f)"
+      case CaseNat(n, _, z, s) => s"caseNat '$n ($z) ($s)"
+  export ANF.*
+
+  final case class Def(x: Name, ty: TDef, value: ANF):
+    override def toString: String = s"def $x : $ty = $value"
+
   def normalize(state: State): List[Def] =
     implicit val e: Evaluation = new Evaluation(state)
     state.allGlobals.flatMap {
-      case GlobalEntry.GlobalEntry0(x, tm, _, _, _, vty, _) =>
+      case GlobalEntry.GlobalEntry0(x, tm, ty, cv, value, vty, vcv) =>
         val nty = goVTDef(vty)
         val ntm = normalize(tm, nty)
         List(Def(x, nty, ntm))
       case _ => Nil
     }
 
-  private type Lets = mutable.ArrayBuffer[Val]
-  private def addLet(v: Val)(implicit lets: Lets): Unit =
-    lets += v
-
-  private enum K:
-    case KRet(lvl: Lvl)
-
-  private def normalize(tm: S.Tm0, ty: TDef)(implicit e: Evaluation): Tm =
+  private def normalize(tm: S.Tm0, ty: TDef)(implicit e: Evaluation): ANF =
     val stm = e.stage(tm)
-    implicit val lets: Lets = mutable.ArrayBuffer.empty
-    val body = go(Nil, V.EEmpty, stm, lvl0, Nil)
-    lets.foldRight(body)(Let.apply)
+    val v = go(Nil, V.EEmpty, ty.ps, stm, Nil)
+    quote(lvl0, v)
+
+  // evaluation
+  private def go(
+      env: List[Lvl],
+      venv: V.Env,
+      ps: List[Ty],
+      body: S.Tm0,
+      args: List[Lvl]
+  )(implicit ev: Evaluation): VComp =
+    ps match
+      case Nil     => VBody(go(env, venv, body, args.reverse, VRet.apply))
+      case _ :: ps => VLam(v => go(env, venv, ps, body, v :: args))
 
   private def go(
       env: List[Lvl],
       venv: V.Env,
       tm: S.Tm0,
-      dom: Lvl,
-      args: List[Lvl]
-  )(implicit
-      e: Evaluation,
-      lets: Lets
-  ): K =
+      args: List[Lvl],
+      k: Lvl => VANF
+  )(implicit ev: Evaluation): VANF =
     inline def extEnv = V.E0(venv, V.VVar0(mkLvl(venv.size)))
     tm match
       case S.Var0(ix) =>
         val x = env(ix.expose)
         args match
-          case Nil => KRet(x)
-          case args =>
-            addLet(App(x, args))
-            KRet(dom + 1)
-      case S.Global0(x) =>
-        addLet(Global(x, args))
-        KRet(dom + 1)
+          case Nil  => k(x)
+          case args => VLet(VApp(x, args), k)
+      case S.Global0(x) => VLet(VGlobal(x, args), k)
 
-      case app@S.App0(_, _) =>
-        val (f, a) = app.flattenApps
-        go(env, venv, f, )
-
-
+      case S.App0(f, a) =>
         go(env, venv, a, Nil, a => go(env, venv, f, a :: args, k))
 
       case S.Let0(_, ty, v, b) =>
@@ -139,12 +187,33 @@ object Normalization:
 
           case _ => impossible()
 
+  // quote
+  private def quote(k: Lvl, c: VComp): ANF =
+    c match
+      case VLam(c)  => quote(k + 1, c(k))
+      case VBody(b) => quote(k, b)
+
+  private def quote(k: Lvl, v: VVal): Val =
+    v match
+      case VApp(fn, args)     => App(fn, args)
+      case VGlobal(x, args)   => Global(x, args)
+      case VCon(x, args)      => Con(x, args)
+      case VLetComp(ty, c)    => Lam(ty, quote(k, c))
+      case VLetRecComp(ty, c) => Rec(ty, quote(k + 1, c(k)))
+
+  private def quote(k: Lvl, v: VANF): ANF =
+    v match
+      case VRet(lvl)        => Ret(lvl)
+      case VLet(v, b)       => Let(quote(k, v), quote(k + 1, b(k)))
+      case VIf(c, rt, t, f) => If(c, rt, quote(k, t), quote(k, f))
+      case VCaseNat(n, rt, z, s) =>
+        CaseNat(n, rt, quote(k, z), quote(k + 1, s(k)))
+
   // types
   private inline def goTDef(t: S.Ty, env: V.Env = V.EEmpty)(implicit
       e: Evaluation
   ): TDef =
     goVTDef(e.eval1(t)(env))
-
   private def goVTDef(t: V.VTy)(implicit e: Evaluation): TDef =
     e.forceAll1(t) match
       case V.VFun(pty, _, rty) => TDef(goVTy(pty), goVTDef(rty))
@@ -154,7 +223,6 @@ object Normalization:
       e: Evaluation
   ): Ty =
     goVTy(e.eval1(t)(env))
-
   private def goVTy(t: V.VTy)(implicit e: Evaluation): Ty =
     e.forceAll1(t) match
       case V.VRigid(V.HNative(Name("Bool")), V.SId) => TBool
