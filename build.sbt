@@ -1,4 +1,4 @@
-val scala3Version = "3.4.2"
+val scala3Version = "3.7.1"
 
 lazy val root = project
   .in(file("."))
@@ -10,6 +10,5 @@ lazy val root = project
       "-Wunused:imports",
       "-Xfatal-warnings",
       "-explain-cyclic"
-    ),
-    libraryDependencies += "com.github.j-mie6" %% "parsley" % "4.5.2"
+    )
   )
