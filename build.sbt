@@ -10,5 +10,7 @@ lazy val root = project
       "-Wunused:imports",
       "-Xfatal-warnings",
       "-explain-cyclic"
-    )
+    ),
+    libraryDependencies += "org.ow2.asm" % "asm" % "9.8",
+    libraryDependencies += "org.ow2.asm" % "asm-commons" % "9.8"
   )
