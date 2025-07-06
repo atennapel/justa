@@ -15,12 +15,15 @@ object JVM:
 
   final case class Module(name: Name, defs: List[Def])
 
-  final case class Def(
+  final case class Constructor(
       name: Name,
-      params: List[Type],
-      returnType: Type,
-      body: Expr
+      parameters: List[(Option[Name], Type)]
   )
+
+  enum Def:
+    case Value(name: Name, ty: Type, value: Expr)
+    case Function(name: Name, params: List[Type], returnType: Type, body: Expr)
+    case Data(name: Name, constructors: List[Constructor])
 
   enum Type:
     case Boolean
@@ -31,6 +34,7 @@ object JVM:
     case Long
     case Float
     case Double
+    case Data(name: Name)
 
   enum Expr:
     case Local(lvl: Int)
@@ -44,16 +48,40 @@ object JVM:
     case IntLit(value: Int)
     case BoolLit(value: Boolean)
 
+    case Con(datatype: Name, name: Name, args: List[Expr])
+    case Case(
+        datatype: Name,
+        name: Name,
+        scrut: Expr,
+        body: Expr,
+        other: Option[Expr]
+    )
+
     case Instr(opcode: Int, args: List[Expr])
 
     // temp
     case If(cond: Expr, ifTrue: Expr, ifFalse: Expr)
 
   // bytecode generation
+  private case class ConstructorCtx(
+      className: String,
+      descriptor: String,
+      ty: JType,
+      params: List[(Name, JType)],
+      constructor: Method
+  )
+  private case class DatatypeCtx(
+      className: String,
+      descriptor: String,
+      ty: JType,
+      constructors: mutable.Map[Name, ConstructorCtx] = mutable.Map.empty
+  )
+
   private class ModuleCtx(
       val name: Name,
       val ty: JType,
-      val methods: mutable.Map[String, Method] = mutable.Map.empty
+      val methods: mutable.Map[String, Method] = mutable.Map.empty,
+      val datatypes: mutable.Map[String, DatatypeCtx] = mutable.Map.empty
   )
 
   private enum Local:
@@ -100,8 +128,12 @@ object JVM:
     con.visitEnd()
 
     // generate definitions
-    module.defs.foreach(updateModuleCtx)
+    updateModuleCtx(module.defs)
+    module.defs.foreach(genDatatype)
     module.defs.foreach(gen)
+
+    // generate static block
+    genStaticBlock(module.defs)
 
     // end
     cw.visitEnd()
@@ -111,40 +143,260 @@ object JVM:
     bos.write(cw.toByteArray)
     bos.close()
 
-  private def gen(ty: Type): JType = ty match
-    case Type.Boolean => JType.BOOLEAN_TYPE
-    case Type.Byte    => JType.BYTE_TYPE
-    case Type.Char    => JType.CHAR_TYPE
-    case Type.Short   => JType.SHORT_TYPE
-    case Type.Int     => JType.INT_TYPE
-    case Type.Long    => JType.LONG_TYPE
-    case Type.Float   => JType.FLOAT_TYPE
-    case Type.Double  => JType.DOUBLE_TYPE
+  private def gen(ty: Type)(using moduleCtx: ModuleCtx): JType = ty match
+    case Type.Boolean    => JType.BOOLEAN_TYPE
+    case Type.Byte       => JType.BYTE_TYPE
+    case Type.Char       => JType.CHAR_TYPE
+    case Type.Short      => JType.SHORT_TYPE
+    case Type.Int        => JType.INT_TYPE
+    case Type.Long       => JType.LONG_TYPE
+    case Type.Float      => JType.FLOAT_TYPE
+    case Type.Double     => JType.DOUBLE_TYPE
+    case Type.Data(name) => moduleCtx.datatypes(name).ty
+
+  private def updateModuleCtx(defs: List[Def])(using
+      moduleCtx: ModuleCtx
+  ): Unit =
+    // first ensure all datatypes are known
+    defs.foreach {
+      case Def.Data(name, _) =>
+        val className = s"${moduleCtx.name}$$$name"
+        val descriptor = s"L$className;"
+        val ty = JType.getType(descriptor)
+        moduleCtx.datatypes += (name -> DatatypeCtx(
+          className,
+          descriptor,
+          ty
+        ))
+      case _ =>
+    }
+    defs.foreach(updateModuleCtx)
 
   private def updateModuleCtx(defn: Def)(using moduleCtx: ModuleCtx): Unit =
-    val m = new Method(
-      defn.name,
-      gen(defn.returnType),
-      defn.params.map(gen).toArray
-    )
-    moduleCtx.methods += (defn.name -> m)
+    defn match
+      case Def.Function(name, params, returnType, _) =>
+        val m = new Method(
+          name,
+          gen(returnType),
+          params.map(gen).toArray
+        )
+        moduleCtx.methods += (name -> m)
+      case Def.Data(name, constructors) =>
+        // handle constructors
+        val datatypeCtx = moduleCtx.datatypes(name)
+        constructors.foreach { c =>
+          val conClassName = s"${datatypeCtx.className}$$${c.name}"
+          val descriptor = s"L$conClassName;"
+          val ty = JType.getType(descriptor)
+          val params = c.parameters.zipWithIndex.map { case ((x, t), i) =>
+            (x.getOrElse(s"p$i"), gen(t))
+          }
+          val constructorMethod =
+            new Method("<init>", JType.VOID_TYPE, params.map(_._2).toArray)
+          datatypeCtx.constructors(c.name) = ConstructorCtx(
+            conClassName,
+            descriptor,
+            ty,
+            params,
+            constructorMethod
+          )
+        }
+      case _ => ()
+
+  private def genStaticBlock(
+      defs: List[Def]
+  )(using cw: ClassWriter, moduleCtx: ModuleCtx): Unit =
+    defs.flatMap {
+      case Def.Value(name, ty, value) if constantValue(value).isEmpty =>
+        Some((name, ty, value))
+      case _ => None
+    } match
+      case Nil => ()
+      case ds  =>
+        val m = new Method("<clinit>", JType.VOID_TYPE, Nil.toArray)
+        given mg: GeneratorAdapter =
+          new GeneratorAdapter(ACC_STATIC, m, null, null, cw)
+        given locals: Locals = Nil
+        ds.foreach { case (name, ty, value) =>
+          gen(value)
+          mg.putStatic(moduleCtx.ty, name, gen(ty))
+        }
+        mg.visitInsn(RETURN)
+        mg.endMethod()
 
   private def gen(
       defn: Def
   )(using cw: ClassWriter, moduleCtx: ModuleCtx): Unit =
-    given mg: GeneratorAdapter =
+    defn match
+      case Def.Data(_, _)             => ()
+      case Def.Value(name, ty, value) =>
+        cw.visitField(
+          ACC_PUBLIC + ACC_FINAL + ACC_STATIC,
+          name,
+          gen(ty).getDescriptor,
+          null,
+          constantValue(value).orNull
+        )
+      case Def.Function(name, params, _, body) =>
+        given mg: GeneratorAdapter =
+          new GeneratorAdapter(
+            ACC_FINAL + ACC_STATIC + ACC_PUBLIC,
+            moduleCtx.methods(name),
+            null,
+            null,
+            cw
+          )
+        given locals: Locals =
+          params.zipWithIndex.map((_, ix) => Local.Arg(ix))
+        gen(body)
+        mg.returnValue()
+        mg.endMethod()
+
+  private def genDatatype(
+      defn: Def
+  )(using cw: ClassWriter, moduleCtx: ModuleCtx): Unit =
+    defn match
+      case Def.Data(name, constructors) =>
+        given datactx: DatatypeCtx = moduleCtx.datatypes(name)
+        val className = datactx.className
+        val datacw = new ClassWriter(
+          ClassWriter.COMPUTE_MAXS + ClassWriter.COMPUTE_FRAMES
+        )
+        datacw.visit(
+          V1_8,
+          ACC_PUBLIC + ACC_ABSTRACT,
+          className,
+          null,
+          "java/lang/Object",
+          null
+        )
+
+        // private empty constructor
+        val con = datacw.visitMethod(ACC_PROTECTED, "<init>", "()V", null, null)
+        con.visitVarInsn(ALOAD, 0)
+        con.visitMethodInsn(
+          INVOKESPECIAL,
+          "java/lang/Object",
+          "<init>",
+          "()V",
+          false
+        )
+        con.visitInsn(RETURN)
+        con.visitMaxs(1, 1)
+        con.visitEnd()
+
+        // constructors
+        constructors.foreach { c =>
+          given conctx: ConstructorCtx = datactx.constructors(c.name)
+          genDatatypeConstructor(c)
+          datacw.visitInnerClass(
+            conctx.className,
+            className,
+            c.name,
+            ACC_PUBLIC + ACC_STATIC + ACC_FINAL
+          )
+        }
+
+        // write class file
+        datacw.visitEnd()
+        cw.visitInnerClass(
+          className,
+          moduleCtx.name,
+          name,
+          ACC_PUBLIC + ACC_ABSTRACT + ACC_STATIC
+        )
+        val bos = new BufferedOutputStream(
+          new FileOutputStream(s"$className.class")
+        )
+        bos.write(datacw.toByteArray)
+        bos.close()
+      case _ => ()
+
+  private def genDatatypeConstructor(c: Constructor)(using
+      datatypeCtx: DatatypeCtx,
+      conCtx: ConstructorCtx
+  ): Unit =
+    val className = conCtx.className
+    val cw = new ClassWriter(
+      ClassWriter.COMPUTE_MAXS + ClassWriter.COMPUTE_FRAMES
+    )
+    cw.visit(
+      V1_8,
+      ACC_PUBLIC + ACC_STATIC + ACC_FINAL,
+      className,
+      null,
+      datatypeCtx.className,
+      null
+    )
+
+    // fields
+    val params = conCtx.params.zipWithIndex.map { case ((x, t), i) =>
+      (x, t, i)
+    }
+    params.foreach { (x, ty, _) =>
+      cw.visitField(
+        ACC_PUBLIC + ACC_FINAL,
+        x,
+        ty.getDescriptor,
+        null,
+        null
+      )
+    }
+
+    // class constructor
+    val m = conCtx.constructor
+    val mg: GeneratorAdapter =
       new GeneratorAdapter(
-        ACC_FINAL + ACC_STATIC + ACC_PUBLIC,
-        moduleCtx.methods(defn.name),
+        if params.isEmpty then ACC_PROTECTED else ACC_PUBLIC,
+        m,
         null,
         null,
         cw
       )
-    given locals: Locals =
-      defn.params.zipWithIndex.map((_, ix) => Local.Arg(ix))
-    gen(defn.body)
-    mg.returnValue()
-    mg.endMethod()
+    mg.visitVarInsn(ALOAD, 0)
+    mg.visitMethodInsn(
+      INVOKESPECIAL,
+      datatypeCtx.className,
+      "<init>",
+      "()V",
+      false
+    )
+    val jtype = JType.getType(s"L$className;")
+    params.foreach { (x, ty, i) =>
+      mg.loadThis()
+      mg.loadArg(i)
+      mg.putField(jtype, x, ty)
+    }
+    mg.visitInsn(RETURN)
+    mg.visitMaxs(1, 1)
+    mg.visitEnd()
+
+    // 0-ary constructor initialization
+    if params.isEmpty then
+      cw.visitField(
+        ACC_PUBLIC + ACC_FINAL + ACC_STATIC,
+        "INSTANCE",
+        conCtx.descriptor,
+        null,
+        null
+      )
+      val staticMethod = new Method("<clinit>", JType.VOID_TYPE, Nil.toArray)
+      implicit val stmg: GeneratorAdapter =
+        new GeneratorAdapter(ACC_STATIC, staticMethod, null, null, cw)
+      stmg.newInstance(conCtx.ty)
+      stmg.dup()
+      stmg.invokeConstructor(conCtx.ty, conCtx.constructor)
+      stmg.putStatic(conCtx.ty, "INSTANCE", conCtx.ty)
+      stmg.visitInsn(RETURN)
+      stmg.endMethod()
+
+    // done
+    cw.visitEnd()
+    val bos = new BufferedOutputStream(
+      new FileOutputStream(s"$className.class")
+    )
+    bos.write(cw.toByteArray)
+    bos.close()
 
   private def gen(
       expr: Expr
@@ -197,6 +449,62 @@ object JVM:
       case Expr.IntLit(value)  => mg.push(value)
       case Expr.BoolLit(value) => mg.push(value)
 
+      case Expr.Con(dname, cname, args) =>
+        val conctx = moduleCtx.datatypes(dname).constructors(cname)
+        if args.isEmpty then mg.getStatic(conctx.ty, "INSTANCE", conctx.ty)
+        else
+          mg.newInstance(conctx.ty)
+          mg.dup()
+          args.foreach(gen)
+          mg.invokeConstructor(conctx.ty, conctx.constructor)
+      case Expr.Case(dname, cname, scrut, body, other) =>
+        val conctx = moduleCtx.datatypes(dname).constructors(cname)
+        val nilary = conctx.params.isEmpty
+        gen(scrut)
+        other match
+          case Some(o) =>
+            val lEnd = mg.newLabel()
+            val lOther = mg.newLabel()
+            mg.dup()
+            if nilary then
+              mg.getStatic(conctx.ty, "INSTANCE", conctx.ty)
+              mg.visitJumpInsn(IF_ACMPNE, lOther)
+              mg.pop()
+              gen(body)
+            else
+              mg.instanceOf(conctx.ty)
+              mg.visitJumpInsn(IFEQ, lOther)
+              mg.checkCast(conctx.ty)
+              val paramlocals = conctx.params.map { (x, ty) =>
+                mg.dup()
+                val local = mg.newLocal(ty)
+                mg.getField(conctx.ty, x, ty)
+                mg.storeLocal(local)
+                Local.Local(local)
+              }
+              mg.pop()
+              gen(body)(using locals = locals ++ paramlocals)
+            mg.visitJumpInsn(GOTO, lEnd)
+            mg.visitLabel(lOther)
+            mg.pop()
+            gen(o)
+            mg.visitLabel(lEnd)
+          case None =>
+            if nilary then
+              mg.pop()
+              gen(body)
+            else
+              mg.checkCast(conctx.ty)
+              val paramlocals = conctx.params.map { (x, ty) =>
+                mg.dup()
+                val local = mg.newLocal(ty)
+                mg.getField(conctx.ty, x, ty)
+                mg.storeLocal(local)
+                Local.Local(local)
+              }
+              mg.pop()
+              gen(body)(using locals = locals ++ paramlocals)
+
       case Expr.Instr(opcode, args) =>
         args.foreach(gen)
         mg.visitInsn(opcode)
@@ -220,3 +528,9 @@ object JVM:
       if a.charAt(i) != b.charAt(i) then same = false
       else i += 1
     a.substring(0, i)
+
+  private def constantValue(expr: Expr): Option[AnyRef] =
+    expr match
+      case Expr.IntLit(value)  => Some(Int.box(value))
+      case Expr.BoolLit(value) => Some(Boolean.box(value))
+      case _                   => None

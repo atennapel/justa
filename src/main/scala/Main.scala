@@ -1,4 +1,4 @@
-import JVM.{Def, Expr, Module, Type}
+import JVM.{Def, Expr, Module, Type, Constructor}
 import org.objectweb.asm.Opcodes.{IADD, IMUL, ISUB}
 
 object Main:
@@ -6,7 +6,7 @@ object Main:
     val testModule = Module(
       "TestModule",
       List(
-        Def(
+        Def.Function(
           "test",
           List(),
           Type.Int,
@@ -16,7 +16,7 @@ object Main:
             Expr.Jump(0, List())
           )
         ),
-        Def(
+        Def.Function(
           "add",
           List(Type.Int, Type.Int),
           Type.Int,
@@ -26,13 +26,13 @@ object Main:
             Expr.Instr(IADD, List(Expr.Local(2), Expr.Local(2)))
           )
         ),
-        Def(
+        Def.Function(
           "isZero",
           List(Type.Int),
           Type.Boolean,
           Expr.If(Expr.Local(0), Expr.BoolLit(false), Expr.BoolLit(true))
         ),
-        Def(
+        Def.Function(
           "countDown",
           List(Type.Int),
           Type.Boolean,
@@ -45,7 +45,7 @@ object Main:
             )
           )
         ),
-        Def(
+        Def.Function(
           "countDownTR",
           List(Type.Int),
           Type.Boolean,
@@ -62,7 +62,7 @@ object Main:
             Expr.Jump(1, List(Expr.Local(0)))
           )
         ),
-        Def(
+        Def.Function(
           "fac",
           List(Type.Int),
           Type.Int,
@@ -81,7 +81,7 @@ object Main:
             )
           )
         ),
-        Def(
+        Def.Function(
           "facTR",
           List(Type.Int),
           Type.Int,
@@ -100,6 +100,81 @@ object Main:
             ),
             Expr.Jump(1, List(Expr.Local(0), Expr.IntLit(1)))
           )
+        ),
+        Def.Value(
+          "val1",
+          Type.Int,
+          Expr.IntLit(42)
+        ),
+        Def.Value(
+          "val2",
+          Type.Int,
+          Expr.Instr(IADD, List(Expr.IntLit(1), Expr.IntLit(2)))
+        ),
+        Def.Value(
+          "datatest1",
+          Type.Data("IntOption"),
+          Expr.Con("IntOption", "Some", List(Expr.IntLit(42)))
+        ),
+        Def.Value(
+          "datatest2",
+          Type.Data("IntList"),
+          Expr.Con("IntList", "Nil", List())
+        ),
+        Def.Function(
+          "head",
+          List(Type.Data("IntList")),
+          Type.Data("IntOption"),
+          Expr.Case(
+            "IntList",
+            "Cons",
+            Expr.Local(0),
+            Expr.Con("IntOption", "Some", List(Expr.Local(1))),
+            Some(Expr.Con("IntOption", "None", List()))
+          )
+        ),
+        Def.Function(
+          "inc",
+          List(Type.Data("IntList")),
+          Type.Data("IntList"),
+          Expr.Case(
+            "IntList",
+            "Cons",
+            Expr.Local(0),
+            Expr.Con(
+              "IntList",
+              "Cons",
+              List(
+                Expr.Instr(IADD, List(Expr.Local(1), Expr.IntLit(1))),
+                Expr.Global("inc", List(Expr.Local(2)))
+              )
+            ),
+            Some(Expr.Con("IntList", "Nil", List()))
+          )
+        ),
+        Def.Data(
+          "IntOption",
+          List(
+            Constructor("None", List()),
+            Constructor("Some", List((Some("value"), Type.Int)))
+          )
+        ),
+        Def.Data(
+          "IntList",
+          List(
+            Constructor("Nil", List()),
+            Constructor(
+              "Cons",
+              List(
+                (Some("head"), Type.Int),
+                (Some("tail"), Type.Data("IntList"))
+              )
+            )
+          )
+        ),
+        Def.Data(
+          "B",
+          List(Constructor("T", List()), Constructor("F", List()))
         )
       )
     )
