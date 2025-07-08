@@ -24,6 +24,7 @@ object JVM:
     case Value(name: Name, ty: Type, value: Expr)
     case Function(name: Name, params: List[Type], returnType: Type, body: Expr)
     case Data(name: Name, constructors: List[Constructor])
+    case Record(name: Name, fields: List[(Option[Name], Type)])
 
   enum Type:
     case Boolean
@@ -35,6 +36,7 @@ object JVM:
     case Float
     case Double
     case Data(name: Name)
+    case Record(name: Name)
 
   enum Expr:
     case Local(lvl: Int)
@@ -57,6 +59,9 @@ object JVM:
         other: Option[Expr]
     )
 
+    case RecordCon(name: Name, args: List[Expr])
+    case Field(name: Name, scrut: Expr, ix: Either[Name, Int])
+
     case Instr(opcode: Int, args: List[Expr])
 
     // temp
@@ -76,12 +81,20 @@ object JVM:
       ty: JType,
       constructors: mutable.Map[Name, ConstructorCtx] = mutable.Map.empty
   )
+  private case class RecordCtx(
+      className: String,
+      descriptor: String,
+      ty: JType,
+      var constructor: Method = null,
+      fields: mutable.ArrayBuffer[(Name, JType)] = mutable.ArrayBuffer.empty
+  )
 
   private class ModuleCtx(
       val name: Name,
       val ty: JType,
       val methods: mutable.Map[String, Method] = mutable.Map.empty,
-      val datatypes: mutable.Map[String, DatatypeCtx] = mutable.Map.empty
+      val datatypes: mutable.Map[String, DatatypeCtx] = mutable.Map.empty,
+      val records: mutable.Map[String, RecordCtx] = mutable.Map.empty
   )
 
   private enum Local:
@@ -144,15 +157,16 @@ object JVM:
     bos.close()
 
   private def gen(ty: Type)(using moduleCtx: ModuleCtx): JType = ty match
-    case Type.Boolean    => JType.BOOLEAN_TYPE
-    case Type.Byte       => JType.BYTE_TYPE
-    case Type.Char       => JType.CHAR_TYPE
-    case Type.Short      => JType.SHORT_TYPE
-    case Type.Int        => JType.INT_TYPE
-    case Type.Long       => JType.LONG_TYPE
-    case Type.Float      => JType.FLOAT_TYPE
-    case Type.Double     => JType.DOUBLE_TYPE
-    case Type.Data(name) => moduleCtx.datatypes(name).ty
+    case Type.Boolean      => JType.BOOLEAN_TYPE
+    case Type.Byte         => JType.BYTE_TYPE
+    case Type.Char         => JType.CHAR_TYPE
+    case Type.Short        => JType.SHORT_TYPE
+    case Type.Int          => JType.INT_TYPE
+    case Type.Long         => JType.LONG_TYPE
+    case Type.Float        => JType.FLOAT_TYPE
+    case Type.Double       => JType.DOUBLE_TYPE
+    case Type.Data(name)   => moduleCtx.datatypes(name).ty
+    case Type.Record(name) => moduleCtx.records(name).ty
 
   private def updateModuleCtx(defs: List[Def])(using
       moduleCtx: ModuleCtx
@@ -164,6 +178,15 @@ object JVM:
         val descriptor = s"L$className;"
         val ty = JType.getType(descriptor)
         moduleCtx.datatypes += (name -> DatatypeCtx(
+          className,
+          descriptor,
+          ty
+        ))
+      case Def.Record(name, _) =>
+        val className = s"${moduleCtx.name}$$$name"
+        val descriptor = s"L$className;"
+        val ty = JType.getType(descriptor)
+        moduleCtx.records += (name -> RecordCtx(
           className,
           descriptor,
           ty
@@ -201,6 +224,17 @@ object JVM:
             constructorMethod
           )
         }
+      case Def.Record(name, fields) =>
+        // handle fields
+        val recordCtx = moduleCtx.records(name)
+        val params = fields.zipWithIndex.map { case ((x, t), i) =>
+          val pair = (x.getOrElse(s"p$i"), gen(t))
+          recordCtx.fields += pair
+          pair
+        }
+        val constructorMethod =
+          new Method("<init>", JType.VOID_TYPE, params.map(_._2).toArray)
+        recordCtx.constructor = constructorMethod
       case _ => ()
 
   private def genStaticBlock(
@@ -229,6 +263,7 @@ object JVM:
   )(using cw: ClassWriter, moduleCtx: ModuleCtx): Unit =
     defn match
       case Def.Data(_, _)             => ()
+      case Def.Record(_, _)           => ()
       case Def.Value(name, ty, value) =>
         cw.visitField(
           ACC_PUBLIC + ACC_FINAL + ACC_STATIC,
@@ -288,7 +323,7 @@ object JVM:
         // constructors
         constructors.foreach { c =>
           given conctx: ConstructorCtx = datactx.constructors(c.name)
-          genDatatypeConstructor(c)
+          genDatatypeConstructor()
           datacw.visitInnerClass(
             conctx.className,
             className,
@@ -310,9 +345,90 @@ object JVM:
         )
         bos.write(datacw.toByteArray)
         bos.close()
+      case Def.Record(name, _) =>
+        given recordctx: RecordCtx = moduleCtx.records(name)
+        val className = recordctx.className
+        val recordcw = new ClassWriter(
+          ClassWriter.COMPUTE_MAXS + ClassWriter.COMPUTE_FRAMES
+        )
+        recordcw.visit(
+          V1_8,
+          ACC_PUBLIC + ACC_ABSTRACT,
+          className,
+          null,
+          "java/lang/Object",
+          null
+        )
+
+        // fields
+        val params = recordctx.fields.zipWithIndex.map { case ((x, t), i) =>
+          (x, t, i)
+        }
+        params.foreach { (x, ty, _) =>
+          recordcw.visitField(
+            ACC_PUBLIC + ACC_FINAL,
+            x,
+            ty.getDescriptor,
+            null,
+            null
+          )
+        }
+
+        // class constructor
+        val m = recordctx.constructor
+        val mg: GeneratorAdapter =
+          new GeneratorAdapter(
+            if params.isEmpty then ACC_PROTECTED else ACC_PUBLIC,
+            m,
+            null,
+            null,
+            recordcw
+          )
+        params.foreach { (x, ty, i) =>
+          mg.loadThis()
+          mg.loadArg(i)
+          mg.putField(recordctx.ty, x, ty)
+        }
+        mg.visitInsn(RETURN)
+        mg.visitMaxs(1, 1)
+        mg.visitEnd()
+
+        // 0-ary constructor initialization
+        if params.isEmpty then
+          recordcw.visitField(
+            ACC_PUBLIC + ACC_FINAL + ACC_STATIC,
+            "INSTANCE",
+            recordctx.descriptor,
+            null,
+            null
+          )
+          val staticMethod =
+            new Method("<clinit>", JType.VOID_TYPE, Nil.toArray)
+          implicit val stmg: GeneratorAdapter =
+            new GeneratorAdapter(ACC_STATIC, staticMethod, null, null, recordcw)
+          stmg.newInstance(recordctx.ty)
+          stmg.dup()
+          stmg.invokeConstructor(recordctx.ty, recordctx.constructor)
+          stmg.putStatic(recordctx.ty, "INSTANCE", recordctx.ty)
+          stmg.visitInsn(RETURN)
+          stmg.endMethod()
+
+        // write class file
+        recordcw.visitEnd()
+        cw.visitInnerClass(
+          className,
+          moduleCtx.name,
+          name,
+          ACC_PUBLIC + ACC_ABSTRACT + ACC_STATIC
+        )
+        val bos = new BufferedOutputStream(
+          new FileOutputStream(s"$className.class")
+        )
+        bos.write(recordcw.toByteArray)
+        bos.close()
       case _ => ()
 
-  private def genDatatypeConstructor(c: Constructor)(using
+  private def genDatatypeConstructor()(using
       datatypeCtx: DatatypeCtx,
       conCtx: ConstructorCtx
   ): Unit =
@@ -361,11 +477,10 @@ object JVM:
       "()V",
       false
     )
-    val jtype = JType.getType(s"L$className;")
     params.foreach { (x, ty, i) =>
       mg.loadThis()
       mg.loadArg(i)
-      mg.putField(jtype, x, ty)
+      mg.putField(conCtx.ty, x, ty)
     }
     mg.visitInsn(RETURN)
     mg.visitMaxs(1, 1)
@@ -504,6 +619,23 @@ object JVM:
               }
               mg.pop()
               gen(body)(using locals = locals ++ paramlocals)
+
+      case Expr.RecordCon(name, args) =>
+        val recordctx = moduleCtx.records(name)
+        if args.isEmpty then
+          mg.getStatic(recordctx.ty, "INSTANCE", recordctx.ty)
+        else
+          mg.newInstance(recordctx.ty)
+          mg.dup()
+          args.foreach(gen)
+          mg.invokeConstructor(recordctx.ty, recordctx.constructor)
+      case Expr.Field(name, scrut, ix) =>
+        val recordctx = moduleCtx.records(name)
+        gen(scrut)
+        val (x, t) = ix match
+          case Left(x)  => recordctx.fields.find((y, t) => x == y).get
+          case Right(i) => recordctx.fields(i)
+        mg.getField(recordctx.ty, x, t)
 
       case Expr.Instr(opcode, args) =>
         args.foreach(gen)

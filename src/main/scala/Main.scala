@@ -175,6 +175,29 @@ object Main:
         Def.Data(
           "B",
           List(Constructor("T", List()), Constructor("F", List()))
+        ),
+        Def.Data("Void", List()),
+        Def.Record("Unit", List()),
+        Def.Record(
+          "IntPair",
+          List((Some("fst"), Type.Int), (Some("snd"), Type.Int))
+        ),
+        Def.Value(
+          "pairtest",
+          Type.Record("IntPair"),
+          Expr.RecordCon("IntPair", List(Expr.IntLit(1), Expr.IntLit(2)))
+        ),
+        Def.Function(
+          "pairproj",
+          List(Type.Record("IntPair")),
+          Type.Record("IntPair"),
+          Expr.RecordCon(
+            "IntPair",
+            List(
+              Expr.Field("IntPair", Expr.Local(0), Left("fst")),
+              Expr.Field("IntPair", Expr.Local(0), Right(1))
+            )
+          )
         )
       )
     )
