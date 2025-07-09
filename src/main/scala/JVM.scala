@@ -12,6 +12,7 @@ import scala.collection.mutable
 
 object JVM:
   type Name = String
+  type Lvl = Int
 
   final case class Module(name: Name, defs: List[Def])
 
@@ -39,13 +40,13 @@ object JVM:
     case Record(name: Name)
 
   enum Expr:
-    case Local(lvl: Int)
+    case Local(lvl: Lvl)
     case Global(name: Name, args: List[Expr])
 
     case Let(value: Expr, ty: Type, body: Expr)
     case Join(params: List[Type], value: Expr, body: Expr)
     case JoinRec(params: List[Type], value: Expr, body: Expr)
-    case Jump(lvl: Int, args: List[Expr])
+    case Jump(lvl: Lvl, args: List[Expr])
 
     case IntLit(value: Int)
     case BoolLit(value: Boolean)

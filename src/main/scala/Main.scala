@@ -8,12 +8,12 @@ object Main:
       List(
         Def.Function(
           "test",
-          List(),
+          Nil,
           Type.Int,
           Expr.Join(
-            List(),
+            Nil,
             Expr.Global("add", List(Expr.IntLit(1), Expr.IntLit(2))),
-            Expr.Jump(0, List())
+            Expr.Jump(0, Nil)
           )
         ),
         Def.Function(
@@ -119,7 +119,7 @@ object Main:
         Def.Value(
           "datatest2",
           Type.Data("IntList"),
-          Expr.Con("IntList", "Nil", List())
+          Expr.Con("IntList", "Nil", Nil)
         ),
         Def.Function(
           "head",
@@ -130,7 +130,7 @@ object Main:
             "Cons",
             Expr.Local(0),
             Expr.Con("IntOption", "Some", List(Expr.Local(1))),
-            Some(Expr.Con("IntOption", "None", List()))
+            Some(Expr.Con("IntOption", "None", Nil))
           )
         ),
         Def.Function(
@@ -149,20 +149,20 @@ object Main:
                 Expr.Global("inc", List(Expr.Local(2)))
               )
             ),
-            Some(Expr.Con("IntList", "Nil", List()))
+            Some(Expr.Con("IntList", "Nil", Nil))
           )
         ),
         Def.Data(
           "IntOption",
           List(
-            Constructor("None", List()),
+            Constructor("None", Nil),
             Constructor("Some", List((Some("value"), Type.Int)))
           )
         ),
         Def.Data(
           "IntList",
           List(
-            Constructor("Nil", List()),
+            Constructor("Nil", Nil),
             Constructor(
               "Cons",
               List(
@@ -174,10 +174,10 @@ object Main:
         ),
         Def.Data(
           "B",
-          List(Constructor("T", List()), Constructor("F", List()))
+          List(Constructor("T", Nil), Constructor("F", Nil))
         ),
-        Def.Data("Void", List()),
-        Def.Record("Unit", List()),
+        Def.Data("Void", Nil),
+        Def.Record("Unit", Nil),
         Def.Record(
           "IntPair",
           List((Some("fst"), Type.Int), (Some("snd"), Type.Int))
@@ -201,4 +201,44 @@ object Main:
         )
       )
     )
-    JVM.generateBytecode(testModule)
+    // JVM.generateBytecode(testModule)
+    val irModule = IR.Module(
+      "testmodule",
+      List(
+        IR.Def.Value(
+          "def1",
+          IR.TypeDef(List(IR.Type.Int, IR.Type.Int), IR.Type.Int),
+          IR.Expr.Lam(
+            IR.Type.Int,
+            IR.Expr.Lam(
+              IR.Type.Int,
+              IR.Expr.App(
+                IR.Expr.App(IR.Expr.Global("f"), IR.Expr.Local(1)),
+                IR.Expr.Local(0)
+              )
+            )
+          )
+        ),
+        IR.Def.Value(
+          "def2",
+          IR.TypeDef(List(IR.Type.Int), IR.Type.Int),
+          IR.Expr.Lam(
+            IR.Type.Int,
+            IR.Expr.Let(
+              IR.TypeDef(List(IR.Type.Int), IR.Type.Int),
+              IR.Expr.Lam(IR.Type.Int, IR.Expr.Local(0)),
+              IR.Expr.Let(
+                IR.TypeDef(List(IR.Type.Int), IR.Type.Int),
+                IR.Expr.Local(0),
+                IR.Expr.App(
+                  IR.Expr.Local(0),
+                  IR.Expr.App(IR.Expr.Local(0), IR.Expr.Local(2))
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+    val simplifiedModule = IR.toJVM(irModule)
+    println(simplifiedModule)
