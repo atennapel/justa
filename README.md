@@ -2,5 +2,5 @@
 Programming language targetting the JVM
 
 TODO:
-- next IR layer
+- datatypes and records in IR
 - Reduce duplication in JVM bytecode generation code

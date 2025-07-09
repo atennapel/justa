@@ -1,4 +1,4 @@
-import JVM.{Def, Expr, Module, Type, Constructor}
+import JVM.{Constructor, Def, Expr, Module, Type}
 import org.objectweb.asm.Opcodes.{IADD, IMUL, ISUB}
 
 object Main:
@@ -21,8 +21,8 @@ object Main:
           List(Type.Int, Type.Int),
           Type.Int,
           Expr.Let(
-            Expr.Instr(IADD, List(Expr.Local(0), Expr.Local(1))),
             Type.Int,
+            Expr.Instr(IADD, List(Expr.Local(0), Expr.Local(1))),
             Expr.Instr(IADD, List(Expr.Local(2), Expr.Local(2)))
           )
         ),
@@ -205,6 +205,7 @@ object Main:
     val irModule = IR.Module(
       "testmodule",
       List(
+        /*
         IR.Def.Value(
           "def1",
           IR.TypeDef(List(IR.Type.Int, IR.Type.Int), IR.Type.Int),
@@ -213,7 +214,7 @@ object Main:
             IR.Expr.Lam(
               IR.Type.Int,
               IR.Expr.App(
-                IR.Expr.App(IR.Expr.Global("f"), IR.Expr.Local(1)),
+                IR.Expr.App(IR.Expr.Global("def2"), IR.Expr.Local(1)),
                 IR.Expr.Local(0)
               )
             )
@@ -237,8 +238,166 @@ object Main:
               )
             )
           )
+        ),
+        IR.Def.Value(
+          "def3",
+          IR.TypeDef(Nil, IR.Type.Int),
+          IR.Expr.LetRec(
+            IR.TypeDef(List(IR.Type.Int), IR.Type.Int),
+            IR.Expr.Lam(
+              IR.Type.Int,
+              IR.Expr.App(IR.Expr.Local(1), IR.Expr.Local(0))
+            ),
+            IR.Expr.App(IR.Expr.Local(0), IR.Expr.IntLit(42))
+          )
+        ),*/
+        IR.Def.Value(
+          "isZero",
+          IR.TypeDef(List(IR.Type.Int), IR.Type.Boolean),
+          IR.Expr.Lam(
+            IR.Type.Int,
+            IR.Expr.If(
+              IR.TypeDef(Nil, IR.Type.Boolean),
+              IR.Expr.Local(0, IR.TypeDef(IR.Type.Int)),
+              IR.Expr.BoolLit(false),
+              IR.Expr.BoolLit(true)
+            )
+          )
+        ),
+        IR.Def.Value( // \x => let c = \_ => x; c (c x)
+          "freeTest",
+          IR.TypeDef(List(IR.Type.Int), IR.Type.Int),
+          IR.Expr.Lam(
+            IR.Type.Int,
+            IR.Expr.Let(
+              IR.TypeDef(List(IR.Type.Int), IR.Type.Int),
+              IR.Expr
+                .Lam(IR.Type.Int, IR.Expr.Local(1, IR.TypeDef(IR.Type.Int))),
+              IR.Expr.App(
+                IR.Expr.Local(0, IR.TypeDef(List(IR.Type.Int), IR.Type.Int)),
+                IR.Expr.App(
+                  IR.Expr.Local(0, IR.TypeDef(List(IR.Type.Int), IR.Type.Int)),
+                  IR.Expr.IntLit(42)
+                )
+              )
+            )
+          )
+        ),
+        IR.Def.Value(
+          "fac",
+          IR.TypeDef(List(IR.Type.Int), IR.Type.Int),
+          IR.Expr.Lam(
+            IR.Type.Int,
+            IR.Expr.LetRec(
+              IR.TypeDef(List(IR.Type.Int), IR.Type.Int),
+              IR.Expr.Lam(
+                IR.Type.Int,
+                IR.Expr.If(
+                  IR.TypeDef(Nil, IR.Type.Int),
+                  IR.Expr.App(
+                    IR.Expr.Global("isZero"),
+                    IR.Expr.Local(0, IR.TypeDef(IR.Type.Int))
+                  ),
+                  IR.Expr.IntLit(1),
+                  IR.Expr.Instr(
+                    IMUL,
+                    List(
+                      IR.Expr.Local(0, IR.TypeDef(IR.Type.Int)),
+                      IR.Expr.App(
+                        IR.Expr
+                          .Local(1, IR.TypeDef(List(IR.Type.Int), IR.Type.Int)),
+                        IR.Expr.Instr(
+                          ISUB,
+                          List(
+                            IR.Expr.Local(0, IR.TypeDef(IR.Type.Int)),
+                            IR.Expr.IntLit(1)
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              ),
+              IR.Expr.App(
+                IR.Expr.Local(0, IR.TypeDef(List(IR.Type.Int), IR.Type.Int)),
+                IR.Expr.Local(1, IR.TypeDef(IR.Type.Int))
+              )
+            )
+          )
+        ),
+        /*
+        def fac2 = \n =>
+          let rec go = \n =>
+            if isZero n then
+              \acc => 1
+            else
+              \acc => go (n - 1) (acc * n);
+          go n 1
+         */
+        IR.Def.Value(
+          "fac2",
+          IR.TypeDef(List(IR.Type.Int), IR.Type.Int),
+          IR.Expr.Lam(
+            IR.Type.Int,
+            IR.Expr.LetRec(
+              IR.TypeDef(List(IR.Type.Int, IR.Type.Int), IR.Type.Int),
+              IR.Expr.Lam(
+                IR.Type.Int,
+                IR.Expr.If(
+                  IR.TypeDef(List(IR.Type.Int), IR.Type.Int),
+                  IR.Expr.App(
+                    IR.Expr.Global("isZero"),
+                    IR.Expr.Local(0, IR.TypeDef(IR.Type.Int))
+                  ),
+                  IR.Expr.Lam(
+                    IR.Type.Int,
+                    IR.Expr.Local(0, IR.TypeDef(IR.Type.Int))
+                  ),
+                  IR.Expr.Lam(
+                    IR.Type.Int,
+                    IR.Expr.App(
+                      IR.Expr.App(
+                        IR.Expr.Local(
+                          2,
+                          IR.TypeDef(
+                            List(IR.Type.Int, IR.Type.Int),
+                            IR.Type.Int
+                          )
+                        ),
+                        IR.Expr.Instr(
+                          ISUB,
+                          List(
+                            IR.Expr.Local(1, IR.TypeDef(IR.Type.Int)),
+                            IR.Expr.IntLit(1)
+                          )
+                        )
+                      ),
+                      IR.Expr.Instr(
+                        IMUL,
+                        List(
+                          IR.Expr.Local(0, IR.TypeDef(IR.Type.Int)),
+                          IR.Expr.Local(1, IR.TypeDef(IR.Type.Int))
+                        )
+                      )
+                    )
+                  )
+                )
+              ),
+              IR.Expr.App(
+                IR.Expr.App(
+                  IR.Expr.Local(
+                    0,
+                    IR.TypeDef(List(IR.Type.Int, IR.Type.Int), IR.Type.Int)
+                  ),
+                  IR.Expr.Local(1, IR.TypeDef(IR.Type.Int))
+                ),
+                IR.Expr.IntLit(1)
+              )
+            )
+          )
         )
       )
     )
-    val simplifiedModule = IR.toJVM(irModule)
-    println(simplifiedModule)
+    val jvmModule = IR.toJVM(irModule)
+    println(jvmModule)
+    JVM.generateBytecode(jvmModule)

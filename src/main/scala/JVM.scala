@@ -43,7 +43,7 @@ object JVM:
     case Local(lvl: Lvl)
     case Global(name: Name, args: List[Expr])
 
-    case Let(value: Expr, ty: Type, body: Expr)
+    case Let(ty: Type, value: Expr, body: Expr)
     case Join(params: List[Type], value: Expr, body: Expr)
     case JoinRec(params: List[Type], value: Expr, body: Expr)
     case Jump(lvl: Lvl, args: List[Expr])
@@ -65,7 +65,6 @@ object JVM:
 
     case Instr(opcode: Int, args: List[Expr])
 
-    // temp
     case If(cond: Expr, ifTrue: Expr, ifFalse: Expr)
 
   // bytecode generation
@@ -529,7 +528,7 @@ object JVM:
         args.foreach(gen)
         mg.invokeStatic(moduleCtx.ty, moduleCtx.methods(name))
 
-      case Expr.Let(value, ty, body) =>
+      case Expr.Let(ty, value, body) =>
         val id = mg.newLocal(gen(ty))
         gen(value)
         mg.storeLocal(id)
