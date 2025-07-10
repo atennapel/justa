@@ -2,5 +2,5 @@
 Programming language targetting the JVM
 
 TODO:
-- datatypes and records in IR
+- Start on core language
 - Reduce duplication in JVM bytecode generation code
