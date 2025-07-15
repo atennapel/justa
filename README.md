@@ -2,5 +2,5 @@
 Programming language targetting the JVM
 
 TODO:
-- Start on core language
+- Add datatypes and records in surface language
 - Reduce duplication in JVM bytecode generation code

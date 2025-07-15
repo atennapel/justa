@@ -39,7 +39,7 @@ object IR:
   object TypeDef:
     def apply(ty: Type): TypeDef = TypeDef(Nil, ty)
 
-  type Occ = Map[Ix, (TypeDef, Int)]
+  private type Occ = Map[Ix, (TypeDef, Int)]
 
   enum Expr:
     case Local(ix: Ix, ty: TypeDef)
@@ -186,7 +186,9 @@ object IR:
     }
 
   // to JVM IR
-  final case class Ctx(datatypes: Map[String, Map[String, List[Type]]])
+  final case class Ctx(
+      datatypes: Map[String, Map[String, List[Type]]]
+  )
 
   def toJVM(module: Module): JVM.Module =
     given ctx: Ctx = createCtx(module.defs)

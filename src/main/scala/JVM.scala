@@ -93,6 +93,7 @@ object JVM:
       val name: Name,
       val ty: JType,
       val methods: mutable.Map[String, Method] = mutable.Map.empty,
+      val values: mutable.Map[String, JType] = mutable.Map.empty,
       val datatypes: mutable.Map[String, DatatypeCtx] = mutable.Map.empty,
       val records: mutable.Map[String, RecordCtx] = mutable.Map.empty
   )
@@ -197,6 +198,8 @@ object JVM:
 
   private def updateModuleCtx(defn: Def)(using moduleCtx: ModuleCtx): Unit =
     defn match
+      case Def.Value(name, ty, _) =>
+        moduleCtx.values += (name -> gen(ty))
       case Def.Function(name, params, returnType, _) =>
         val m = new Method(
           name,
@@ -235,7 +238,6 @@ object JVM:
         val constructorMethod =
           new Method("<init>", JType.VOID_TYPE, params.map(_._2).toArray)
         recordCtx.constructor = constructorMethod
-      case _ => ()
 
   private def genStaticBlock(
       defs: List[Def]
@@ -524,6 +526,8 @@ object JVM:
           case Local.Label(_, _) =>
             throw new Exception("tried to retrieve label")
 
+      case Expr.Global(name, Nil) =>
+        mg.getStatic(moduleCtx.ty, name, moduleCtx.values(name))
       case Expr.Global(name, args) =>
         args.foreach(gen)
         mg.invokeStatic(moduleCtx.ty, moduleCtx.methods(name))
