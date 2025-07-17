@@ -10,8 +10,9 @@ import java.io.FileOutputStream
 
 import scala.collection.mutable
 
-object JVM:
-  type Name = String
+object Jvm:
+  import JvmName.Name
+
   type Lvl = Int
 
   final case class Module(name: Name, defs: List[Def])
@@ -92,10 +93,10 @@ object JVM:
   private class ModuleCtx(
       val name: Name,
       val ty: JType,
-      val methods: mutable.Map[String, Method] = mutable.Map.empty,
-      val values: mutable.Map[String, JType] = mutable.Map.empty,
-      val datatypes: mutable.Map[String, DatatypeCtx] = mutable.Map.empty,
-      val records: mutable.Map[String, RecordCtx] = mutable.Map.empty
+      val methods: mutable.Map[Name, Method] = mutable.Map.empty,
+      val values: mutable.Map[Name, JType] = mutable.Map.empty,
+      val datatypes: mutable.Map[Name, DatatypeCtx] = mutable.Map.empty,
+      val records: mutable.Map[Name, RecordCtx] = mutable.Map.empty
   )
 
   private enum Local:
@@ -106,7 +107,7 @@ object JVM:
 
   def generateBytecode(module: Module): Unit =
     given moduleCtx: ModuleCtx =
-      new ModuleCtx(module.name, JType.getType(s"L${module.name};"))
+      new ModuleCtx(module.name, JType.getType(s"L${module.name.escape};"))
 
     given cw: ClassWriter = new ClassWriter(
       ClassWriter.COMPUTE_MAXS + ClassWriter.COMPUTE_FRAMES
@@ -121,7 +122,7 @@ object JVM:
     cw.visit(
       V1_8,
       ACC_PUBLIC + ACC_FINAL,
-      module.name,
+      module.name.escape,
       null,
       "java/lang/Object",
       null
@@ -152,7 +153,7 @@ object JVM:
     // end
     cw.visitEnd()
     val bos = new BufferedOutputStream(
-      new FileOutputStream(s"${module.name}.class")
+      new FileOutputStream(s"${module.name.escape}.class")
     )
     bos.write(cw.toByteArray)
     bos.close()
@@ -175,7 +176,7 @@ object JVM:
     // first ensure all datatypes are known
     defs.foreach {
       case Def.Data(name, _) =>
-        val className = s"${moduleCtx.name}$$$name"
+        val className = s"${moduleCtx.name.escape}$$${name.escape}"
         val descriptor = s"L$className;"
         val ty = JType.getType(descriptor)
         moduleCtx.datatypes += (name -> DatatypeCtx(
@@ -184,7 +185,7 @@ object JVM:
           ty
         ))
       case Def.Record(name, _) =>
-        val className = s"${moduleCtx.name}$$$name"
+        val className = s"${moduleCtx.name.escape}$$${name.escape}"
         val descriptor = s"L$className;"
         val ty = JType.getType(descriptor)
         moduleCtx.records += (name -> RecordCtx(
@@ -202,7 +203,7 @@ object JVM:
         moduleCtx.values += (name -> gen(ty))
       case Def.Function(name, params, returnType, _) =>
         val m = new Method(
-          name,
+          name.escape,
           gen(returnType),
           params.map(gen).toArray
         )
@@ -211,11 +212,12 @@ object JVM:
         // handle constructors
         val datatypeCtx = moduleCtx.datatypes(name)
         constructors.foreach { c =>
-          val conClassName = s"${datatypeCtx.className}$$${c.name}"
+          val conClassName =
+            s"${datatypeCtx.className}$$${c.name.escape}"
           val descriptor = s"L$conClassName;"
           val ty = JType.getType(descriptor)
           val params = c.parameters.zipWithIndex.map { case ((x, t), i) =>
-            (x.getOrElse(s"p$i"), gen(t))
+            (x.getOrElse(JvmName(s"p$i")), gen(t))
           }
           val constructorMethod =
             new Method("<init>", JType.VOID_TYPE, params.map(_._2).toArray)
@@ -231,7 +233,7 @@ object JVM:
         // handle fields
         val recordCtx = moduleCtx.records(name)
         val params = fields.zipWithIndex.map { case ((x, t), i) =>
-          val pair = (x.getOrElse(s"p$i"), gen(t))
+          val pair = (x.getOrElse(JvmName(s"p$i")), gen(t))
           recordCtx.fields += pair
           pair
         }
@@ -255,7 +257,7 @@ object JVM:
         given locals: Locals = Nil
         ds.foreach { case (name, ty, value) =>
           gen(value)
-          mg.putStatic(moduleCtx.ty, name, gen(ty))
+          mg.putStatic(moduleCtx.ty, name.escape, gen(ty))
         }
         mg.visitInsn(RETURN)
         mg.endMethod()
@@ -269,7 +271,7 @@ object JVM:
       case Def.Value(name, ty, value) =>
         cw.visitField(
           ACC_PUBLIC + ACC_FINAL + ACC_STATIC,
-          name,
+          name.escape,
           gen(ty).getDescriptor,
           null,
           constantValue(value).orNull
@@ -329,7 +331,7 @@ object JVM:
           datacw.visitInnerClass(
             conctx.className,
             className,
-            c.name,
+            c.name.escape,
             ACC_PUBLIC + ACC_STATIC + ACC_FINAL
           )
         }
@@ -338,8 +340,8 @@ object JVM:
         datacw.visitEnd()
         cw.visitInnerClass(
           className,
-          moduleCtx.name,
-          name,
+          moduleCtx.name.escape,
+          name.escape,
           ACC_PUBLIC + ACC_ABSTRACT + ACC_STATIC
         )
         val bos = new BufferedOutputStream(
@@ -369,7 +371,7 @@ object JVM:
         params.foreach { (x, ty, _) =>
           recordcw.visitField(
             ACC_PUBLIC + ACC_FINAL,
-            x,
+            x.escape,
             ty.getDescriptor,
             null,
             null
@@ -389,7 +391,7 @@ object JVM:
         params.foreach { (x, ty, i) =>
           mg.loadThis()
           mg.loadArg(i)
-          mg.putField(recordctx.ty, x, ty)
+          mg.putField(recordctx.ty, x.escape, ty)
         }
         mg.visitInsn(RETURN)
         mg.visitMaxs(1, 1)
@@ -419,8 +421,8 @@ object JVM:
         recordcw.visitEnd()
         cw.visitInnerClass(
           className,
-          moduleCtx.name,
-          name,
+          moduleCtx.name.escape,
+          name.escape,
           ACC_PUBLIC + ACC_ABSTRACT + ACC_STATIC
         )
         val bos = new BufferedOutputStream(
@@ -454,7 +456,7 @@ object JVM:
     params.foreach { (x, ty, _) =>
       cw.visitField(
         ACC_PUBLIC + ACC_FINAL,
-        x,
+        x.escape,
         ty.getDescriptor,
         null,
         null
@@ -482,7 +484,7 @@ object JVM:
     params.foreach { (x, ty, i) =>
       mg.loadThis()
       mg.loadArg(i)
-      mg.putField(conCtx.ty, x, ty)
+      mg.putField(conCtx.ty, x.escape, ty)
     }
     mg.visitInsn(RETURN)
     mg.visitMaxs(1, 1)
@@ -527,7 +529,7 @@ object JVM:
             throw new Exception("tried to retrieve label")
 
       case Expr.Global(name, Nil) =>
-        mg.getStatic(moduleCtx.ty, name, moduleCtx.values(name))
+        mg.getStatic(moduleCtx.ty, name.escape, moduleCtx.values(name))
       case Expr.Global(name, args) =>
         args.foreach(gen)
         mg.invokeStatic(moduleCtx.ty, moduleCtx.methods(name))
@@ -597,7 +599,7 @@ object JVM:
               val paramlocals = conctx.params.map { (x, ty) =>
                 mg.dup()
                 val local = mg.newLocal(ty)
-                mg.getField(conctx.ty, x, ty)
+                mg.getField(conctx.ty, x.escape, ty)
                 mg.storeLocal(local)
                 Local.Local(local)
               }
@@ -617,7 +619,7 @@ object JVM:
               val paramlocals = conctx.params.map { (x, ty) =>
                 mg.dup()
                 val local = mg.newLocal(ty)
-                mg.getField(conctx.ty, x, ty)
+                mg.getField(conctx.ty, x.escape, ty)
                 mg.storeLocal(local)
                 Local.Local(local)
               }
@@ -637,9 +639,9 @@ object JVM:
         val recordctx = moduleCtx.records(name)
         gen(scrut)
         val (x, t) = ix match
-          case Left(x)  => recordctx.fields.find((y, t) => x == y).get
+          case Left(x)  => recordctx.fields.find((y, _) => x == y).get
           case Right(i) => recordctx.fields(i)
-        mg.getField(recordctx.ty, x, t)
+        mg.getField(recordctx.ty, x.escape, t)
 
       case Expr.Instr(opcode, args) =>
         args.foreach(gen)

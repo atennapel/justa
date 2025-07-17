@@ -17,5 +17,5 @@ object Main:
       """
     val module = Surface.parse("TestModule", script)
     val irModule = Surface.elaborate(module)
-    val jvmModule = IR.toJVM(irModule)
-    JVM.generateBytecode(jvmModule)
+    val jvmModule = IR.toJvm(irModule)
+    Jvm.generateBytecode(jvmModule)

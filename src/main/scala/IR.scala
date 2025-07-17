@@ -190,10 +190,10 @@ object IR:
       datatypes: Map[String, Map[String, List[Type]]]
   )
 
-  def toJVM(module: Module): JVM.Module =
+  def toJvm(module: Module): Jvm.Module =
     given ctx: Ctx = createCtx(module.defs)
-    val newdefs = module.defs.flatMap(toJVM)
-    JVM.Module(module.name, newdefs)
+    val newdefs = module.defs.flatMap(toJvm)
+    Jvm.Module(JvmName(module.name), newdefs)
 
   private def createCtx(defs: List[IR.Def]): Ctx =
     Ctx(defs.flatMap {
@@ -202,26 +202,34 @@ object IR:
       case _ => None
     }.toMap)
 
-  private type EmitDef = (Name => JVM.Def) => Name
+  private type EmitDef = (Name => Jvm.Def) => Name
 
-  private def toJVM(defn: Def)(using ctx: Ctx): List[JVM.Def] = defn match
+  private def toJvm(defn: Def)(using ctx: Ctx): List[Jvm.Def] = defn match
     case Def.Data(x, cs) =>
       List(
-        JVM.Def.Data(
-          x,
+        Jvm.Def.Data(
+          JvmName(x),
           cs.map(c =>
-            JVM.Constructor(c.name, c.parameters.map((x, t) => (x, toJVM(t))))
+            Jvm.Constructor(
+              JvmName(c.name),
+              c.parameters.map((x, t) => (x.map(JvmName.apply), toJvm(t)))
+            )
           )
         )
       )
     case Def.Record(x, fields) =>
-      List(JVM.Def.Record(x, fields.map((x, t) => (x, toJVM(t)))))
+      List(
+        Jvm.Def.Record(
+          JvmName(x),
+          fields.map((x, t) => (x.map(JvmName.apply), toJvm(t)))
+        )
+      )
     case Def.Value(name, ty, value) =>
       // println(s"===simplify $name===")
       val simplified = simplifyTopLevelUntilDone(eta(ty, value))
-      val liftedDefs: mutable.ArrayBuffer[JVM.Def] = mutable.ArrayBuffer.empty
+      val liftedDefs: mutable.ArrayBuffer[Jvm.Def] = mutable.ArrayBuffer.empty
       given emitDef: EmitDef = k => {
-        val x = s"$name$$${liftedDefs.size}"
+        val x = s"${name}_lifted_${liftedDefs.size}"
         liftedDefs += k(x)
         x
       }
@@ -229,27 +237,27 @@ object IR:
       val lifted = lift(removeLams(simplified), ty.params.size, true, Set.empty)
       val defn =
         if ty.params.isEmpty then
-          JVM.Def.Value(name, toJVM(ty.returnty), lifted)
+          Jvm.Def.Value(JvmName(name), toJvm(ty.returnty), lifted)
         else
-          JVM.Def.Function(
-            name,
-            ty.params.map(toJVM),
-            toJVM(ty.returnty),
+          Jvm.Def.Function(
+            JvmName(name),
+            ty.params.map(toJvm),
+            toJvm(ty.returnty),
             lifted
           )
       defn :: liftedDefs.toList
 
-  private def toJVM(ty: Type): JVM.Type = ty match
-    case Type.Boolean   => JVM.Type.Boolean
-    case Type.Byte      => JVM.Type.Byte
-    case Type.Char      => JVM.Type.Char
-    case Type.Short     => JVM.Type.Short
-    case Type.Int       => JVM.Type.Int
-    case Type.Long      => JVM.Type.Long
-    case Type.Float     => JVM.Type.Float
-    case Type.Double    => JVM.Type.Double
-    case Type.Data(x)   => JVM.Type.Data(x)
-    case Type.Record(x) => JVM.Type.Record(x)
+  private def toJvm(ty: Type): Jvm.Type = ty match
+    case Type.Boolean   => Jvm.Type.Boolean
+    case Type.Byte      => Jvm.Type.Byte
+    case Type.Char      => Jvm.Type.Char
+    case Type.Short     => Jvm.Type.Short
+    case Type.Int       => Jvm.Type.Int
+    case Type.Long      => Jvm.Type.Long
+    case Type.Float     => Jvm.Type.Float
+    case Type.Double    => Jvm.Type.Double
+    case Type.Data(x)   => Jvm.Type.Data(JvmName(x))
+    case Type.Record(x) => Jvm.Type.Record(JvmName(x))
 
   // simplification:
   // - remove dead lets
@@ -342,9 +350,9 @@ object IR:
               Some(Expr.LetRec(ty, eta(ty, value), body))
             else None
 
-      case Expr.If(ty, Expr.BoolLit(true), t, _)  => Some(t)
-      case Expr.If(ty, Expr.BoolLit(false), _, f) => Some(f)
-      case Expr.If(ty, c, t, f)                   =>
+      case Expr.If(_, Expr.BoolLit(true), t, _)  => Some(t)
+      case Expr.If(_, Expr.BoolLit(false), _, f) => Some(f)
+      case Expr.If(ty, c, t, f)                  =>
         simplifyN(List(c, t, f)) match
           case Some(List(c, t, f)) => Some(Expr.If(ty, c, t, f))
           case _                   => None
@@ -362,8 +370,6 @@ object IR:
         })
       case Expr.Case(_, _, _, Expr.Con(_, _, _), _, o) => o
       case Expr.Case(ty, dx, cx, s, b, o)              =>
-        val ps = ctx.datatypes(dx)(cx)
-        val p = ps.size
         (simplify2(s, b), o.flatMap(simplify)) match
           case (None, None)      => None
           case (None, o)         => Some(Expr.Case(ty, dx, cx, s, b, o))
@@ -386,11 +392,13 @@ object IR:
     else Some(results.zip(args).map((o, d) => o.getOrElse(d)))
 
   private def isSmall(expr: IR.Expr): Boolean = expr match
-    case Expr.Local(_, _) => true
-    case Expr.Global(_)   => true
-    case Expr.IntLit(_)   => true
-    case Expr.BoolLit(_)  => true
-    case _                => false
+    case Expr.Local(_, _)       => true
+    case Expr.Global(_)         => true
+    case Expr.IntLit(_)         => true
+    case Expr.BoolLit(_)        => true
+    case Expr.Con(_, _, Nil)    => true
+    case Expr.RecordCon(_, Nil) => true
+    case _                      => false
 
   @tailrec
   private def isEtaExpanded(n: Int, expr: IR.Expr): Boolean =
@@ -440,15 +448,15 @@ object IR:
   )(using
       emitDef: EmitDef,
       ctx: Ctx
-  ): JVM.Expr =
+  ): Jvm.Expr =
     expr match
       case Expr.Local(ix, _) =>
         val l = lvl - ix - 1
-        if jumps.contains(l) then JVM.Expr.Jump(l, Nil)
-        else JVM.Expr.Local(l)
-      case Expr.Global(x)  => JVM.Expr.Global(x, Nil)
-      case Expr.IntLit(v)  => JVM.Expr.IntLit(v)
-      case Expr.BoolLit(v) => JVM.Expr.BoolLit(v)
+        if jumps.contains(l) then Jvm.Expr.Jump(l, Nil)
+        else Jvm.Expr.Local(l)
+      case Expr.Global(x)  => Jvm.Expr.Global(JvmName(x), Nil)
+      case Expr.IntLit(v)  => Jvm.Expr.IntLit(v)
+      case Expr.BoolLit(v) => Jvm.Expr.BoolLit(v)
 
       case Expr.Lam(_, _) => throw new Exception("unexpected lambda")
 
@@ -456,32 +464,36 @@ object IR:
         val (hd, args) = flattenApp(app)
         hd match
           case Expr.Global(x) =>
-            JVM.Expr.Global(x, args.map(lift(_, lvl, false, jumps)))
+            Jvm.Expr.Global(JvmName(x), args.map(lift(_, lvl, false, jumps)))
           case Expr.Local(ix, _) =>
             val l = lvl - ix - 1
             if jumps.contains(l) then
-              JVM.Expr.Jump(l, args.map(lift(_, lvl, false, jumps)))
+              Jvm.Expr.Jump(l, args.map(lift(_, lvl, false, jumps)))
             else throw new Exception("local in head position")
           case _ => throw new Exception("invalid fn in app")
 
       case Expr.Instr(opcode, args) =>
-        JVM.Expr.Instr(opcode, args.map(lift(_, lvl, false, jumps)))
+        Jvm.Expr.Instr(opcode, args.map(lift(_, lvl, false, jumps)))
       case Expr.Con(dx, cx, args) =>
-        JVM.Expr.Con(dx, cx, args.map(lift(_, lvl, false, jumps)))
+        Jvm.Expr.Con(
+          JvmName(dx),
+          JvmName(cx),
+          args.map(lift(_, lvl, false, jumps))
+        )
       case Expr.RecordCon(dx, args) =>
-        JVM.Expr.RecordCon(dx, args.map(lift(_, lvl, false, jumps)))
+        Jvm.Expr.RecordCon(JvmName(dx), args.map(lift(_, lvl, false, jumps)))
 
       case Expr.Let(ty, value, body)
           if tail && isUsedInTailOnly(0, body, true) =>
-        JVM.Expr.Join(
-          ty.params.map(toJVM),
+        Jvm.Expr.Join(
+          ty.params.map(toJvm),
           lift(removeLams(value), lvl + ty.params.size, false, jumps),
           lift(body, lvl + 1, tail, jumps + lvl)
         )
 
       case Expr.Let(TypeDef(Nil, ty), value, body) =>
-        JVM.Expr.Let(
-          toJVM(ty),
+        Jvm.Expr.Let(
+          toJvm(ty),
           lift(value, lvl, false, jumps),
           lift(body, lvl + 1, tail, jumps)
         )
@@ -494,10 +506,10 @@ object IR:
             ren.foldLeft(value) { case (v, ((ix, (ty, _)), newix)) =>
               v.subst(ix, Expr.Local(newix, ty))
             }
-          JVM.Def.Function(
-            x,
-            newparams.map(p => toJVM(p._2._1.get)) ++ ty.params.map(toJVM),
-            toJVM(ty.returnty),
+          Jvm.Def.Function(
+            JvmName(x),
+            newparams.map(p => toJvm(p._2._1.get)) ++ ty.params.map(toJvm),
+            toJvm(ty.returnty),
             lift(
               removeLams(newvalue),
               ty.params.size + newparams.size,
@@ -515,8 +527,8 @@ object IR:
       case Expr.LetRec(ty, value, body)
           if tail && isUsedInTailOnly(0, value, true) &&
             isUsedInTailOnly(0, body, true) =>
-        JVM.Expr.JoinRec(
-          ty.params.map(toJVM),
+        Jvm.Expr.JoinRec(
+          ty.params.map(toJvm),
           lift(removeLams(value), lvl + ty.params.size + 1, false, jumps + lvl),
           lift(body, lvl + 1, tail, jumps + lvl)
         )
@@ -533,10 +545,10 @@ object IR:
           val newbody = ren.foldLeft(body) { case (v, ((ix, (ty, _)), newix)) =>
             v.subst(ix, Expr.Local(newix, ty))
           }
-          JVM.Def.Function(
-            x,
-            newparams.map(p => toJVM(p._2._1.get)) ++ ty.params.map(toJVM),
-            toJVM(ty.returnty),
+          Jvm.Def.Function(
+            JvmName(x),
+            newparams.map(p => toJvm(p._2._1.get)) ++ ty.params.map(toJvm),
+            toJvm(ty.returnty),
             lift(
               removeLams(newbody),
               ty.params.size + newparams.size,
@@ -548,7 +560,7 @@ object IR:
         lift(body.beta(call(x)), lvl, tail, jumps)
 
       case Expr.If(TypeDef(Nil, _), s, t, f) =>
-        JVM.Expr.If(
+        Jvm.Expr.If(
           lift(s, lvl, false, jumps),
           lift(t, lvl, tail, jumps),
           lift(f, lvl, tail, jumps)
@@ -556,13 +568,13 @@ object IR:
       case Expr.If(_, _, _, _) => throw new Exception("non-lifted if")
 
       case Expr.Field(x, s, i) =>
-        JVM.Expr.Field(x, lift(s, lvl, false, jumps), Right(i))
+        Jvm.Expr.Field(JvmName(x), lift(s, lvl, false, jumps), Right(i))
 
       case Expr.Case(_, dx, cx, s, b, o) =>
         val p = ctx.datatypes(dx)(cx).size
-        JVM.Expr.Case(
-          dx,
-          cx,
+        Jvm.Expr.Case(
+          JvmName(dx),
+          JvmName(cx),
           lift(s, lvl, false, jumps),
           lift(b, lvl + p, tail, jumps),
           o.map(lift(_, lvl, tail, jumps))
