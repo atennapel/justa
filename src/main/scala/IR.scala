@@ -69,6 +69,7 @@ object IR:
         body: Expr,
         other: Option[Expr]
     )
+    case CaseVoid(scrut: Expr)
 
     override def toString: String = this match
       case Expr.Local(i, _)            => s"'$i"
@@ -86,6 +87,7 @@ object IR:
       case Expr.Field(x, s, i)      => s"(field $x $s $i)"
       case Expr.Case(_, dx, cx, s, b, None)    => s"(case $dx $cx $s $b)"
       case Expr.Case(_, dx, cx, s, b, Some(o)) => s"(case $dx $cx $s $b $o)"
+      case Expr.CaseVoid(s)                    => s"(case $s)"
 
     def shift(c: Int, d: Int)(using ctx: Ctx): Expr = this match
       case l @ Expr.Local(i, ty) => if i < c then l else Expr.Local(i + d, ty)
@@ -116,6 +118,7 @@ object IR:
           b.shift(c + ctx.datatypes(dx)(cx).size, d),
           o.map(_.shift(c, d))
         )
+      case Expr.CaseVoid(s) => Expr.CaseVoid(s.shift(c, d))
 
     def subst(i: Ix, v: Expr)(using ctx: Ctx): Expr = this match
       case loc @ Expr.Local(j, _) => if j == i then v else loc
@@ -156,6 +159,7 @@ object IR:
           b.subst(i + p, v.shift(0, p)),
           o.map(_.subst(i, v))
         )
+      case Expr.CaseVoid(s) => Expr.CaseVoid(s.subst(i, v))
 
     def beta(arg: Expr)(using ctx: Ctx): Expr =
       subst(0, arg.shift(0, 1)).shift(0, -1)
@@ -183,6 +187,7 @@ object IR:
             merge(s.free, leaveN(p, b.free)),
             o.map(_.free).getOrElse(Map.empty)
           )
+        case Expr.CaseVoid(s) => s.free
     }
 
   // to JVM IR
@@ -317,6 +322,8 @@ object IR:
             )
           )
         )
+      case Expr.App(v @ Expr.CaseVoid(_), _) =>
+        Some(v) // TODO: now the arg is not evaluated, is that a problem?
       case Expr.App(fn, arg) =>
         simplify2(fn, arg).map(Expr.App.apply)
 
@@ -374,6 +381,8 @@ object IR:
           case (None, None)      => None
           case (None, o)         => Some(Expr.Case(ty, dx, cx, s, b, o))
           case (Some((s, b)), o) => Some(Expr.Case(ty, dx, cx, s, b, o))
+
+      case Expr.CaseVoid(s) => simplify(s).map(Expr.CaseVoid.apply)
 
   private def simplify2(a: Expr, b: Expr)(using
       ctx: Ctx
@@ -580,6 +589,8 @@ object IR:
           o.map(lift(_, lvl, tail, jumps))
         )
 
+      case Expr.CaseVoid(s) => Jvm.Expr.CaseVoid(lift(s, lvl, false, jumps))
+
   @tailrec
   private def removeLams(expr: Expr): Expr = expr match
     case Expr.Lam(_, body) => removeLams(body)
@@ -623,6 +634,8 @@ object IR:
         val p = ctx.datatypes(dx)(cx).size
         isUsedInTailOnly(ix, s, false) && isUsedInTailOnly(ix + p, b, tail) && o
           .forall(isUsedInTailOnly(ix, _, tail))
+
+      case Expr.CaseVoid(s) => isUsedInTailOnly(ix, s, false)
 
       case Expr.Lam(_, body)        => isUsedInTailOnly(ix + 1, body, tail)
       case Expr.Let(_, value, body) =>

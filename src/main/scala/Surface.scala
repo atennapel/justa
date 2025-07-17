@@ -3,15 +3,7 @@ import scala.collection.mutable
 object Surface:
   type Name = String
 
-  enum Type:
-    case Boolean
-    case Byte
-    case Char
-    case Short
-    case Int
-    case Long
-    case Float
-    case Double
+  final case class Type(name: Name)
 
   final case class TypeDef(params: List[Type], rty: Type)
 
@@ -29,20 +21,47 @@ object Surface:
 
     case Instr(opcode: Int, args: List[Expr])
 
+    case Con(datatype: Option[Name], name: Name, args: List[Expr])
+    case RecordCon(dx: Option[Name], args: List[Expr])
+
+    case Field(scrut: Expr, ix: Either[Name, Int])
+    case Case(scrut: Expr, cases: List[(Option[Name], List[Name], Expr)])
+
+  final case class Constructor(
+      name: Name,
+      parameters: List[(Option[Name], Type)]
+  )
+
   enum Def:
     case Value(name: Name, ty: Option[TypeDef], value: Expr)
+    case Data(name: Name, constructors: List[Constructor])
+    case Record(name: Name, fields: List[(Option[Name], Type)])
 
   final case class Module(name: Name, defs: List[Def])
 
   // elaboration
+  private enum DataKind:
+    case ADT
+    case Record
+
   private final case class Ctx(
       globals: Map[Name, IR.TypeDef],
-      env: List[(Name, IR.TypeDef)]
+      env: List[(Name, IR.TypeDef)],
+      types: Map[Name, DataKind],
+      recordparams: Map[Name, List[(Option[Name], IR.Type)]],
+      dataparams: Map[Name, Map[Name, List[IR.Type]]]
   ):
-    def bindGlobal(x: Name, ty: IR.TypeDef): Ctx = Ctx(globals + (x -> ty), env)
-    def bind(x: Name, ty: IR.TypeDef): Ctx = Ctx(globals, (x, ty) :: env)
+    def bindGlobal(x: Name, ty: IR.TypeDef): Ctx =
+      copy(globals = globals + (x -> ty))
+    def bind(x: Name, ty: IR.TypeDef): Ctx = copy(env = (x, ty) :: env)
+    def bindType(x: Name, kind: DataKind): Ctx =
+      copy(types = types + (x -> kind))
+    def setRecordParams(x: Name, ps: List[(Option[Name], IR.Type)]): Ctx =
+      copy(recordparams = recordparams + (x -> ps))
+    def setDataParams(x: Name, ps: Map[Name, List[IR.Type]]): Ctx =
+      copy(dataparams = dataparams + (x -> ps))
   private object Ctx:
-    def empty: Ctx = Ctx(Map.empty, Nil)
+    def empty: Ctx = Ctx(Map.empty, Nil, Map.empty, Map.empty, Map.empty)
 
   def elaborate(mod: Module): IR.Module =
     var globalCtx: Ctx = Ctx.empty
@@ -59,20 +78,45 @@ object Surface:
         given localCtx: Ctx = ctx
         val (evalue, ety) = inferValue(ty, value)
         (ctx.bindGlobal(x, ety), IR.Def.Value(x, ety, evalue))
+      case Def.Data(x, cons) =>
+        given localCtx: Ctx = ctx.bindType(x, DataKind.ADT)
+        val econs = cons.map { case Constructor(x, params) =>
+          IR.Constructor(x, params.map((x, t) => (x, elaborate(t))))
+        }
+        (
+          localCtx.setDataParams(
+            x,
+            econs.map(c => (c.name, c.parameters.map(_._2))).toMap
+          ),
+          IR.Def.Data(x, econs)
+        )
+      case Def.Record(x, fields) =>
+        given localCtx: Ctx = ctx.bindType(x, DataKind.Record)
+        val efields = fields.map((x, t) => (x, elaborate(t)))
+        (
+          localCtx.setRecordParams(x, efields),
+          IR.Def.Record(x, efields)
+        )
 
-  private def elaborate(ty: TypeDef): IR.TypeDef =
+  private def elaborate(ty: TypeDef)(using ctx: Ctx): IR.TypeDef =
     IR.TypeDef(ty.params.map(elaborate), elaborate(ty.rty))
 
-  private def elaborate(ty: Type): IR.Type =
-    ty match
-      case Type.Boolean => IR.Type.Boolean
-      case Type.Byte    => IR.Type.Byte
-      case Type.Char    => IR.Type.Char
-      case Type.Short   => IR.Type.Short
-      case Type.Int     => IR.Type.Int
-      case Type.Long    => IR.Type.Long
-      case Type.Float   => IR.Type.Float
-      case Type.Double  => IR.Type.Double
+  private def elaborate(ty: Type)(using ctx: Ctx): IR.Type =
+    val x = ty.name
+    ctx.types.get(x) match
+      case Some(DataKind.ADT)    => IR.Type.Data(x)
+      case Some(DataKind.Record) => IR.Type.Record(x)
+      case None                  =>
+        x match
+          case "Boolean" => IR.Type.Boolean
+          case "Byte"    => IR.Type.Byte
+          case "Char"    => IR.Type.Char
+          case "Short"   => IR.Type.Short
+          case "Int"     => IR.Type.Int
+          case "Long"    => IR.Type.Long
+          case "Float"   => IR.Type.Float
+          case "Double"  => IR.Type.Double
+          case x         => throw new Exception(s"undefined type $x")
 
   private def inferValue(ty: Option[TypeDef], value: Expr)(using
       ctx: Ctx
@@ -112,6 +156,23 @@ object Surface:
       case Expr.Instr(op, args) =>
         val eargs = args.map(a => infer(a)._1)
         IR.Expr.Instr(op, eargs)
+
+      case Expr.Con(None, cx, args) =>
+        exty match
+          case IR.TypeDef(Nil, IR.Type.Data(dx)) => inferCon(dx, cx, args)
+          case _                                 =>
+            throw new Exception(
+              s"cannot check data constructor against $exty"
+            )
+      case Expr.RecordCon(None, args) =>
+        exty match
+          case IR.TypeDef(Nil, IR.Type.Record(x)) => inferRecordCon(x, args)
+          case _                                  =>
+            throw new Exception(
+              s"cannot check record constructor against $exty"
+            )
+
+      case Expr.Case(scrut, cases) => inferCase(scrut, cases, Some(exty))._1
 
       case expr =>
         val (ie, ity) = infer(expr)
@@ -162,6 +223,137 @@ object Surface:
       case Expr.Instr(n, _) =>
         throw new Exception(s"cannot infer instruction $n")
 
+      case Expr.Con(None, cx, _) =>
+        throw new Exception(s"cannot infer con $cx without datatype")
+      case Expr.Con(Some(dx), cx, args) =>
+        (inferCon(dx, cx, args), IR.TypeDef(IR.Type.Data(dx)))
+      case Expr.RecordCon(None, _) =>
+        throw new Exception(
+          "cannot infer record constructor without record type"
+        )
+      case Expr.RecordCon(Some(x), args) =>
+        (inferRecordCon(x, args), IR.TypeDef(IR.Type.Record(x)))
+
+      case Expr.Field(scrut, ix) =>
+        val (escrut, scrutty) = infer(scrut)
+        scrutty match
+          case IR.TypeDef(Nil, IR.Type.Record(x)) =>
+            val ps = ctx.recordparams(x)
+            val i = ix match
+              case Left(px) =>
+                ps.zipWithIndex.find {
+                  case ((Some(y), _), _) if px == y => true
+                  case _                            => false
+                } match
+                  case Some((_, i)) => i
+                  case None => throw new Exception(s"field $px not found in $x")
+              case Right(i) =>
+                if i < 0 || i > ps.size then
+                  throw new Exception(s"field index out of range: $i")
+                else i
+            (IR.Expr.Field(x, escrut, i), IR.TypeDef(ps(i)._2))
+          case _ =>
+            throw new Exception(
+              s"expected record type in field but got $scrutty"
+            )
+
+      case Expr.Case(scrut, cases) => inferCase(scrut, cases, None)
+
+  private def inferRecordCon(x: Name, args: List[Expr])(using
+      ctx: Ctx
+  ): IR.Expr =
+    ctx.recordparams.get(x) match
+      case None     => throw new Exception(s"undefined record $x")
+      case Some(ps) =>
+        val eargs =
+          args.zip(ps).map { case (e, (_, t)) => check(e, IR.TypeDef(t)) }
+        IR.Expr.RecordCon(x, eargs)
+
+  private def inferCon(dx: Name, cx: Name, args: List[Expr])(using
+      ctx: Ctx
+  ): IR.Expr =
+    ctx.dataparams.get(dx) match
+      case None     => throw new Exception(s"undefined data type $dx")
+      case Some(cs) =>
+        cs.get(cx) match
+          case None =>
+            throw new Exception(
+              s"undefined constructor $cx in data type $dx"
+            )
+          case Some(ps) =>
+            val eargs = args.zip(ps).map((e, t) => check(e, IR.TypeDef(t)))
+            IR.Expr.Con(dx, cx, eargs)
+
+  private def inferCase(
+      scrut: Expr,
+      cases: List[(Option[Name], List[Name], Expr)],
+      exty: Option[IR.TypeDef]
+  )(using ctx: Ctx): (IR.Expr, IR.TypeDef) =
+    val (escrut, scrutty) = infer(scrut)
+    scrutty match
+      case IR.TypeDef(Nil, IR.Type.Data(dx)) =>
+        val xs = cases.map((x, _, _) => x.getOrElse("_"))
+        if xs.init.contains("_") then
+          throw new Exception("_ can only be last in a case expression")
+        else if xs.size != xs.toSet.size then
+          throw new Exception("duplicates in case expression")
+        else
+          val cons = ctx.dataparams(dx)
+          if cons.isEmpty then
+            if cases.nonEmpty then
+              throw new Exception("duplicates in case expression")
+            else throw new Exception("cannot infer case")
+          else if cases.isEmpty then
+            throw new Exception("no cases in case expression")
+          else
+            var ty: Option[IR.TypeDef] = exty
+            val other = cases.last match
+              case (None, _, body) =>
+                ty match
+                  case None =>
+                    val (ebody, rty) = infer(body)
+                    ty = Some(rty)
+                    Some(ebody)
+                  case Some(exty) =>
+                    Some(check(body, exty))
+              case _ => None
+            if other.isDefined && cases.size == 1 then
+              throw new Exception("cannot have only _ case")
+            val expr =
+              (if other.isDefined then cases.init else cases)
+                .foldRight(
+                  other
+                ) {
+                  case ((Some(cx), ps, body), rest) =>
+                    val tps = cons.get(cx) match
+                      case None =>
+                        throw new Exception(s"invalid $cx in case")
+                      case Some(ps) => ps
+                    if ps.size != tps.size then
+                      throw new Exception(
+                        s"parameter amount mismatch in case"
+                      )
+                    val localctx = ps.zip(tps).foldLeft(ctx) {
+                      case (ctx, (x, ty)) => ctx.bind(x, IR.TypeDef(ty))
+                    }
+                    val ebody = ty match
+                      case None =>
+                        val (ebody, rty) = infer(body)(using localctx)
+                        ty = Some(rty)
+                        ebody
+                      case Some(ty) =>
+                        check(body, ty)(using localctx)
+                    Some(IR.Expr.Case(ty.get, dx, cx, escrut, ebody, rest))
+                  case _ =>
+                    throw new Exception("impossible")
+                }
+                .get
+            (expr, ty.get)
+      case _ =>
+        throw new Exception(
+          s"expected data type in case but got $scrutty"
+        )
+
   // parsing
   private enum S:
     case Call(items: List[S])
@@ -178,8 +370,26 @@ object Surface:
         Def.Value(x, None, parseExpr(value))
       case S.Call(List(S.Atom("def"), S.Atom(x), ty, value)) =>
         Def.Value(x, Some(parseTypeDef(ty)), parseExpr(value))
+      case S.Call(S.Atom("data") :: S.Atom(x) :: consS) =>
+        val cons = consS.map(parseConstructor)
+        Def.Data(x, cons)
+      case S.Call(S.Atom("record") :: S.Atom(x) :: fieldsS) =>
+        val fields = fieldsS.map(parseTypeField)
+        Def.Record(x, fields)
       case _ => throw new Exception("failed to parse def")
     }
+
+  private def parseConstructor(s: S): Constructor =
+    s match
+      case S.Atom(x)               => Constructor(x, Nil)
+      case S.Call(S.Atom(x) :: ts) => Constructor(x, ts.map(parseTypeField))
+      case _ => throw new Exception("failed to parse data constructor")
+
+  private def parseTypeField(s: S): (Option[Name], Type) =
+    s match
+      case a @ S.Atom(_)               => (None, parseType(a))
+      case S.Call(List(S.Atom(x), ty)) => (Some(x), parseType(ty))
+      case _ => throw new Exception("failed to parse type field")
 
   private def parseTypeDef(s: S): TypeDef =
     s match
@@ -190,15 +400,9 @@ object Surface:
 
   private def parseType(s: S): Type =
     s match
-      case S.Atom("Boolean") => Type.Boolean
-      case S.Atom("Byte")    => Type.Byte
-      case S.Atom("Char")    => Type.Char
-      case S.Atom("Short")   => Type.Short
-      case S.Atom("Int")     => Type.Int
-      case S.Atom("Long")    => Type.Long
-      case S.Atom("Float")   => Type.Float
-      case S.Atom("Double")  => Type.Double
-      case _                 => throw new Exception("failed to parse type")
+      case S.Atom(x)   => Type(x)
+      case S.Call(Nil) => Type("Unit")
+      case _           => throw new Exception("failed to parse type")
 
   private def parseExpr(s: S): Expr =
     s match
@@ -231,10 +435,38 @@ object Surface:
         op.toIntOption match
           case None     => throw new Exception(s"invalid instruction $op")
           case Some(op) => Expr.Instr(op, args.map(parseExpr))
+      case S.Call(S.Atom("rec") :: S.Atom(x) :: args) =>
+        Expr.RecordCon(Some(x), args.map(parseExpr))
+      case S.Call(S.Atom("rec_") :: args) =>
+        Expr.RecordCon(None, args.map(parseExpr))
+      case S.Call(S.Atom("con") :: S.Atom(dx) :: S.Atom(cx) :: args) =>
+        Expr.Con(Some(dx), cx, args.map(parseExpr))
+      case S.Call(S.Atom("con_") :: S.Atom(cx) :: args) =>
+        Expr.Con(None, cx, args.map(parseExpr))
+      case S.Call(List(S.Atom("field"), S.Atom(x), scrut)) =>
+        x.toIntOption match
+          case None    => Expr.Field(parseExpr(scrut), Left(x))
+          case Some(i) => Expr.Field(parseExpr(scrut), Right(i))
+      case S.Call(S.Atom("case") :: scrut :: cases) =>
+        Expr.Case(parseExpr(scrut), cases.map(parseCase))
       case S.Call(List(hd)) => parseExpr(hd)
       case S.Call(hd :: tl) =>
         (hd :: tl).map(parseExpr).reduceLeft(Expr.App.apply)
-      case _ => throw new Exception("failed to parse expression")
+      case S.Call(Nil) => Expr.RecordCon(None, Nil)
+      case _           => throw new Exception("failed to parse expression")
+
+  private def parseCase(s: S): (Option[Name], List[Name], Expr) =
+    inline def name(x: String): Option[Name] =
+      if x == "_" then None else Some(x)
+    def params(ps: List[S]) = ps.map {
+      case S.Atom(x) => x
+      case _         => throw new Exception("failed to parse case parameters")
+    }
+    s match
+      case S.Call(List(S.Atom(x), body)) => (name(x), Nil, parseExpr(body))
+      case S.Call(List(S.Atom(x), S.Call(ps), body)) =>
+        (name(x), params(ps), parseExpr(body))
+      case _ => throw new Exception("failed to parse case")
 
   private def parseS(s: String): List[S] =
     var i = 0

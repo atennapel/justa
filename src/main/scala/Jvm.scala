@@ -60,6 +60,7 @@ object Jvm:
         body: Expr,
         other: Option[Expr]
     )
+    case CaseVoid(scrut: Expr)
 
     case RecordCon(name: Name, args: List[Expr])
     case Field(name: Name, scrut: Expr, ix: Either[Name, Int])
@@ -357,7 +358,7 @@ object Jvm:
         )
         recordcw.visit(
           V1_8,
-          ACC_PUBLIC + ACC_ABSTRACT,
+          ACC_PUBLIC,
           className,
           null,
           "java/lang/Object",
@@ -423,7 +424,7 @@ object Jvm:
           className,
           moduleCtx.name.escape,
           name.escape,
-          ACC_PUBLIC + ACC_ABSTRACT + ACC_STATIC
+          ACC_PUBLIC + ACC_STATIC
         )
         val bos = new BufferedOutputStream(
           new FileOutputStream(s"$className.class")
@@ -625,6 +626,18 @@ object Jvm:
               }
               mg.pop()
               gen(body)(using locals = locals ++ paramlocals)
+
+      case Expr.CaseVoid(scrut) =>
+        val ty = JType.getType(classOf[Exception])
+        mg.newInstance(ty)
+        mg.dup()
+        gen(scrut)
+        mg.invokeVirtual(
+          JType.getType("Ljava/lang/Object;"),
+          Method.getMethod("String toString()")
+        )
+        mg.invokeConstructor(ty, Method.getMethod("void <init> (String)"))
+        mg.throwException()
 
       case Expr.RecordCon(name, args) =>
         val recordctx = moduleCtx.records(name)
