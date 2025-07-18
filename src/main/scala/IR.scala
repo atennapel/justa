@@ -58,18 +58,20 @@ object IR:
 
     case Instr(opcode: Int, args: List[Expr])
 
-    case Con(datatype: Name, name: Name, args: List[Expr])
     case RecordCon(name: Name, args: List[Expr])
     case Field(name: Name, scrut: Expr, ix: Int)
+
+    case Con(datatype: Name, name: Name, args: List[Expr])
+    case CaseVoid(scrut: Expr)
     case Case(
         ty: TypeDef,
-        datatype: Name,
-        name: Name,
+        dataname: Name,
+        conname: Name,
         scrut: Expr,
         body: Expr,
-        other: Option[Expr]
+        other: Expr
     )
-    case CaseVoid(scrut: Expr)
+    case DataField(dataname: Name, conname: Name, scrut: Expr, ix: Int)
 
     override def toString: String = this match
       case Expr.Local(i, _)            => s"'$i"
@@ -85,11 +87,12 @@ object IR:
       case Expr.Con(d, c, args)     => s"($d $c ${args.mkString(" ")})"
       case Expr.RecordCon(d, args)  => s"($d ${args.mkString(" ")})"
       case Expr.Field(x, s, i)      => s"(field $x $s $i)"
-      case Expr.Case(_, dx, cx, s, b, None)    => s"(case $dx $cx $s $b)"
-      case Expr.Case(_, dx, cx, s, b, Some(o)) => s"(case $dx $cx $s $b $o)"
-      case Expr.CaseVoid(s)                    => s"(case $s)"
+      case Expr.DataField(dx, cx, s, i)  => s"(field $dx $cx $s $i)"
+      case Expr.CaseVoid(s)              => s"(case $s)"
+      case Expr.Case(_, dx, cx, s, b, o) =>
+        s"(case $dx $cx $s $b $o)"
 
-    def shift(c: Int, d: Int)(using ctx: Ctx): Expr = this match
+    def shift(c: Int, d: Int): Expr = this match
       case l @ Expr.Local(i, ty) => if i < c then l else Expr.Local(i + d, ty)
       case g @ Expr.Global(_)    => g
       case i @ Expr.IntLit(_)    => i
@@ -108,19 +111,21 @@ object IR:
         Expr.Con(dx, cx, args.map(_.shift(c, d)))
       case Expr.RecordCon(dx, args) =>
         Expr.RecordCon(dx, args.map(_.shift(c, d)))
-      case Expr.Field(x, s, i)            => Expr.Field(x, s.shift(c, d), i)
+      case Expr.Field(x, s, i)          => Expr.Field(x, s.shift(c, d), i)
+      case Expr.DataField(dx, cx, s, i) =>
+        Expr.DataField(dx, cx, s.shift(c, d), i)
+      case Expr.CaseVoid(s)               => Expr.CaseVoid(s.shift(c, d))
       case Expr.Case(ty, dx, cx, s, b, o) =>
         Expr.Case(
           ty,
           dx,
           cx,
           s.shift(c, d),
-          b.shift(c + ctx.datatypes(dx)(cx).size, d),
-          o.map(_.shift(c, d))
+          b.shift(c + 1, d),
+          o.shift(c + 1, d)
         )
-      case Expr.CaseVoid(s) => Expr.CaseVoid(s.shift(c, d))
 
-    def subst(i: Ix, v: Expr)(using ctx: Ctx): Expr = this match
+    def subst(i: Ix, v: Expr): Expr = this match
       case loc @ Expr.Local(j, _) => if j == i then v else loc
       case g @ Expr.Global(_)     => g
       case i @ Expr.IntLit(_)     => i
@@ -148,23 +153,24 @@ object IR:
         Expr.Con(dx, cx, args.map(_.subst(i, v)))
       case Expr.RecordCon(dx, args) =>
         Expr.RecordCon(dx, args.map(_.subst(i, v)))
-      case Expr.Field(x, s, j)            => Expr.Field(x, s.subst(i, v), j)
+      case Expr.Field(x, s, j)          => Expr.Field(x, s.subst(i, v), j)
+      case Expr.DataField(dx, cx, s, j) =>
+        Expr.DataField(dx, cx, s.subst(i, v), j)
+      case Expr.CaseVoid(s)               => Expr.CaseVoid(s.subst(i, v))
       case Expr.Case(ty, dx, cx, s, b, o) =>
-        val p = ctx.datatypes(dx)(cx).size
         Expr.Case(
           ty,
           dx,
           cx,
           s.subst(i, v),
-          b.subst(i + p, v.shift(0, p)),
-          o.map(_.subst(i, v))
+          b.subst(i + 1, v.shift(0, 1)),
+          o.subst(i + 1, v.shift(0, 1))
         )
-      case Expr.CaseVoid(s) => Expr.CaseVoid(s.subst(i, v))
 
-    def beta(arg: Expr)(using ctx: Ctx): Expr =
+    def beta(arg: Expr): Expr =
       subst(0, arg.shift(0, 1)).shift(0, -1)
 
-    def free(using ctx: Ctx): Occ = {
+    def free: Occ = {
       this match
         case Expr.Local(ix, ty)                 => Map(ix -> (ty, 1))
         case Expr.Global(_)                     => Map.empty
@@ -173,21 +179,18 @@ object IR:
         case Expr.App(fn, arg)                  => merge(fn.free, arg.free)
         case Expr.If(_, scrut, ifTrue, ifFalse) =>
           merge(scrut.free, merge(ifTrue.free, ifFalse.free))
-        case Expr.Instr(_, args)      => args.map(_.free).fold(Map.empty)(merge)
-        case Expr.Con(_, _, args)     => args.map(_.free).fold(Map.empty)(merge)
-        case Expr.RecordCon(_, args)  => args.map(_.free).fold(Map.empty)(merge)
-        case Expr.Field(_, s, _)      => s.free
-        case Expr.Lam(_, body)        => leave(body.free)
-        case Expr.Let(_, value, body) => merge(value.free, leave(body.free))
+        case Expr.Instr(_, args)     => args.map(_.free).fold(Map.empty)(merge)
+        case Expr.Con(_, _, args)    => args.map(_.free).fold(Map.empty)(merge)
+        case Expr.RecordCon(_, args) => args.map(_.free).fold(Map.empty)(merge)
+        case Expr.Field(_, s, _)     => s.free
+        case Expr.DataField(_, _, s, _)  => s.free
+        case Expr.Lam(_, body)           => leave(body.free)
+        case Expr.Let(_, value, body)    => merge(value.free, leave(body.free))
         case Expr.LetRec(_, value, body) =>
           merge(leave(value.free), leave(body.free))
-        case Expr.Case(_, dx, cx, s, b, o) =>
-          val p = ctx.datatypes(dx)(cx).size
-          merge(
-            merge(s.free, leaveN(p, b.free)),
-            o.map(_.free).getOrElse(Map.empty)
-          )
-        case Expr.CaseVoid(s) => s.free
+        case Expr.CaseVoid(s)            => s.free
+        case Expr.Case(_, _, _, s, b, o) =>
+          merge(s.free, merge(leave(b.free), leave(o.free)))
     }
 
   // to JVM IR
@@ -238,8 +241,10 @@ object IR:
         liftedDefs += k(x)
         x
       }
+      // println(simplified)
       // println(s"===lift $name===")
       val lifted = lift(removeLams(simplified), ty.params.size, true, Set.empty)
+      // println(lifted)
       val defn =
         if ty.params.isEmpty then
           Jvm.Def.Value(JvmName(name), toJvm(ty.returnty), lifted)
@@ -303,9 +308,9 @@ object IR:
             )
           )
         )
+      case Expr.App(v @ Expr.CaseVoid(_), _) =>
+        Some(v) // TODO: now the arg is not evaluated, is that a problem?
       case Expr.App(Expr.Case(ty, dx, cx, s, b, o), arg) =>
-        val ps = ctx.datatypes(dx)(cx)
-        val p = ps.size
         val argty = TypeDef(ty.head)
         val local = Expr.Local(0, argty)
         Some(
@@ -317,13 +322,11 @@ object IR:
               dx,
               cx,
               s.shift(0, 1),
-              Expr.App(b.shift(p, 1), local.shift(0, p)),
-              o.map(o => Expr.App(o.shift(0, 1), local))
+              Expr.App(b.shift(1, 1), local.shift(0, 1)),
+              Expr.App(o.shift(1, 1), local.shift(0, 1))
             )
           )
         )
-      case Expr.App(v @ Expr.CaseVoid(_), _) =>
-        Some(v) // TODO: now the arg is not evaluated, is that a problem?
       case Expr.App(fn, arg) =>
         simplify2(fn, arg).map(Expr.App.apply)
 
@@ -341,7 +344,7 @@ object IR:
         simplify2(value, body) match
           case Some((value, body)) => Some(Expr.Let(ty, value, body))
           case None                =>
-            val (_, n) = body.free(0)
+            val (_, n) = body.free.get(0).getOrElse((0, 0))
             if n == 0 then Some(body.shift(0, -1))
             else if n == 1 || isSmall(value) then Some(body.beta(value))
             else if !isEtaExpanded(ty.params.size, value) then
@@ -370,17 +373,22 @@ object IR:
           case None    => None
           case Some(s) => Some(Expr.Field(x, s, i))
 
-      case Expr.Case(_, dx, cx, Expr.Con(_, cx2, args), b, _) if cx == cx2 =>
-        val ps = ctx.datatypes(dx)(cx)
-        Some(args.zip(ps).foldRight(b) { case ((arg, t), b) =>
-          Expr.Let(TypeDef(t), arg, b)
-        })
-      case Expr.Case(_, _, _, Expr.Con(_, _, _), _, o) => o
-      case Expr.Case(ty, dx, cx, s, b, o)              =>
-        (simplify2(s, b), o.flatMap(simplify)) match
-          case (None, None)      => None
-          case (None, o)         => Some(Expr.Case(ty, dx, cx, s, b, o))
-          case (Some((s, b)), o) => Some(Expr.Case(ty, dx, cx, s, b, o))
+      case Expr.DataField(_, _, Expr.Con(_, _, args), i) => Some(args(i))
+      case Expr.DataField(dx, cx, s, i)                  =>
+        simplify(s) match
+          case None    => None
+          case Some(s) => Some(Expr.DataField(dx, cx, s, i))
+
+      case Expr.Case(_, dx, cx, s @ Expr.Con(_, cx2, _), b, _) if cx == cx2 =>
+        Some(Expr.Let(TypeDef(Type.Data(dx)), s, b))
+      case Expr.Case(_, dx, _, s @ Expr.Con(_, _, _), _, o) =>
+        Some(Expr.Let(TypeDef(Type.Data(dx)), s, o))
+      case Expr.Case(ty, dx, cx, s, b, o) =>
+        (simplify(s), simplify2(b, o)) match
+          case (None, None)            => None
+          case (Some(s), None)         => Some(Expr.Case(ty, dx, cx, s, b, o))
+          case (None, Some((b, o)))    => Some(Expr.Case(ty, dx, cx, s, b, o))
+          case (Some(s), Some((b, o))) => Some(Expr.Case(ty, dx, cx, s, b, o))
 
       case Expr.CaseVoid(s) => simplify(s).map(Expr.CaseVoid.apply)
 
@@ -577,19 +585,25 @@ object IR:
       case Expr.If(_, _, _, _) => throw new Exception("non-lifted if")
 
       case Expr.Field(x, s, i) =>
-        Jvm.Expr.Field(JvmName(x), lift(s, lvl, false, jumps), Right(i))
+        Jvm.Expr.Field(JvmName(x), lift(s, lvl, false, jumps), i)
+      case Expr.DataField(dx, cx, s, i) =>
+        Jvm.Expr.DataField(
+          JvmName(dx),
+          JvmName(cx),
+          lift(s, lvl, false, jumps),
+          i
+        )
+
+      case Expr.CaseVoid(s) => Jvm.Expr.CaseVoid(lift(s, lvl, false, jumps))
 
       case Expr.Case(_, dx, cx, s, b, o) =>
-        val p = ctx.datatypes(dx)(cx).size
         Jvm.Expr.Case(
           JvmName(dx),
           JvmName(cx),
           lift(s, lvl, false, jumps),
-          lift(b, lvl + p, tail, jumps),
-          o.map(lift(_, lvl, tail, jumps))
+          lift(b, lvl + 1, tail, jumps),
+          lift(o, lvl + 1, tail, jumps)
         )
-
-      case Expr.CaseVoid(s) => Jvm.Expr.CaseVoid(lift(s, lvl, false, jumps))
 
   @tailrec
   private def removeLams(expr: Expr): Expr = expr match
@@ -602,9 +616,7 @@ object IR:
       (hd, args :+ arg)
     case expr => (expr, Nil)
 
-  private def isUsedInTailOnly(ix: Int, expr: Expr, tail: Boolean)(using
-      ctx: Ctx
-  ): Boolean =
+  private def isUsedInTailOnly(ix: Int, expr: Expr, tail: Boolean): Boolean =
     expr match
       case Expr.Local(j, _) if j == ix => tail
       case Expr.Local(_, _)            => true
@@ -629,13 +641,13 @@ object IR:
         isUsedInTailOnly(ix, s, false) &&
         isUsedInTailOnly(ix, t, tail) &&
         isUsedInTailOnly(ix, f, tail)
-      case Expr.Field(_, s, _)           => isUsedInTailOnly(ix, s, false)
-      case Expr.Case(_, dx, cx, s, b, o) =>
-        val p = ctx.datatypes(dx)(cx).size
-        isUsedInTailOnly(ix, s, false) && isUsedInTailOnly(ix + p, b, tail) && o
-          .forall(isUsedInTailOnly(ix, _, tail))
+      case Expr.Field(_, s, _)        => isUsedInTailOnly(ix, s, false)
+      case Expr.DataField(_, _, s, _) => isUsedInTailOnly(ix, s, false)
 
-      case Expr.CaseVoid(s) => isUsedInTailOnly(ix, s, false)
+      case Expr.CaseVoid(s)            => isUsedInTailOnly(ix, s, false)
+      case Expr.Case(_, _, _, s, b, o) =>
+        isUsedInTailOnly(ix, s, false) && isUsedInTailOnly(ix + 1, b, tail)
+        && isUsedInTailOnly(ix + 1, o, tail)
 
       case Expr.Lam(_, body)        => isUsedInTailOnly(ix + 1, body, tail)
       case Expr.Let(_, value, body) =>

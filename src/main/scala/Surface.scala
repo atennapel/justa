@@ -292,67 +292,86 @@ object Surface:
     val (escrut, scrutty) = infer(scrut)
     scrutty match
       case IR.TypeDef(Nil, IR.Type.Data(dx)) =>
-        val xs = cases.map((x, _, _) => x.getOrElse("_"))
-        if xs.init.contains("_") then
-          throw new Exception("_ can only be last in a case expression")
-        else if xs.size != xs.toSet.size then
-          throw new Exception("duplicates in case expression")
-        else
-          val cons = ctx.dataparams(dx)
-          if cons.isEmpty then
-            if cases.nonEmpty then
-              throw new Exception("duplicates in case expression")
-            else throw new Exception("cannot infer case")
-          else if cases.isEmpty then
-            throw new Exception("no cases in case expression")
-          else
-            var ty: Option[IR.TypeDef] = exty
-            val other = cases.last match
-              case (None, _, body) =>
-                ty match
-                  case None =>
-                    val (ebody, rty) = infer(body)
-                    ty = Some(rty)
-                    Some(ebody)
-                  case Some(exty) =>
-                    Some(check(body, exty))
-              case _ => None
-            if other.isDefined && cases.size == 1 then
-              throw new Exception("cannot have only _ case")
-            val expr =
-              (if other.isDefined then cases.init else cases)
-                .foldRight(
-                  other
-                ) {
-                  case ((Some(cx), ps, body), rest) =>
-                    val tps = cons.get(cx) match
-                      case None =>
-                        throw new Exception(s"invalid $cx in case")
-                      case Some(ps) => ps
-                    if ps.size != tps.size then
-                      throw new Exception(
-                        s"parameter amount mismatch in case"
-                      )
-                    val localctx = ps.zip(tps).foldLeft(ctx) {
-                      case (ctx, (x, ty)) => ctx.bind(x, IR.TypeDef(ty))
-                    }
-                    val ebody = ty match
-                      case None =>
-                        val (ebody, rty) = infer(body)(using localctx)
-                        ty = Some(rty)
-                        ebody
-                      case Some(ty) =>
-                        check(body, ty)(using localctx)
-                    Some(IR.Expr.Case(ty.get, dx, cx, escrut, ebody, rest))
-                  case _ =>
-                    throw new Exception("impossible")
-                }
-                .get
-            (expr, ty.get)
+        val datactx = ctx.dataparams(dx)
+        cases match
+          case Nil =>
+            if datactx.isEmpty then
+              exty match
+                case Some(ty) => (IR.Expr.CaseVoid(escrut), ty)
+                case None     =>
+                  throw new Exception(s"empty case needs to be checked")
+            else throw new Exception(s"empty case for non-empty datatype $dx")
+          case hd :: tl =>
+            val (k, ty) = inferCaseCase(
+              dx,
+              escrut,
+              hd,
+              tl,
+              exty,
+              Set.empty,
+              datactx.keySet
+            )
+            (k(IR.Expr.CaseVoid(escrut)), ty)
       case _ =>
         throw new Exception(
           s"expected data type in case but got $scrutty"
         )
+
+  private def inferCaseCase(
+      dx: Name,
+      scrut: IR.Expr,
+      cs: (Option[Name], List[Name], Expr),
+      rest: List[(Option[Name], List[Name], Expr)],
+      exty: Option[IR.TypeDef],
+      seen: Set[Name],
+      left: Set[Name]
+  )(using ctx: Ctx): (IR.Expr => IR.Expr, IR.TypeDef) =
+    val datactx = ctx.dataparams(dx)
+    val (ox, psx, b) = cs
+    ox match
+      case Some(x) if seen.contains(x) =>
+        throw new Exception(s"duplicate case $x")
+      case Some(x) if rest.isEmpty && (left - x).nonEmpty =>
+        throw new Exception(s"non-exhaustive case: $left - x")
+      case Some(cx) if !datactx.contains(cx) =>
+        throw new Exception(s"invalid case: $cx")
+      case Some(cx) if datactx(cx).size != psx.size =>
+        throw new Exception(
+          s"case parameter length mismatch, expected ${datactx(cx).size} but got ${psx.size}"
+        )
+      case None if rest.nonEmpty =>
+        throw new Exception(s"_ case should be last")
+
+      case Some(cx) =>
+        val types = datactx(cx)
+        val localctx = psx.zip(types).foldLeft(ctx) { case (ctx, (x, ty)) =>
+          ctx.bind(x, IR.TypeDef(ty))
+        }
+        val (ebody, ty) = exty match
+          case None     => infer(b)(using localctx)
+          case Some(ty) => (check(b, ty)(using localctx), ty)
+        val wrappedBody =
+          types.zipWithIndex.foldRight(ebody.shift(types.size, 1)) {
+            case ((t, i), b) =>
+              val s = IR.Expr.Local(i, IR.TypeDef(IR.Type.Data(dx)))
+              IR.Expr.Let(IR.TypeDef(t), IR.Expr.DataField(dx, cx, s, i), b)
+          }
+        val next: IR.Expr => IR.Expr = rest match
+          case Nil      => (e => e)
+          case hd :: tl =>
+            inferCaseCase(
+              dx,
+              IR.Expr.Local(0, IR.TypeDef(IR.Type.Data(dx))),
+              hd,
+              tl,
+              Some(ty),
+              seen + cx,
+              left - cx
+            )._1
+        val k: IR.Expr => IR.Expr = other =>
+          IR.Expr.Case(ty, dx, cx, scrut, wrappedBody, next(other))
+        (k, ty)
+      case None => ???
 
   // parsing
   private enum S:

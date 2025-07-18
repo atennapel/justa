@@ -53,17 +53,18 @@ object Jvm:
     case BoolLit(value: Boolean)
 
     case Con(datatype: Name, name: Name, args: List[Expr])
+    case CaseVoid(scrut: Expr)
     case Case(
-        datatype: Name,
-        name: Name,
+        dataname: Name,
+        conname: Name,
         scrut: Expr,
         body: Expr,
-        other: Option[Expr]
+        other: Expr
     )
-    case CaseVoid(scrut: Expr)
+    case DataField(dataname: Name, conname: Name, scrut: Expr, ix: Int)
 
     case RecordCon(name: Name, args: List[Expr])
-    case Field(name: Name, scrut: Expr, ix: Either[Name, Int])
+    case Field(name: Name, scrut: Expr, ix: Int)
 
     case Instr(opcode: Int, args: List[Expr])
 
@@ -579,54 +580,6 @@ object Jvm:
           mg.dup()
           args.foreach(gen)
           mg.invokeConstructor(conctx.ty, conctx.constructor)
-      case Expr.Case(dname, cname, scrut, body, other) =>
-        val conctx = moduleCtx.datatypes(dname).constructors(cname)
-        val nilary = conctx.params.isEmpty
-        gen(scrut)
-        other match
-          case Some(o) =>
-            val lEnd = mg.newLabel()
-            val lOther = mg.newLabel()
-            mg.dup()
-            if nilary then
-              mg.getStatic(conctx.ty, "INSTANCE", conctx.ty)
-              mg.visitJumpInsn(IF_ACMPNE, lOther)
-              mg.pop()
-              gen(body)
-            else
-              mg.instanceOf(conctx.ty)
-              mg.visitJumpInsn(IFEQ, lOther)
-              mg.checkCast(conctx.ty)
-              val paramlocals = conctx.params.map { (x, ty) =>
-                mg.dup()
-                val local = mg.newLocal(ty)
-                mg.getField(conctx.ty, x.escape, ty)
-                mg.storeLocal(local)
-                Local.Local(local)
-              }
-              mg.pop()
-              gen(body)(using locals = locals ++ paramlocals)
-            mg.visitJumpInsn(GOTO, lEnd)
-            mg.visitLabel(lOther)
-            mg.pop()
-            gen(o)
-            mg.visitLabel(lEnd)
-          case None =>
-            if nilary then
-              mg.pop()
-              gen(body)
-            else
-              mg.checkCast(conctx.ty)
-              val paramlocals = conctx.params.map { (x, ty) =>
-                mg.dup()
-                val local = mg.newLocal(ty)
-                mg.getField(conctx.ty, x.escape, ty)
-                mg.storeLocal(local)
-                Local.Local(local)
-              }
-              mg.pop()
-              gen(body)(using locals = locals ++ paramlocals)
-
       case Expr.CaseVoid(scrut) =>
         val ty = JType.getType(classOf[Exception])
         mg.newInstance(ty)
@@ -638,6 +591,40 @@ object Jvm:
         )
         mg.invokeConstructor(ty, Method.getMethod("void <init> (String)"))
         mg.throwException()
+      case Expr.Case(dx, cx, s, b, o) =>
+        val datactx = moduleCtx.datatypes(dx)
+        val conctx = datactx.constructors(cx)
+        val nilary = conctx.params.isEmpty
+        val lEnd = mg.newLabel()
+        val lOther = mg.newLabel()
+        gen(s)
+        mg.dup()
+        if nilary then
+          mg.getStatic(conctx.ty, "INSTANCE", conctx.ty)
+          mg.visitJumpInsn(IF_ACMPNE, lOther)
+          mg.checkCast(conctx.ty)
+          val local = mg.newLocal(conctx.ty)
+          mg.storeLocal(local)
+          gen(b)(using locals = locals :+ Local.Local(local))
+        else
+          mg.instanceOf(conctx.ty)
+          mg.visitJumpInsn(IFEQ, lOther)
+          mg.checkCast(conctx.ty)
+          val local = mg.newLocal(conctx.ty)
+          mg.storeLocal(local)
+          gen(b)(using locals = locals :+ Local.Local(local))
+        mg.visitJumpInsn(GOTO, lEnd)
+        mg.visitLabel(lOther)
+        val local = mg.newLocal(datactx.ty)
+        mg.storeLocal(local)
+        gen(o)(using locals = locals :+ Local.Local(local))
+        mg.visitLabel(lEnd)
+      case Expr.DataField(dx, cx, scrut, ix) =>
+        val datactx = moduleCtx.datatypes(dx)
+        val conctx = datactx.constructors(cx)
+        gen(scrut)
+        val (x, t) = conctx.params(ix)
+        mg.getField(conctx.ty, x.escape, t)
 
       case Expr.RecordCon(name, args) =>
         val recordctx = moduleCtx.records(name)
@@ -651,9 +638,7 @@ object Jvm:
       case Expr.Field(name, scrut, ix) =>
         val recordctx = moduleCtx.records(name)
         gen(scrut)
-        val (x, t) = ix match
-          case Left(x)  => recordctx.fields.find((y, _) => x == y).get
-          case Right(i) => recordctx.fields(i)
+        val (x, t) = recordctx.fields(ix)
         mg.getField(recordctx.ty, x.escape, t)
 
       case Expr.Instr(opcode, args) =>
