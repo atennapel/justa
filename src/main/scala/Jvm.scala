@@ -53,15 +53,13 @@ object Jvm:
     case BoolLit(value: Boolean)
 
     case Con(datatype: Name, name: Name, args: List[Expr])
-    case CaseVoid(scrut: Expr)
+    case DataField(dataname: Name, conname: Name, scrut: Expr, ix: Int)
     case Case(
         dataname: Name,
-        conname: Name,
         scrut: Expr,
-        body: Expr,
-        other: Expr
+        cases: List[(Name, Boolean, Expr)],
+        otherwise: Option[Expr]
     )
-    case DataField(dataname: Name, conname: Name, scrut: Expr, ix: Int)
 
     case RecordCon(name: Name, args: List[Expr])
     case Field(name: Name, scrut: Expr, ix: Int)
@@ -580,51 +578,43 @@ object Jvm:
           mg.dup()
           args.foreach(gen)
           mg.invokeConstructor(conctx.ty, conctx.constructor)
-      case Expr.CaseVoid(scrut) =>
-        val ty = JType.getType(classOf[Exception])
-        mg.newInstance(ty)
-        mg.dup()
-        gen(scrut)
-        mg.invokeVirtual(
-          JType.getType("Ljava/lang/Object;"),
-          Method.getMethod("String toString()")
-        )
-        mg.invokeConstructor(ty, Method.getMethod("void <init> (String)"))
-        mg.throwException()
-      case Expr.Case(dx, cx, s, b, o) =>
-        val datactx = moduleCtx.datatypes(dx)
-        val conctx = datactx.constructors(cx)
-        val nilary = conctx.params.isEmpty
-        val lEnd = mg.newLabel()
-        val lOther = mg.newLabel()
-        gen(s)
-        mg.dup()
-        if nilary then
-          mg.getStatic(conctx.ty, "INSTANCE", conctx.ty)
-          mg.visitJumpInsn(IF_ACMPNE, lOther)
-          mg.checkCast(conctx.ty)
-          val local = mg.newLocal(conctx.ty)
-          mg.storeLocal(local)
-          gen(b)(using locals = locals :+ Local.Local(local))
-        else
-          mg.instanceOf(conctx.ty)
-          mg.visitJumpInsn(IFEQ, lOther)
-          mg.checkCast(conctx.ty)
-          val local = mg.newLocal(conctx.ty)
-          mg.storeLocal(local)
-          gen(b)(using locals = locals :+ Local.Local(local))
-        mg.visitJumpInsn(GOTO, lEnd)
-        mg.visitLabel(lOther)
-        val local = mg.newLocal(datactx.ty)
-        mg.storeLocal(local)
-        gen(o)(using locals = locals :+ Local.Local(local))
-        mg.visitLabel(lEnd)
       case Expr.DataField(dx, cx, scrut, ix) =>
         val datactx = moduleCtx.datatypes(dx)
         val conctx = datactx.constructors(cx)
         gen(scrut)
         val (x, t) = conctx.params(ix)
         mg.getField(conctx.ty, x.escape, t)
+      case Expr.Case(dx, scrut, cases, otherwise) =>
+        val datactx = moduleCtx.datatypes(dx)
+        val lEnd = mg.newLabel()
+        gen(scrut)
+        cases.zipWithIndex.foreach { case ((cx, isUsed, body), i) =>
+          val isLast = i == cases.size - 1 && otherwise.isEmpty
+          val conctx = datactx.constructors(cx)
+          val nilary = conctx.params.isEmpty
+          val lNext = mg.newLabel()
+          if isUsed || !isLast then mg.dup()
+          if !isLast then
+            if nilary then
+              mg.getStatic(conctx.ty, "INSTANCE", conctx.ty)
+              mg.visitJumpInsn(IF_ACMPNE, lNext)
+            else
+              mg.instanceOf(conctx.ty)
+              mg.visitJumpInsn(IFEQ, lNext)
+          val local = mg.newLocal(conctx.ty)
+          if isUsed then
+            mg.checkCast(conctx.ty)
+            mg.storeLocal(local)
+          else if !isLast then mg.pop()
+          gen(body)(using locals = locals :+ Local.Local(local))
+          if !isLast then mg.visitJumpInsn(GOTO, lEnd)
+          mg.visitLabel(lNext)
+        }
+        otherwise.foreach { o =>
+          mg.pop()
+          gen(o)
+        }
+        mg.visitLabel(lEnd)
 
       case Expr.RecordCon(name, args) =>
         val recordctx = moduleCtx.records(name)

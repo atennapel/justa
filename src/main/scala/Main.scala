@@ -18,8 +18,8 @@ object Main:
 
 (def head (-> IntList IntOption) (fn l
   (case l
-    (Nil (con_ None))
-    (Cons (hd _) (con_ Some hd)))))
+    (Cons (hd _) (con_ Some hd))
+    (Nil (con_ None)))))
 
 (def iadd (-> Int Int Int) (fn (a b) (instr 96 a b)))
 
