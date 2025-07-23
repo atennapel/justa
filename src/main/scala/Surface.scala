@@ -27,6 +27,9 @@ object Surface:
     case Field(scrut: Expr, ix: Either[Name, Int])
     case Case(scrut: Expr, cases: List[(Option[Name], List[Name], Expr)])
 
+    case FiniteCon(datatype: Option[Name], name: Name)
+    case FiniteCase(scrut: Expr, cases: List[(Option[Name], Expr)])
+
   final case class Constructor(
       name: Name,
       parameters: List[(Option[Name], Type)]
@@ -36,6 +39,7 @@ object Surface:
     case Value(name: Name, ty: Option[TypeDef], value: Expr)
     case Data(name: Name, constructors: List[Constructor])
     case Record(name: Name, fields: List[(Option[Name], Type)])
+    case Finite(name: Name, constructors: List[Name])
 
   final case class Module(name: Name, defs: List[Def])
 
@@ -43,13 +47,15 @@ object Surface:
   private enum DataKind:
     case ADT
     case Record
+    case Finite
 
   private final case class Ctx(
       globals: Map[Name, IR.TypeDef],
       env: List[(Name, IR.TypeDef)],
       types: Map[Name, DataKind],
       recordparams: Map[Name, List[(Option[Name], IR.Type)]],
-      dataparams: Map[Name, Map[Name, List[IR.Type]]]
+      dataparams: Map[Name, Map[Name, List[IR.Type]]],
+      finiteparams: Map[Name, List[Name]]
   ):
     def bindGlobal(x: Name, ty: IR.TypeDef): Ctx =
       copy(globals = globals + (x -> ty))
@@ -60,8 +66,11 @@ object Surface:
       copy(recordparams = recordparams + (x -> ps))
     def setDataParams(x: Name, ps: Map[Name, List[IR.Type]]): Ctx =
       copy(dataparams = dataparams + (x -> ps))
+    def setFiniteParams(x: Name, ps: List[Name]): Ctx =
+      copy(finiteparams = finiteparams + (x -> ps))
   private object Ctx:
-    def empty: Ctx = Ctx(Map.empty, Nil, Map.empty, Map.empty, Map.empty)
+    def empty: Ctx =
+      Ctx(Map.empty, Nil, Map.empty, Map.empty, Map.empty, Map.empty)
 
   def elaborate(mod: Module): IR.Module =
     var globalCtx: Ctx = Ctx.empty
@@ -97,6 +106,12 @@ object Surface:
           localCtx.setRecordParams(x, efields),
           IR.Def.Record(x, efields)
         )
+      case Def.Finite(x, cs) =>
+        given localCtx: Ctx = ctx.bindType(x, DataKind.Finite)
+        (
+          localCtx.setFiniteParams(x, cs),
+          IR.Def.Finite(x, cs.size)
+        )
 
   private def elaborate(ty: TypeDef)(using ctx: Ctx): IR.TypeDef =
     IR.TypeDef(ty.params.map(elaborate), elaborate(ty.rty))
@@ -106,6 +121,7 @@ object Surface:
     ctx.types.get(x) match
       case Some(DataKind.ADT)    => IR.Type.Data(x)
       case Some(DataKind.Record) => IR.Type.Record(x)
+      case Some(DataKind.Finite) => IR.Type.Finite(x)
       case None                  =>
         x match
           case "Boolean" => IR.Type.Boolean
@@ -171,8 +187,21 @@ object Surface:
             throw new Exception(
               s"cannot check record constructor against $exty"
             )
+      case Expr.FiniteCon(None, cx) =>
+        exty match
+          case IR.TypeDef(Nil, IR.Type.Finite(dx)) =>
+            ctx.finiteparams(dx).zipWithIndex.find((cx2, _) => cx == cx2) match
+              case None =>
+                throw new Exception(s"undefined finite constructor $cx in $dx")
+              case Some((_, i)) => IR.Expr.FiniteCon(dx, i)
+          case _ =>
+            throw new Exception(
+              s"cannot check finite constructor against $exty"
+            )
 
       case Expr.Case(scrut, cases) => inferCase(scrut, cases, Some(exty))._1
+      case Expr.FiniteCase(scrut, cases) =>
+        inferFinCase(scrut, cases, Some(exty))._1
 
       case expr =>
         val (ie, ity) = infer(expr)
@@ -227,12 +256,24 @@ object Surface:
         throw new Exception(s"cannot infer con $cx without datatype")
       case Expr.Con(Some(dx), cx, args) =>
         (inferCon(dx, cx, args), IR.TypeDef(IR.Type.Data(dx)))
+
       case Expr.RecordCon(None, _) =>
         throw new Exception(
           "cannot infer record constructor without record type"
         )
       case Expr.RecordCon(Some(x), args) =>
         (inferRecordCon(x, args), IR.TypeDef(IR.Type.Record(x)))
+
+      case Expr.FiniteCon(None, cx) =>
+        throw new Exception(s"cannot infer finite con $cx without datatype")
+      case Expr.FiniteCon(Some(dx), _) if !ctx.finiteparams.contains(dx) =>
+        throw new Exception(s"undefined finite type $dx")
+      case Expr.FiniteCon(Some(dx), cx) =>
+        ctx.finiteparams(dx).zipWithIndex.find((cx2, _) => cx == cx2) match
+          case None =>
+            throw new Exception(s"undefined finite constructor $cx in $dx")
+          case Some((_, i)) =>
+            (IR.Expr.FiniteCon(dx, i), IR.TypeDef(IR.Type.Finite(dx)))
 
       case Expr.Field(scrut, ix) =>
         val (escrut, scrutty) = infer(scrut)
@@ -257,7 +298,8 @@ object Surface:
               s"expected record type in field but got $scrutty"
             )
 
-      case Expr.Case(scrut, cases) => inferCase(scrut, cases, None)
+      case Expr.Case(scrut, cases)       => inferCase(scrut, cases, None)
+      case Expr.FiniteCase(scrut, cases) => inferFinCase(scrut, cases, None)
 
   private def inferRecordCon(x: Name, args: List[Expr])(using
       ctx: Ctx
@@ -373,6 +415,12 @@ object Surface:
           s"expected data type in case but got $scrutty"
         )
 
+  private def inferFinCase(
+      scrut: Expr,
+      cases: List[(Option[Name], Expr)],
+      exty: Option[IR.TypeDef]
+  )(using ctx: Ctx): (IR.Expr, IR.TypeDef) = ???
+
   // parsing
   private enum S:
     case Call(items: List[S])
@@ -395,6 +443,13 @@ object Surface:
       case S.Call(S.Atom("record") :: S.Atom(x) :: fieldsS) =>
         val fields = fieldsS.map(parseTypeField)
         Def.Record(x, fields)
+      case S.Call(S.Atom("finite") :: S.Atom(x) :: csS) =>
+        val cs = csS.map {
+          case S.Atom(x) => x
+          case _         =>
+            throw new Exception(s"unexpected name in finite type definition $x")
+        }
+        Def.Finite(x, cs)
       case _ => throw new Exception("failed to parse def")
     }
 
@@ -462,12 +517,18 @@ object Surface:
         Expr.Con(Some(dx), cx, args.map(parseExpr))
       case S.Call(S.Atom("con_") :: S.Atom(cx) :: args) =>
         Expr.Con(None, cx, args.map(parseExpr))
+      case S.Call(List(S.Atom("fin"), S.Atom(dx), S.Atom(cx))) =>
+        Expr.FiniteCon(Some(dx), cx)
+      case S.Call(List(S.Atom("fin_"), S.Atom(cx))) =>
+        Expr.FiniteCon(None, cx)
       case S.Call(List(S.Atom("field"), S.Atom(x), scrut)) =>
         x.toIntOption match
           case None    => Expr.Field(parseExpr(scrut), Left(x))
           case Some(i) => Expr.Field(parseExpr(scrut), Right(i))
       case S.Call(S.Atom("case") :: scrut :: cases) =>
         Expr.Case(parseExpr(scrut), cases.map(parseCase))
+      case S.Call(S.Atom("fincase") :: scrut :: cases) =>
+        Expr.FiniteCase(parseExpr(scrut), cases.map(parseFinCase))
       case S.Call(List(hd)) => parseExpr(hd)
       case S.Call(hd :: tl) =>
         (hd :: tl).map(parseExpr).reduceLeft(Expr.App.apply)
@@ -486,6 +547,13 @@ object Surface:
       case S.Call(List(S.Atom(x), S.Call(ps), body)) =>
         (name(x), params(ps), parseExpr(body))
       case _ => throw new Exception("failed to parse case")
+
+  private def parseFinCase(s: S): (Option[Name], Expr) =
+    inline def name(x: String): Option[Name] =
+      if x == "_" then None else Some(x)
+    s match
+      case S.Call(List(S.Atom(x), body)) => (name(x), parseExpr(body))
+      case _ => throw new Exception("failed to parse finite case")
 
   private def parseS(s: String): List[S] =
     var i = 0

@@ -27,6 +27,7 @@ object Jvm:
     case Function(name: Name, params: List[Type], returnType: Type, body: Expr)
     case Data(name: Name, constructors: List[Constructor])
     case Record(name: Name, fields: List[(Option[Name], Type)])
+    case Finite(name: Name, count: Long)
 
   enum Type:
     case Boolean
@@ -39,6 +40,7 @@ object Jvm:
     case Double
     case Data(name: Name)
     case Record(name: Name)
+    case Finite(name: Name)
 
   enum Expr:
     case Local(lvl: Lvl)
@@ -63,6 +65,8 @@ object Jvm:
 
     case RecordCon(name: Name, args: List[Expr])
     case Field(name: Name, scrut: Expr, ix: Int)
+
+    case FiniteCon(name: Name, ix: Long)
 
     case Instr(opcode: Int, args: List[Expr])
 
@@ -89,6 +93,7 @@ object Jvm:
       var constructor: Method = null,
       fields: mutable.ArrayBuffer[(Name, JType)] = mutable.ArrayBuffer.empty
   )
+  private case class FiniteCtx(amount: Long, ty: JType)
 
   private class ModuleCtx(
       val name: Name,
@@ -96,7 +101,8 @@ object Jvm:
       val methods: mutable.Map[Name, Method] = mutable.Map.empty,
       val values: mutable.Map[Name, JType] = mutable.Map.empty,
       val datatypes: mutable.Map[Name, DatatypeCtx] = mutable.Map.empty,
-      val records: mutable.Map[Name, RecordCtx] = mutable.Map.empty
+      val records: mutable.Map[Name, RecordCtx] = mutable.Map.empty,
+      val finites: mutable.Map[Name, FiniteCtx] = mutable.Map.empty
   )
 
   private enum Local:
@@ -169,6 +175,15 @@ object Jvm:
     case Type.Double       => JType.DOUBLE_TYPE
     case Type.Data(name)   => moduleCtx.datatypes(name).ty
     case Type.Record(name) => moduleCtx.records(name).ty
+    case Type.Finite(name) => moduleCtx.finites(name).ty
+
+  private def finiteType(amount: Long): JType = amount match
+    case n if n <= 2                    => JType.BOOLEAN_TYPE
+    case n if n <= 128                  => JType.BYTE_TYPE
+    case n if n <= 32768                => JType.SHORT_TYPE
+    case n if n <= 2147483648L          => JType.INT_TYPE
+    case n if n <= 9223372036854775807L => JType.LONG_TYPE
+    case n => throw new Exception(s"finite type has too many members: $n")
 
   private def updateModuleCtx(defs: List[Def])(using
       moduleCtx: ModuleCtx
@@ -193,6 +208,8 @@ object Jvm:
           descriptor,
           ty
         ))
+      case Def.Finite(name, amount) =>
+        moduleCtx.finites += (name -> FiniteCtx(amount, finiteType(amount)))
       case _ =>
     }
     defs.foreach(updateModuleCtx)
@@ -240,6 +257,7 @@ object Jvm:
         val constructorMethod =
           new Method("<init>", JType.VOID_TYPE, params.map(_._2).toArray)
         recordCtx.constructor = constructorMethod
+      case Def.Finite(_, _) => ()
 
   private def genStaticBlock(
       defs: List[Def]
@@ -268,6 +286,7 @@ object Jvm:
     defn match
       case Def.Data(_, _)             => ()
       case Def.Record(_, _)           => ()
+      case Def.Finite(_, _)           => ()
       case Def.Value(name, ty, value) =>
         cw.visitField(
           ACC_PUBLIC + ACC_FINAL + ACC_STATIC,
@@ -631,6 +650,16 @@ object Jvm:
         val (x, t) = recordctx.fields(ix)
         mg.getField(recordctx.ty, x.escape, t)
 
+      case Expr.FiniteCon(name, ix) =>
+        val finitectx = moduleCtx.finites(name)
+        finitectx.amount match
+          case n if n <= 2                    => mg.push(ix == 1)
+          case n if n <= 128                  => mg.push(ix.toByte)
+          case n if n <= 32768                => mg.push(ix.toShort)
+          case n if n <= 2147483648L          => mg.push(ix.toInt)
+          case n if n <= 9223372036854775807L => mg.push(ix)
+          case n => throw new Exception(s"finite type has too many members: $n")
+
       case Expr.Instr(opcode, args) =>
         args.foreach(gen)
         mg.visitInsn(opcode)
@@ -655,8 +684,23 @@ object Jvm:
       else i += 1
     a.substring(0, i)
 
-  private def constantValue(expr: Expr): Option[AnyRef] =
+  private def constantValue(expr: Expr)(using
+      moduleCtx: ModuleCtx
+  ): Option[AnyRef] =
     expr match
-      case Expr.IntLit(value)  => Some(Int.box(value))
-      case Expr.BoolLit(value) => Some(Boolean.box(value))
-      case _                   => None
+      case Expr.IntLit(value)    => Some(Int.box(value))
+      case Expr.BoolLit(value)   => Some(Boolean.box(value))
+      case Expr.FiniteCon(x, ix) => Some(finiteValue(x, ix))
+      case _                     => None
+
+  private def finiteValue(name: Name, ix: Long)(using
+      moduleCtx: ModuleCtx
+  ): AnyRef =
+    val finitectx = moduleCtx.finites(name)
+    finitectx.amount match
+      case n if n <= 2                    => (ix == 1).asInstanceOf[AnyRef]
+      case n if n <= 128                  => ix.toByte.asInstanceOf[AnyRef]
+      case n if n <= 32768                => ix.toShort.asInstanceOf[AnyRef]
+      case n if n <= 2147483648L          => ix.toInt.asInstanceOf[AnyRef]
+      case n if n <= 9223372036854775807L => ix.asInstanceOf[AnyRef]
+      case n => throw new Exception(s"finite type has too many members: $n")

@@ -16,6 +16,7 @@ object IR:
     case Value(name: Name, ty: TypeDef, value: Expr)
     case Data(name: Name, constructors: List[Constructor])
     case Record(name: Name, fields: List[(Option[Name], Type)])
+    case Finite(name: Name, amount: Long)
 
   enum Type:
     case Boolean
@@ -28,6 +29,7 @@ object IR:
     case Double
     case Data(name: Name)
     case Record(name: Name)
+    case Finite(name: Name)
 
   final case class TypeDef(params: List[Type], returnty: Type):
     def head: Type = params.head
@@ -58,6 +60,15 @@ object IR:
 
     case Instr(opcode: Int, args: List[Expr])
 
+    case FiniteCon(name: Name, ix: Long)
+    case FiniteCase(
+        ty: TypeDef,
+        dataname: Name,
+        scrut: Expr,
+        cases: List[(Long, Expr)],
+        otherwise: Option[Expr]
+    )
+
     case RecordCon(name: Name, args: List[Expr])
     case Field(name: Name, scrut: Expr, ix: Int)
 
@@ -82,6 +93,7 @@ object IR:
       case Expr.LetRec(_, value, body) => s"(letrec $value; $body)"
       case Expr.If(_, s, t, f)         => s"(if $s then $t else $f)"
       case Expr.Instr(opcode, args) => s"(instr $opcode ${args.mkString(" ")})"
+      case Expr.FiniteCon(x, i)     => s"($x $i)"
       case Expr.Con(d, c, args)     => s"($d $c ${args.mkString(" ")})"
       case Expr.RecordCon(d, args)  => s"($d ${args.mkString(" ")})"
       case Expr.Field(x, s, i)      => s"(field $x $s $i)"
@@ -90,14 +102,19 @@ object IR:
         s"(case $dx $s (${cs.map((cx, b) => s"$cx => $b").mkString("; ")}${o
             .map(o => s"; _ => $o")
             .getOrElse("")}))"
+      case Expr.FiniteCase(_, dx, s, cs, o) =>
+        s"(fincase $dx $s (${cs.map((cx, b) => s"$cx => $b").mkString("; ")}${o
+            .map(o => s"; _ => $o")
+            .getOrElse("")}))"
 
     def shift(c: Int, d: Int): Expr = this match
       case l @ Expr.Local(i, ty) => if i < c then l else Expr.Local(i + d, ty)
       case g @ Expr.Global(_)    => g
       case i @ Expr.IntLit(_)    => i
       case b @ Expr.BoolLit(_)   => b
-      case Expr.App(fn, arg)     => Expr.App(fn.shift(c, d), arg.shift(c, d))
-      case Expr.Lam(ty, body)    => Expr.Lam(ty, body.shift(c + 1, d))
+      case f @ Expr.FiniteCon(_, _) => f
+      case Expr.App(fn, arg)        => Expr.App(fn.shift(c, d), arg.shift(c, d))
+      case Expr.Lam(ty, body)       => Expr.Lam(ty, body.shift(c + 1, d))
       case Expr.Let(ty, value, body) =>
         Expr.Let(ty, value.shift(c, d), body.shift(c + 1, d))
       case Expr.LetRec(ty, value, body) =>
@@ -121,14 +138,23 @@ object IR:
           cs.map((cx, b) => (cx, b.shift(c + 1, d))),
           o.map(_.shift(c, d))
         )
+      case Expr.FiniteCase(ty, dx, scrut, cs, o) =>
+        Expr.FiniteCase(
+          ty,
+          dx,
+          scrut.shift(c, d),
+          cs.map((cx, b) => (cx, b.shift(c, d))),
+          o.map(_.shift(c, d))
+        )
 
     def subst(i: Ix, v: Expr): Expr = this match
-      case loc @ Expr.Local(j, _) => if j == i then v else loc
-      case g @ Expr.Global(_)     => g
-      case i @ Expr.IntLit(_)     => i
-      case b @ Expr.BoolLit(_)    => b
-      case Expr.App(fn, arg)      => Expr.App(fn.subst(i, v), arg.subst(i, v))
-      case Expr.Lam(ty, body)     =>
+      case loc @ Expr.Local(j, _)   => if j == i then v else loc
+      case g @ Expr.Global(_)       => g
+      case i @ Expr.IntLit(_)       => i
+      case b @ Expr.BoolLit(_)      => b
+      case f @ Expr.FiniteCon(_, _) => f
+      case Expr.App(fn, arg)        => Expr.App(fn.subst(i, v), arg.subst(i, v))
+      case Expr.Lam(ty, body)       =>
         Expr.Lam(ty, body.subst(i + 1, v.shift(0, 1)))
       case Expr.Let(ty, value, body) =>
         Expr.Let(
@@ -161,6 +187,14 @@ object IR:
           cs.map((cx, b) => (cx, b.subst(i + 1, v.shift(0, 1)))),
           o.map(_.subst(i, v))
         )
+      case Expr.FiniteCase(ty, dx, scrut, cs, o) =>
+        Expr.FiniteCase(
+          ty,
+          dx,
+          scrut.subst(i, v),
+          cs.map((cx, b) => (cx, b.subst(i, v))),
+          o.map(_.subst(i, v))
+        )
 
     def beta(arg: Expr): Expr =
       subst(0, arg.shift(0, 1)).shift(0, -1)
@@ -171,6 +205,7 @@ object IR:
         case Expr.Global(_)                     => Map.empty
         case Expr.IntLit(_)                     => Map.empty
         case Expr.BoolLit(_)                    => Map.empty
+        case Expr.FiniteCon(_, _)               => Map.empty
         case Expr.App(fn, arg)                  => merge(fn.free, arg.free)
         case Expr.If(_, scrut, ifTrue, ifFalse) =>
           merge(scrut.free, merge(ifTrue.free, ifFalse.free))
@@ -188,6 +223,14 @@ object IR:
             s.free,
             merge(
               cs.map((_, b) => leave(b.free)).fold(Map.empty)(merge),
+              o.map(_.free).getOrElse(Map.empty)
+            )
+          )
+        case Expr.FiniteCase(_, _, s, cs, o) =>
+          merge(
+            s.free,
+            merge(
+              cs.map((_, b) => b.free).fold(Map.empty)(merge),
               o.map(_.free).getOrElse(Map.empty)
             )
           )
@@ -232,6 +275,8 @@ object IR:
           fields.map((x, t) => (x.map(JvmName.apply), toJvm(t)))
         )
       )
+    case Def.Finite(x, amount) =>
+      List(Jvm.Def.Finite(JvmName(x), amount))
     case Def.Value(name, ty, value) =>
       // println(s"===simplify $name===")
       val simplified = simplifyTopLevelUntilDone(eta(ty, value))
@@ -268,6 +313,7 @@ object IR:
     case Type.Double    => Jvm.Type.Double
     case Type.Data(x)   => Jvm.Type.Data(JvmName(x))
     case Type.Record(x) => Jvm.Type.Record(JvmName(x))
+    case Type.Finite(x) => Jvm.Type.Finite(JvmName(x))
 
   // simplification:
   // - remove dead lets
@@ -282,10 +328,11 @@ object IR:
 
   private def simplify(expr: Expr)(using ctx: Ctx): Option[Expr] =
     expr match
-      case Expr.Local(_, _) => None
-      case Expr.Global(_)   => None
-      case Expr.IntLit(_)   => None
-      case Expr.BoolLit(_)  => None
+      case Expr.Local(_, _)     => None
+      case Expr.Global(_)       => None
+      case Expr.IntLit(_)       => None
+      case Expr.BoolLit(_)      => None
+      case Expr.FiniteCon(_, _) => None
 
       case Expr.App(Expr.Lam(ty, body), arg) =>
         Some(Expr.Let(TypeDef(Nil, ty), arg, body))
@@ -435,6 +482,7 @@ object IR:
     case Expr.BoolLit(_)        => true
     case Expr.Con(_, _, Nil)    => true
     case Expr.RecordCon(_, Nil) => true
+    case Expr.FiniteCon(_, _)   => true
     case _                      => false
 
   @tailrec
@@ -492,9 +540,10 @@ object IR:
         val l = lvl - ix - 1
         if jumps.contains(l) then Jvm.Expr.Jump(l, Nil)
         else Jvm.Expr.Local(l)
-      case Expr.Global(x)  => Jvm.Expr.Global(JvmName(x), Nil)
-      case Expr.IntLit(v)  => Jvm.Expr.IntLit(v)
-      case Expr.BoolLit(v) => Jvm.Expr.BoolLit(v)
+      case Expr.Global(x)       => Jvm.Expr.Global(JvmName(x), Nil)
+      case Expr.IntLit(v)       => Jvm.Expr.IntLit(v)
+      case Expr.BoolLit(v)      => Jvm.Expr.BoolLit(v)
+      case Expr.FiniteCon(x, i) => Jvm.Expr.FiniteCon(JvmName(x), i)
 
       case Expr.Lam(_, _) => throw new Exception("unexpected lambda")
 
@@ -641,9 +690,10 @@ object IR:
       case Expr.Local(j, _) if j == ix => tail
       case Expr.Local(_, _)            => true
 
-      case Expr.Global(_)  => true
-      case Expr.IntLit(_)  => true
-      case Expr.BoolLit(_) => true
+      case Expr.Global(_)       => true
+      case Expr.IntLit(_)       => true
+      case Expr.BoolLit(_)      => true
+      case Expr.FiniteCon(_, _) => true
 
       case expr @ Expr.App(_, _) =>
         val (fn, args) = flattenApp(expr)

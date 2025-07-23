@@ -2,6 +2,13 @@ object Main:
   @main def run(): Unit =
     val script =
       """
+(finite MyBool MyFalse MyTrue)
+
+(def myBool1 (fin MyBool MyFalse))
+(def myBool2 (fin MyBool MyTrue))
+(def myBool3 MyBool (fin_ MyFalse))
+(def myBool4 MyBool (fin_ MyTrue))
+
 (record Person (id Int) (age Int))
 
 (data IntList Nil (Cons (hd Int) (tl IntList)))
