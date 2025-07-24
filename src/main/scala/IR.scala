@@ -1,9 +1,15 @@
 import scala.annotation.tailrec
 import scala.collection.mutable
 
+import Common.*
+
 object IR:
   type Name = String
   type Ix = Int
+
+  final case class MName(module: Name, name: Name):
+    override def toString: String = s"$module.$name"
+    def toJvm: JvmName.MName = JvmName(module, name)
 
   final case class Module(name: Name, defs: List[Def])
 
@@ -27,16 +33,16 @@ object IR:
     case Long
     case Float
     case Double
-    case Data(name: Name)
-    case Record(name: Name)
-    case Finite(name: Name)
+    case Data(name: MName)
+    case Record(name: MName)
+    case Finite(name: MName)
 
   final case class TypeDef(params: List[Type], returnty: Type):
     def head: Type = params.head
     def tail: TypeDef = TypeDef(params.tail, returnty)
     def get: Type =
       if params.isEmpty then returnty
-      else throw new Exception("expected non-function type")
+      else err("expected non-function type")
 
   object TypeDef:
     def apply(ty: Type): TypeDef = TypeDef(Nil, ty)
@@ -45,7 +51,7 @@ object IR:
 
   enum Expr:
     case Local(ix: Ix, ty: TypeDef)
-    case Global(name: Name)
+    case Global(name: MName)
 
     case IntLit(value: Int)
     case BoolLit(value: Boolean)
@@ -60,23 +66,23 @@ object IR:
 
     case Instr(opcode: Int, args: List[Expr])
 
-    case FiniteCon(name: Name, ix: Int)
+    case FiniteCon(name: MName, ix: Int)
     case FiniteCase(
         ty: TypeDef,
-        dataname: Name,
+        dataname: MName,
         scrut: Expr,
         cases: List[(Int, Expr)],
         otherwise: Option[Expr]
     )
 
-    case RecordCon(name: Name, args: List[Expr])
-    case Field(name: Name, scrut: Expr, ix: Int)
+    case RecordCon(name: MName, args: List[Expr])
+    case Field(name: MName, scrut: Expr, ix: Int)
 
-    case Con(datatype: Name, name: Name, args: List[Expr])
-    case DataField(dataname: Name, conname: Name, scrut: Expr, ix: Int)
+    case Con(datatype: MName, name: Name, args: List[Expr])
+    case DataField(dataname: MName, conname: Name, scrut: Expr, ix: Int)
     case Case(
         ty: TypeDef,
-        dataname: Name,
+        dataname: MName,
         scrut: Expr,
         cases: List[(Name, Expr)],
         otherwise: Option[Expr]
@@ -84,7 +90,7 @@ object IR:
 
     override def toString: String = this match
       case Expr.Local(i, _)            => s"'$i"
-      case Expr.Global(name)           => name
+      case Expr.Global(name)           => name.toString
       case Expr.IntLit(value)          => value.toString
       case Expr.BoolLit(value)         => if value then "True" else "False"
       case Expr.App(fn, arg)           => s"($fn $arg)"
@@ -237,25 +243,15 @@ object IR:
     }
 
   // to JVM IR
-  final case class Ctx(
-      datatypes: Map[String, Map[String, List[Type]]]
-  )
+  def toJvm(modules: List[Module]): List[Jvm.Module] = modules.map(toJvm)
 
-  def toJvm(module: Module): Jvm.Module =
-    given ctx: Ctx = createCtx(module.defs)
-    val newdefs = module.defs.flatMap(toJvm)
+  private def toJvm(module: Module): Jvm.Module =
+    val newdefs = module.defs.flatMap(toJvm(module.name, _))
     Jvm.Module(JvmName(module.name), newdefs)
 
-  private def createCtx(defs: List[IR.Def]): Ctx =
-    Ctx(defs.flatMap {
-      case Def.Data(x, cs) =>
-        Some(x -> cs.map(c => c.name -> c.parameters.map(_._2)).toMap)
-      case _ => None
-    }.toMap)
+  private type EmitDef = (MName => Jvm.Def) => MName
 
-  private type EmitDef = (Name => Jvm.Def) => Name
-
-  private def toJvm(defn: Def)(using ctx: Ctx): List[Jvm.Def] = defn match
+  private def toJvm(mod: Name, defn: Def): List[Jvm.Def] = defn match
     case Def.Data(x, cs) =>
       List(
         Jvm.Def.Data(
@@ -283,8 +279,9 @@ object IR:
       val liftedDefs: mutable.ArrayBuffer[Jvm.Def] = mutable.ArrayBuffer.empty
       given emitDef: EmitDef = k => {
         val x = s"${name}_lifted_${liftedDefs.size}"
-        liftedDefs += k(x)
-        x
+        val mx = MName(mod, x)
+        liftedDefs += k(mx)
+        mx
       }
       // println(simplified)
       // println(s"===lift $name===")
@@ -311,9 +308,9 @@ object IR:
     case Type.Long      => Jvm.Type.Long
     case Type.Float     => Jvm.Type.Float
     case Type.Double    => Jvm.Type.Double
-    case Type.Data(x)   => Jvm.Type.Data(JvmName(x))
-    case Type.Record(x) => Jvm.Type.Record(JvmName(x))
-    case Type.Finite(x) => Jvm.Type.Finite(JvmName(x))
+    case Type.Data(x)   => Jvm.Type.Data(x.toJvm)
+    case Type.Record(x) => Jvm.Type.Record(x.toJvm)
+    case Type.Finite(x) => Jvm.Type.Finite(x.toJvm)
 
   // simplification:
   // - remove dead lets
@@ -321,12 +318,12 @@ object IR:
   // - inline variables and literals
   // - eta-expand lets and discrimination constructs
   @tailrec
-  private def simplifyTopLevelUntilDone(expr: Expr)(using ctx: Ctx): Expr =
+  private def simplifyTopLevelUntilDone(expr: Expr): Expr =
     simplify(expr) match
       case None       => expr
       case Some(expr) => simplifyTopLevelUntilDone(expr)
 
-  private def simplify(expr: Expr)(using ctx: Ctx): Option[Expr] =
+  private def simplify(expr: Expr): Option[Expr] =
     expr match
       case Expr.Local(_, _)     => None
       case Expr.Global(_)       => None
@@ -509,18 +506,14 @@ object IR:
           case (Some(s), Some(nc), Some(no)) =>
             Some(Expr.FiniteCase(ty, dx, s, go(c, nc), goO(o, no)))
 
-  private def simplify2(a: Expr, b: Expr)(using
-      ctx: Ctx
-  ): Option[(Expr, Expr)] =
+  private def simplify2(a: Expr, b: Expr): Option[(Expr, Expr)] =
     (simplify(a), simplify(b)) match
       case (None, None)       => None
       case (Some(a), None)    => Some((a, b))
       case (None, Some(b))    => Some((a, b))
       case (Some(a), Some(b)) => Some((a, b))
 
-  private def simplifyN(
-      args: List[Expr]
-  )(using ctx: Ctx): Option[List[Expr]] =
+  private def simplifyN(args: List[Expr]): Option[List[Expr]] =
     val results = args.map(simplify)
     if results.forall(_.isEmpty) then None
     else Some(results.zip(args).map((o, d) => o.getOrElse(d)))
@@ -581,44 +574,41 @@ object IR:
       lvl: Int,
       tail: Boolean,
       jumps: Set[Int]
-  )(using
-      emitDef: EmitDef,
-      ctx: Ctx
-  ): Jvm.Expr =
+  )(using emitDef: EmitDef): Jvm.Expr =
     expr match
       case Expr.Local(ix, _) =>
         val l = lvl - ix - 1
         if jumps.contains(l) then Jvm.Expr.Jump(l, Nil)
         else Jvm.Expr.Local(l)
-      case Expr.Global(x)       => Jvm.Expr.Global(JvmName(x), Nil)
+      case Expr.Global(x)       => Jvm.Expr.Global(x.toJvm, Nil)
       case Expr.IntLit(v)       => Jvm.Expr.IntLit(v)
       case Expr.BoolLit(v)      => Jvm.Expr.BoolLit(v)
-      case Expr.FiniteCon(x, i) => Jvm.Expr.FiniteCon(JvmName(x), i)
+      case Expr.FiniteCon(x, i) => Jvm.Expr.FiniteCon(x.toJvm, i)
 
-      case Expr.Lam(_, _) => throw new Exception("unexpected lambda")
+      case Expr.Lam(_, _) => err("unexpected lambda")
 
       case app @ Expr.App(_, _) =>
         val (hd, args) = flattenApp(app)
         hd match
           case Expr.Global(x) =>
-            Jvm.Expr.Global(JvmName(x), args.map(lift(_, lvl, false, jumps)))
+            Jvm.Expr.Global(x.toJvm, args.map(lift(_, lvl, false, jumps)))
           case Expr.Local(ix, _) =>
             val l = lvl - ix - 1
             if jumps.contains(l) then
               Jvm.Expr.Jump(l, args.map(lift(_, lvl, false, jumps)))
-            else throw new Exception("local in head position")
-          case _ => throw new Exception("invalid fn in app")
+            else err("local in head position")
+          case _ => err("invalid fn in app")
 
       case Expr.Instr(opcode, args) =>
         Jvm.Expr.Instr(opcode, args.map(lift(_, lvl, false, jumps)))
       case Expr.Con(dx, cx, args) =>
         Jvm.Expr.Con(
-          JvmName(dx),
+          dx.toJvm,
           JvmName(cx),
           args.map(lift(_, lvl, false, jumps))
         )
       case Expr.RecordCon(dx, args) =>
-        Jvm.Expr.RecordCon(JvmName(dx), args.map(lift(_, lvl, false, jumps)))
+        Jvm.Expr.RecordCon(dx.toJvm, args.map(lift(_, lvl, false, jumps)))
 
       case Expr.Let(ty, value, body)
           if tail && isUsedInTailOnly(0, body, true) =>
@@ -637,14 +627,14 @@ object IR:
 
       case Expr.Let(ty, value, body) =>
         val newparams = value.free.toList
-        val x = emitDef(x =>
+        val x = emitDef { x =>
           val ren = newparams.zipWithIndex
           val newvalue =
             ren.foldLeft(value) { case (v, ((ix, (ty, _)), newix)) =>
               v.subst(ix, Expr.Local(newix, ty))
             }
           Jvm.Def.Function(
-            JvmName(x),
+            JvmName(x.name),
             newparams.map(p => toJvm(p._2._1.get)) ++ ty.params.map(toJvm),
             toJvm(ty.returnty),
             lift(
@@ -654,7 +644,7 @@ object IR:
               jumps
             )
           )
-        )
+        }
         val call = newparams.foldLeft(Expr.Global(x)) {
           case (tm, (ix, (ty, _))) =>
             Expr.App(tm, Expr.Local(ix, ty))
@@ -672,18 +662,18 @@ object IR:
 
       case Expr.LetRec(ty, value, body) =>
         val newparams = value.free.removed(0).toList.map((k, v) => (k - 1, v))
-        inline def call(x: Name): Expr = newparams.foldLeft(Expr.Global(x)) {
-          case (tm, (ix, (ty, _))) =>
+        inline def call(x: MName): Expr =
+          newparams.foldLeft(Expr.Global(x)) { case (tm, (ix, (ty, _))) =>
             Expr.App(tm, Expr.Local(ix, ty))
-        }
-        val x = emitDef(x =>
+          }
+        val x = emitDef { x =>
           val body = value.beta(call(x))
           val ren = newparams.zipWithIndex
           val newbody = ren.foldLeft(body) { case (v, ((ix, (ty, _)), newix)) =>
             v.subst(ix, Expr.Local(newix, ty))
           }
           Jvm.Def.Function(
-            JvmName(x),
+            JvmName(x.name),
             newparams.map(p => toJvm(p._2._1.get)) ++ ty.params.map(toJvm),
             toJvm(ty.returnty),
             lift(
@@ -693,7 +683,7 @@ object IR:
               jumps
             )
           )
-        )
+        }
         lift(body.beta(call(x)), lvl, tail, jumps)
 
       case Expr.If(TypeDef(Nil, _), s, t, f) =>
@@ -702,13 +692,13 @@ object IR:
           lift(t, lvl, tail, jumps),
           lift(f, lvl, tail, jumps)
         )
-      case Expr.If(_, _, _, _) => throw new Exception("non-lifted if")
+      case Expr.If(_, _, _, _) => err("non-lifted if")
 
       case Expr.Field(x, s, i) =>
-        Jvm.Expr.Field(JvmName(x), lift(s, lvl, false, jumps), i)
+        Jvm.Expr.Field(x.toJvm, lift(s, lvl, false, jumps), i)
       case Expr.DataField(dx, cx, s, i) =>
         Jvm.Expr.DataField(
-          JvmName(dx),
+          dx.toJvm,
           JvmName(cx),
           lift(s, lvl, false, jumps),
           i
@@ -716,7 +706,7 @@ object IR:
 
       case Expr.Case(_, dx, s, cs, o) =>
         Jvm.Expr.Case(
-          JvmName(dx),
+          dx.toJvm,
           lift(s, lvl, false, jumps),
           cs.map((cx, b) =>
             (JvmName(cx), b.free.contains(0), lift(b, lvl + 1, tail, jumps))
@@ -725,7 +715,7 @@ object IR:
         )
       case Expr.FiniteCase(_, dx, s, cs, o) =>
         Jvm.Expr.FiniteCase(
-          JvmName(dx),
+          dx.toJvm,
           lift(s, lvl, false, jumps),
           cs.map((cx, b) => (cx, lift(b, lvl, tail, jumps))),
           o.map(lift(_, lvl, tail, jumps))

@@ -33,3 +33,4 @@ metals.sbt
 
 test.txt
 *.class
+justatarget/

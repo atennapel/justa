@@ -8,12 +8,12 @@ import org.objectweb.asm.commons.GeneratorAdapter
 import java.io.BufferedOutputStream
 import java.io.FileOutputStream
 import scala.collection.mutable
-import Common.*
-
 import scala.annotation.tailrec
 
+import Common.*
+
 object Jvm:
-  import JvmName.Name
+  import JvmName.{Name, MName}
 
   type Lvl = Int
 
@@ -40,13 +40,13 @@ object Jvm:
     case Long
     case Float
     case Double
-    case Data(name: Name)
-    case Record(name: Name)
-    case Finite(name: Name)
+    case Data(name: MName)
+    case Record(name: MName)
+    case Finite(name: MName)
 
   enum Expr:
     case Local(lvl: Lvl)
-    case Global(name: Name, args: List[Expr])
+    case Global(name: MName, args: List[Expr])
 
     case Let(ty: Type, value: Expr, body: Expr)
     case Join(params: List[Type], value: Expr, body: Expr)
@@ -56,21 +56,21 @@ object Jvm:
     case IntLit(value: Int)
     case BoolLit(value: Boolean)
 
-    case Con(datatype: Name, name: Name, args: List[Expr])
-    case DataField(dataname: Name, conname: Name, scrut: Expr, ix: Int)
+    case Con(datatype: MName, name: Name, args: List[Expr])
+    case DataField(dataname: MName, conname: Name, scrut: Expr, ix: Int)
     case Case(
-        dataname: Name,
+        dataname: MName,
         scrut: Expr,
         cases: List[(Name, Boolean, Expr)],
         otherwise: Option[Expr]
     )
 
-    case RecordCon(name: Name, args: List[Expr])
-    case Field(name: Name, scrut: Expr, ix: Int)
+    case RecordCon(name: MName, args: List[Expr])
+    case Field(name: MName, scrut: Expr, ix: Int)
 
-    case FiniteCon(name: Name, ix: Int)
+    case FiniteCon(name: MName, ix: Int)
     case FiniteCase(
-        dataname: Name,
+        dataname: MName,
         scrut: Expr,
         cases: List[(Int, Expr)],
         otherwise: Option[Expr]
@@ -113,16 +113,33 @@ object Jvm:
       val finites: mutable.Map[Name, FiniteCtx] = mutable.Map.empty
   )
 
+  private class Ctx(val modules: Map[Name, ModuleCtx]):
+    def module(name: MName): ModuleCtx = modules(name.module)
+    def value(name: MName): JType = module(name).values(name.name)
+    def method(name: MName): Method = module(name).methods(name.name)
+    def datatype(name: MName): DatatypeCtx = module(name).datatypes(name.name)
+    def record(name: MName): RecordCtx = module(name).records(name.name)
+    def finite(name: MName): FiniteCtx = module(name).finites(name.name)
+
   private enum Local:
     case Arg(ix: Int)
     case Local(id: Int)
     case Label(label: JLabel, params: List[Int])
   private type Locals = List[Local]
 
-  def generateBytecode(module: Module): Unit =
-    given moduleCtx: ModuleCtx =
-      new ModuleCtx(module.name, JType.getType(s"L${module.name.escape};"))
+  def generateBytecode(modules: List[Module], targetDir: String): Unit =
+    val moduleMap = modules
+      .map(m =>
+        m.name -> new ModuleCtx(m.name, JType.getType(s"L${m.name.escape};"))
+      )
+      .toMap
+    given ctx: Ctx = Ctx(moduleMap)
+    modules.foreach(generateBytecode(_, targetDir))
 
+  private def generateBytecode(module: Module, targetDir: String)(using
+      ctx: Ctx
+  ): Unit =
+    given moduleCtx: ModuleCtx = ctx.modules(module.name)
     given cw: ClassWriter = new ClassWriter(
       ClassWriter.COMPUTE_MAXS + ClassWriter.COMPUTE_FRAMES
     ) {
@@ -158,7 +175,7 @@ object Jvm:
 
     // generate definitions
     updateModuleCtx(module.defs)
-    module.defs.foreach(genDatatype)
+    module.defs.foreach(genDatatype(_, targetDir))
     module.defs.foreach(gen)
 
     // generate static block
@@ -167,12 +184,12 @@ object Jvm:
     // end
     cw.visitEnd()
     val bos = new BufferedOutputStream(
-      new FileOutputStream(s"${module.name.escape}.class")
+      new FileOutputStream(s"$targetDir/${module.name.escape}.class")
     )
     bos.write(cw.toByteArray)
     bos.close()
 
-  private def gen(ty: Type)(using moduleCtx: ModuleCtx): JType = ty match
+  private def gen(ty: Type)(using ctx: Ctx): JType = ty match
     case Type.Boolean      => JType.BOOLEAN_TYPE
     case Type.Byte         => JType.BYTE_TYPE
     case Type.Char         => JType.CHAR_TYPE
@@ -181,19 +198,20 @@ object Jvm:
     case Type.Long         => JType.LONG_TYPE
     case Type.Float        => JType.FLOAT_TYPE
     case Type.Double       => JType.DOUBLE_TYPE
-    case Type.Data(name)   => moduleCtx.datatypes(name).ty
-    case Type.Record(name) => moduleCtx.records(name).ty
-    case Type.Finite(name) => moduleCtx.finites(name).ty
+    case Type.Data(name)   => ctx.modules(name.module).datatypes(name.name).ty
+    case Type.Record(name) => ctx.modules(name.module).records(name.name).ty
+    case Type.Finite(name) => ctx.modules(name.module).finites(name.name).ty
 
   private def finiteType(amount: Int): JType = amount match
     case n if n <= 2          => JType.BOOLEAN_TYPE
     case n if n <= 128        => JType.BYTE_TYPE
     case n if n <= 32768      => JType.SHORT_TYPE
     case n if n <= 2147483647 => JType.INT_TYPE
-    case n => throw new Exception(s"finite type has too many members: $n")
+    case n                    => err(s"finite type has too many members: $n")
 
   private def updateModuleCtx(defs: List[Def])(using
-      moduleCtx: ModuleCtx
+      moduleCtx: ModuleCtx,
+      ctx: Ctx
   ): Unit =
     // first ensure all datatypes are known
     defs.foreach {
@@ -221,7 +239,9 @@ object Jvm:
     }
     defs.foreach(updateModuleCtx)
 
-  private def updateModuleCtx(defn: Def)(using moduleCtx: ModuleCtx): Unit =
+  private def updateModuleCtx(
+      defn: Def
+  )(using moduleCtx: ModuleCtx, ctx: Ctx): Unit =
     defn match
       case Def.Value(name, ty, _) =>
         moduleCtx.values += (name -> gen(ty))
@@ -268,7 +288,7 @@ object Jvm:
 
   private def genStaticBlock(
       defs: List[Def]
-  )(using cw: ClassWriter, moduleCtx: ModuleCtx): Unit =
+  )(using cw: ClassWriter, moduleCtx: ModuleCtx, ctx: Ctx): Unit =
     defs.flatMap {
       case Def.Value(name, ty, value) if constantValue(value).isEmpty =>
         Some((name, ty, value))
@@ -289,7 +309,7 @@ object Jvm:
 
   private def gen(
       defn: Def
-  )(using cw: ClassWriter, moduleCtx: ModuleCtx): Unit =
+  )(using cw: ClassWriter, moduleCtx: ModuleCtx, ctx: Ctx): Unit =
     defn match
       case Def.Data(_, _)             => ()
       case Def.Record(_, _)           => ()
@@ -318,7 +338,8 @@ object Jvm:
         mg.endMethod()
 
   private def genDatatype(
-      defn: Def
+      defn: Def,
+      targetDir: String
   )(using cw: ClassWriter, moduleCtx: ModuleCtx): Unit =
     defn match
       case Def.Data(name, constructors) =>
@@ -353,7 +374,7 @@ object Jvm:
         // constructors
         constructors.foreach { c =>
           given conctx: ConstructorCtx = datactx.constructors(c.name)
-          genDatatypeConstructor()
+          genDatatypeConstructor(targetDir)
           datacw.visitInnerClass(
             conctx.className,
             className,
@@ -371,7 +392,7 @@ object Jvm:
           ACC_PUBLIC + ACC_ABSTRACT + ACC_STATIC
         )
         val bos = new BufferedOutputStream(
-          new FileOutputStream(s"$className.class")
+          new FileOutputStream(s"$targetDir/$className.class")
         )
         bos.write(datacw.toByteArray)
         bos.close()
@@ -452,13 +473,13 @@ object Jvm:
           ACC_PUBLIC + ACC_STATIC
         )
         val bos = new BufferedOutputStream(
-          new FileOutputStream(s"$className.class")
+          new FileOutputStream(s"$targetDir/$className.class")
         )
         bos.write(recordcw.toByteArray)
         bos.close()
       case _ => ()
 
-  private def genDatatypeConstructor()(using
+  private def genDatatypeConstructor(targetDir: String)(using
       datatypeCtx: DatatypeCtx,
       conCtx: ConstructorCtx
   ): Unit =
@@ -538,27 +559,36 @@ object Jvm:
     // done
     cw.visitEnd()
     val bos = new BufferedOutputStream(
-      new FileOutputStream(s"$className.class")
+      new FileOutputStream(s"$targetDir/$className.class")
     )
     bos.write(cw.toByteArray)
     bos.close()
 
   private def gen(
       expr: Expr
-  )(using mg: GeneratorAdapter, locals: Locals, moduleCtx: ModuleCtx): Unit =
+  )(using
+      mg: GeneratorAdapter,
+      locals: Locals,
+      moduleCtx: ModuleCtx,
+      ctx: Ctx
+  ): Unit =
     expr match
       case Expr.Local(lvl) =>
         locals(lvl) match
           case Local.Arg(ix)     => mg.loadArg(ix)
           case Local.Local(id)   => mg.loadLocal(id)
           case Local.Label(_, _) =>
-            throw new Exception("tried to retrieve label")
+            err("tried to retrieve label")
 
       case Expr.Global(name, Nil) =>
-        mg.getStatic(moduleCtx.ty, name.escape, moduleCtx.values(name))
+        mg.getStatic(
+          ctx.module(name).ty,
+          name.name.escape,
+          ctx.value(name)
+        )
       case Expr.Global(name, args) =>
         args.foreach(gen)
-        mg.invokeStatic(moduleCtx.ty, moduleCtx.methods(name))
+        mg.invokeStatic(ctx.module(name).ty, ctx.method(name))
 
       case Expr.Let(ty, value, body) =>
         val id = mg.newLocal(gen(ty))
@@ -591,13 +621,13 @@ object Jvm:
               mg.storeLocal(id)
             }
             mg.visitJumpInsn(GOTO, label)
-          case _ => throw new Exception("tried to jump to non-label")
+          case _ => err("tried to jump to non-label")
 
       case Expr.IntLit(value)  => mg.push(value)
       case Expr.BoolLit(value) => mg.push(value)
 
       case Expr.Con(dname, cname, args) =>
-        val conctx = moduleCtx.datatypes(dname).constructors(cname)
+        val conctx = ctx.datatype(dname).constructors(cname)
         if args.isEmpty then mg.getStatic(conctx.ty, "INSTANCE", conctx.ty)
         else
           mg.newInstance(conctx.ty)
@@ -605,13 +635,13 @@ object Jvm:
           args.foreach(gen)
           mg.invokeConstructor(conctx.ty, conctx.constructor)
       case Expr.DataField(dx, cx, scrut, ix) =>
-        val datactx = moduleCtx.datatypes(dx)
+        val datactx = ctx.datatype(dx)
         val conctx = datactx.constructors(cx)
         gen(scrut)
         val (x, t) = conctx.params(ix)
         mg.getField(conctx.ty, x.escape, t)
       case Expr.Case(dx, scrut, cases, otherwise) =>
-        val datactx = moduleCtx.datatypes(dx)
+        val datactx = ctx.datatype(dx)
         val lEnd = mg.newLabel()
         gen(scrut)
         cases.zipWithIndex.foreach { case ((cx, isUsed, body), i) =>
@@ -643,7 +673,7 @@ object Jvm:
         mg.visitLabel(lEnd)
 
       case Expr.RecordCon(name, args) =>
-        val recordctx = moduleCtx.records(name)
+        val recordctx = ctx.record(name)
         if args.isEmpty then
           mg.getStatic(recordctx.ty, "INSTANCE", recordctx.ty)
         else
@@ -652,19 +682,19 @@ object Jvm:
           args.foreach(gen)
           mg.invokeConstructor(recordctx.ty, recordctx.constructor)
       case Expr.Field(name, scrut, ix) =>
-        val recordctx = moduleCtx.records(name)
+        val recordctx = ctx.record(name)
         gen(scrut)
         val (x, t) = recordctx.fields(ix)
         mg.getField(recordctx.ty, x.escape, t)
 
       case Expr.FiniteCon(name, ix) =>
-        val finitectx = moduleCtx.finites(name)
+        val finitectx = ctx.finite(name)
         finitectx.amount match
           case n if n <= 2          => mg.push(ix == 1)
           case n if n <= 128        => mg.push(ix.toByte)
           case n if n <= 32768      => mg.push(ix.toShort)
           case n if n <= 2147483647 => mg.push(ix)
-          case n => throw new Exception(s"finite type has too many members: $n")
+          case n => err(s"finite type has too many members: $n")
 
       case Expr.Instr(opcode, args) =>
         args.foreach(gen)
@@ -682,7 +712,7 @@ object Jvm:
         mg.visitLabel(endLabel)
 
       case Expr.FiniteCase(dx, scrut, cases, otherwise) =>
-        val datactx = moduleCtx.finites(dx)
+        val datactx = ctx.finite(dx)
         datactx.amount match
           case 0 => () // is this correct?
           case 1 =>
@@ -790,22 +820,17 @@ object Jvm:
       else i += 1
     a.substring(0, i)
 
-  private def constantValue(expr: Expr)(using
-      moduleCtx: ModuleCtx
-  ): Option[AnyRef] =
+  private def constantValue(expr: Expr)(using ctx: Ctx): Option[AnyRef] =
     expr match
       case Expr.IntLit(value)    => Some(Int.box(value))
       case Expr.BoolLit(value)   => Some(Boolean.box(value))
       case Expr.FiniteCon(x, ix) => Some(finiteValue(x, ix))
       case _                     => None
 
-  private def finiteValue(name: Name, ix: Int)(using
-      moduleCtx: ModuleCtx
-  ): AnyRef =
-    val finitectx = moduleCtx.finites(name)
-    finitectx.amount match
+  private def finiteValue(name: MName, ix: Int)(using ctx: Ctx): AnyRef =
+    ctx.finite(name).amount match
       case n if n <= 2          => (ix == 1).asInstanceOf[AnyRef]
       case n if n <= 128        => ix.toByte.asInstanceOf[AnyRef]
       case n if n <= 32768      => ix.toShort.asInstanceOf[AnyRef]
       case n if n <= 2147483647 => ix.asInstanceOf[AnyRef]
-      case n => throw new Exception(s"finite type has too many members: $n")
+      case n                    => err(s"finite type has too many members: $n")

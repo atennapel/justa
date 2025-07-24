@@ -5,7 +5,10 @@ object JvmName:
 
   extension (x: Name) inline def escape: String = escapeName(x)
 
+  final case class MName(module: Name, name: Name)
+
   def apply(x: String): Name = x
+  def apply(mod: String, x: String): MName = MName(mod, x)
 
   // naming
   private val nameCache: mutable.Map[String, String] = mutable.Map.empty
