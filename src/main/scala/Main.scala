@@ -2,12 +2,19 @@ object Main:
   @main def run(): Unit =
     val script =
       """
-(finite MyBool MyFalse MyTrue)
+(finite Void)
+(finite Unit Unit)
+(finite Bool False True)
 
-(def myBool1 (fin MyBool MyFalse))
-(def myBool2 (fin MyBool MyTrue))
-(def myBool3 MyBool (fin_ MyFalse))
-(def myBool4 MyBool (fin_ MyTrue))
+(def myBool1 (fin Bool False))
+(def myBool2 (fin Bool True))
+(def myBool3 Bool (fin_ False))
+(def myBool4 Bool (fin_ True))
+
+(def not (-> Bool Bool) (fn b
+  (fincase b
+    (True (fin_ False))
+    (False (fin_ True)))))
 
 (record Person (id Int) (age Int))
 
@@ -36,9 +43,6 @@ object Main:
       (Cons (hd tl) (con_ Cons (iadd hd 1) (go tl)))
       (Nil (con_ Nil))))
     (go l))))
-
-(record Unit)
-(data Void)
 
 (def imul (-> Int Int Int) (fn (a b) (instr 104 a b)))
 (def isub (-> Int Int Int) (fn (a b) (instr 100 a b)))

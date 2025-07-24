@@ -419,7 +419,72 @@ object Surface:
       scrut: Expr,
       cases: List[(Option[Name], Expr)],
       exty: Option[IR.TypeDef]
-  )(using ctx: Ctx): (IR.Expr, IR.TypeDef) = ???
+  )(using ctx: Ctx): (IR.Expr, IR.TypeDef) =
+    val (escrut, scrutty) = infer(scrut)
+    scrutty match
+      case IR.TypeDef(Nil, IR.Type.Finite(dx)) =>
+        val datactx = ctx.finiteparams(dx)
+        var rty: Option[IR.TypeDef] = exty
+        val left = mutable.Set.from(datactx.toSet)
+        val seen: mutable.Set[Name] = mutable.Set.empty
+        val ecases = cases.zipWithIndex.map { case ((cx, b), i) =>
+          val last = i == cases.size - 1
+          cx match
+            case Some(cx) if seen.contains(cx) =>
+              throw new Exception(s"duplicate case $cx")
+            case Some(cx) if !left.contains(cx) =>
+              throw new Exception(s"invalid case $cx for type $dx")
+            case Some(cx) if last && (left.toSet - cx).nonEmpty =>
+              throw new Exception(
+                s"non-exhaustive case: ${(left.toSet - cx).mkString(", ")}"
+              )
+            case None if left.isEmpty =>
+              throw new Exception(s"otherwise case matches against nothing")
+            case None if !last =>
+              throw new Exception(s"otherwise case should be last")
+
+            case Some(cx) =>
+              seen += cx
+              left -= cx
+              val ebody = rty match
+                case None =>
+                  val (ebody, ty) = infer(b)
+                  rty = Some(ty)
+                  ebody
+                case Some(ty) => check(b, ty)
+              val i = datactx.zipWithIndex.find((x, _) => x == cx).get._2
+              (Some(i), ebody)
+
+            case None =>
+              val ebody = rty match
+                case None =>
+                  val (ebody, ty) = infer(b)
+                  rty = Some(ty)
+                  ebody
+                case Some(ty) => check(b, ty)
+              (None, ebody)
+        }
+        rty match
+          case None =>
+            throw new Exception("could not figure out return type of case")
+          case Some(rty) =>
+            val (ecs, other) = ecases.last match
+              case (None, b) => (ecases.init, Some(b))
+              case _         => (ecases, None)
+            (
+              IR.Expr.FiniteCase(
+                rty,
+                dx,
+                escrut,
+                ecs.map((x, b) => (x.get, b)),
+                other
+              ),
+              rty
+            )
+      case _ =>
+        throw new Exception(
+          s"expected data type in fincase but got $scrutty"
+        )
 
   // parsing
   private enum S:

@@ -16,7 +16,7 @@ object IR:
     case Value(name: Name, ty: TypeDef, value: Expr)
     case Data(name: Name, constructors: List[Constructor])
     case Record(name: Name, fields: List[(Option[Name], Type)])
-    case Finite(name: Name, amount: Long)
+    case Finite(name: Name, amount: Int)
 
   enum Type:
     case Boolean
@@ -60,12 +60,12 @@ object IR:
 
     case Instr(opcode: Int, args: List[Expr])
 
-    case FiniteCon(name: Name, ix: Long)
+    case FiniteCon(name: Name, ix: Int)
     case FiniteCase(
         ty: TypeDef,
         dataname: Name,
         scrut: Expr,
-        cases: List[(Long, Expr)],
+        cases: List[(Int, Expr)],
         otherwise: Option[Expr]
     )
 
@@ -373,6 +373,22 @@ object IR:
             )
           )
         )
+      case Expr.App(Expr.FiniteCase(ty, dx, s, cs, o), arg) =>
+        val argty = TypeDef(ty.head)
+        val local = Expr.Local(0, argty)
+        Some(
+          Expr.Let(
+            argty,
+            arg,
+            Expr.FiniteCase(
+              ty.tail,
+              dx,
+              s.shift(0, 1),
+              cs.map((cx, b) => (cx, Expr.App(b.shift(0, 1), local))),
+              o.map(o => Expr.App(o.shift(0, 1), local))
+            )
+          )
+        )
       case Expr.App(fn, arg) =>
         simplify2(fn, arg).map(Expr.App.apply)
 
@@ -458,6 +474,40 @@ object IR:
 
           case (Some(s), Some(nc), Some(no)) =>
             Some(Expr.Case(ty, dx, s, go(c, nc), goO(o, no)))
+
+      case Expr.FiniteCase(_, _, Expr.FiniteCon(_, cx2), cs, o) =>
+        cs.find((cx, _) => cx == cx2) match
+          case None         => Some(o.get)
+          case Some((_, b)) => Some(b)
+      case Expr.FiniteCase(ty, dx, s, c, o) =>
+        inline def go(
+            c: List[(Int, Expr)],
+            nc: List[Expr]
+        ): List[(Int, Expr)] =
+          c.zip(nc).map { case ((cx, _), b) => (cx, b) }
+        inline def goO(o: Option[Expr], no: Option[Expr]): Option[Expr] =
+          no match
+            case None => o
+            case _    => no
+        (simplify(s), simplifyN(c.map((_, b) => b)), o.map(simplify)) match
+          case (None, None, None)       => None
+          case (None, None, Some(None)) => None
+
+          case (Some(s), None, None)  => Some(Expr.FiniteCase(ty, dx, s, c, o))
+          case (None, Some(nc), None) =>
+            Some(Expr.FiniteCase(ty, dx, s, go(c, nc), o))
+          case (None, None, Some(no)) =>
+            Some(Expr.FiniteCase(ty, dx, s, c, goO(o, no)))
+
+          case (Some(s), Some(nc), None) =>
+            Some(Expr.FiniteCase(ty, dx, s, go(c, nc), o))
+          case (Some(s), None, Some(no)) =>
+            Some(Expr.FiniteCase(ty, dx, s, c, goO(o, no)))
+          case (None, Some(nc), Some(no)) =>
+            Some(Expr.FiniteCase(ty, dx, s, go(c, nc), goO(o, no)))
+
+          case (Some(s), Some(nc), Some(no)) =>
+            Some(Expr.FiniteCase(ty, dx, s, go(c, nc), goO(o, no)))
 
   private def simplify2(a: Expr, b: Expr)(using
       ctx: Ctx
@@ -673,6 +723,13 @@ object IR:
           ),
           o.map(lift(_, lvl, tail, jumps))
         )
+      case Expr.FiniteCase(_, dx, s, cs, o) =>
+        Jvm.Expr.FiniteCase(
+          JvmName(dx),
+          lift(s, lvl, false, jumps),
+          cs.map((cx, b) => (cx, lift(b, lvl, tail, jumps))),
+          o.map(lift(_, lvl, tail, jumps))
+        )
 
   @tailrec
   private def removeLams(expr: Expr): Expr = expr match
@@ -718,6 +775,10 @@ object IR:
       case Expr.Case(_, _, s, cs, o) =>
         isUsedInTailOnly(ix, s, false) &&
         cs.forall((_, b) => isUsedInTailOnly(ix + 1, b, tail)) &&
+        o.forall(isUsedInTailOnly(ix, _, tail))
+      case Expr.FiniteCase(_, _, s, cs, o) =>
+        isUsedInTailOnly(ix, s, false) &&
+        cs.forall((_, b) => isUsedInTailOnly(ix, b, tail)) &&
         o.forall(isUsedInTailOnly(ix, _, tail))
 
       case Expr.Lam(_, body)        => isUsedInTailOnly(ix + 1, body, tail)

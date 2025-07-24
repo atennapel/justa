@@ -7,8 +7,10 @@ import org.objectweb.asm.commons.GeneratorAdapter
 
 import java.io.BufferedOutputStream
 import java.io.FileOutputStream
-
 import scala.collection.mutable
+import Common.*
+
+import scala.annotation.tailrec
 
 object Jvm:
   import JvmName.Name
@@ -27,7 +29,7 @@ object Jvm:
     case Function(name: Name, params: List[Type], returnType: Type, body: Expr)
     case Data(name: Name, constructors: List[Constructor])
     case Record(name: Name, fields: List[(Option[Name], Type)])
-    case Finite(name: Name, count: Long)
+    case Finite(name: Name, count: Int)
 
   enum Type:
     case Boolean
@@ -66,7 +68,13 @@ object Jvm:
     case RecordCon(name: Name, args: List[Expr])
     case Field(name: Name, scrut: Expr, ix: Int)
 
-    case FiniteCon(name: Name, ix: Long)
+    case FiniteCon(name: Name, ix: Int)
+    case FiniteCase(
+        dataname: Name,
+        scrut: Expr,
+        cases: List[(Int, Expr)],
+        otherwise: Option[Expr]
+    )
 
     case Instr(opcode: Int, args: List[Expr])
 
@@ -93,7 +101,7 @@ object Jvm:
       var constructor: Method = null,
       fields: mutable.ArrayBuffer[(Name, JType)] = mutable.ArrayBuffer.empty
   )
-  private case class FiniteCtx(amount: Long, ty: JType)
+  private case class FiniteCtx(amount: Int, ty: JType)
 
   private class ModuleCtx(
       val name: Name,
@@ -177,12 +185,11 @@ object Jvm:
     case Type.Record(name) => moduleCtx.records(name).ty
     case Type.Finite(name) => moduleCtx.finites(name).ty
 
-  private def finiteType(amount: Long): JType = amount match
-    case n if n <= 2                    => JType.BOOLEAN_TYPE
-    case n if n <= 128                  => JType.BYTE_TYPE
-    case n if n <= 32768                => JType.SHORT_TYPE
-    case n if n <= 2147483648L          => JType.INT_TYPE
-    case n if n <= 9223372036854775807L => JType.LONG_TYPE
+  private def finiteType(amount: Int): JType = amount match
+    case n if n <= 2          => JType.BOOLEAN_TYPE
+    case n if n <= 128        => JType.BYTE_TYPE
+    case n if n <= 32768      => JType.SHORT_TYPE
+    case n if n <= 2147483647 => JType.INT_TYPE
     case n => throw new Exception(s"finite type has too many members: $n")
 
   private def updateModuleCtx(defs: List[Def])(using
@@ -653,11 +660,10 @@ object Jvm:
       case Expr.FiniteCon(name, ix) =>
         val finitectx = moduleCtx.finites(name)
         finitectx.amount match
-          case n if n <= 2                    => mg.push(ix == 1)
-          case n if n <= 128                  => mg.push(ix.toByte)
-          case n if n <= 32768                => mg.push(ix.toShort)
-          case n if n <= 2147483648L          => mg.push(ix.toInt)
-          case n if n <= 9223372036854775807L => mg.push(ix)
+          case n if n <= 2          => mg.push(ix == 1)
+          case n if n <= 128        => mg.push(ix.toByte)
+          case n if n <= 32768      => mg.push(ix.toShort)
+          case n if n <= 2147483647 => mg.push(ix)
           case n => throw new Exception(s"finite type has too many members: $n")
 
       case Expr.Instr(opcode, args) =>
@@ -674,6 +680,106 @@ object Jvm:
         mg.visitLabel(falseLabel)
         gen(f)
         mg.visitLabel(endLabel)
+
+      case Expr.FiniteCase(dx, scrut, cases, otherwise) =>
+        val datactx = moduleCtx.finites(dx)
+        datactx.amount match
+          case 0 => () // is this correct?
+          case 1 =>
+            (cases, otherwise) match
+              case (List((_, b)), None) => gen(b) // is this correct?
+              case (Nil, Some(b))       => gen(b) // is this correct?
+              case _                    => impossible()
+          case _ =>
+            if cases.isEmpty then gen(otherwise.get) // is this correct?
+            else
+              val s = cases.map(_._1).sorted
+              gen(scrut)
+              if hasNoHoles(s) then
+                otherwise match
+                  case Some(o) =>
+                    val labels = cases.map(_ => mg.newLabel())
+                    val default = mg.newLabel()
+                    val end = mg.newLabel()
+                    mg.visitTableSwitchInsn(
+                      s.head,
+                      s.last,
+                      default,
+                      labels.toArray*
+                    )
+                    cases.sortBy((i, _) => i).zip(labels).foreach {
+                      case ((_, b), l) =>
+                        mg.visitLabel(l)
+                        gen(b)
+                        mg.visitJumpInsn(GOTO, end)
+                    }
+                    mg.visitLabel(default)
+                    gen(o)
+                    mg.visitLabel(end)
+                  case None =>
+                    val labels = cases.init.map(_ => mg.newLabel())
+                    val default = mg.newLabel()
+                    val end = mg.newLabel()
+                    mg.visitTableSwitchInsn(
+                      s.head,
+                      s.last - 1,
+                      default,
+                      labels.toArray*
+                    )
+                    val sortedCases = cases.sortBy((i, _) => i)
+                    sortedCases.init.zip(labels).foreach { case ((_, b), l) =>
+                      mg.visitLabel(l)
+                      gen(b)
+                      mg.visitJumpInsn(GOTO, end)
+                    }
+                    mg.visitLabel(default)
+                    gen(sortedCases.last._2)
+                    mg.visitLabel(end)
+              else
+                otherwise match
+                  case Some(o) =>
+                    val labels = cases.map(_ => mg.newLabel())
+                    val default = mg.newLabel()
+                    val end = mg.newLabel()
+                    mg.visitLookupSwitchInsn(
+                      default,
+                      cases.map((k, _) => k).toArray,
+                      labels.toArray
+                    )
+                    cases.zip(labels).foreach { case ((_, b), l) =>
+                      mg.visitLabel(l)
+                      gen(b)
+                      mg.visitJumpInsn(GOTO, end)
+                    }
+                    mg.visitLabel(default)
+                    gen(o)
+                    mg.visitLabel(end)
+                  case None =>
+                    val labels = cases.init.map(_ => mg.newLabel())
+                    val default = mg.newLabel()
+                    val end = mg.newLabel()
+                    mg.visitLookupSwitchInsn(
+                      default,
+                      cases.init.map((k, _) => k).toArray,
+                      labels.toArray
+                    )
+                    cases.init.zip(labels).foreach { case ((_, b), l) =>
+                      mg.visitLabel(l)
+                      gen(b)
+                      mg.visitJumpInsn(GOTO, end)
+                    }
+                    mg.visitLabel(default)
+                    gen(cases.last._2)
+                    mg.visitLabel(end)
+
+  private def hasNoHoles(l: List[Int]): Boolean =
+    @tailrec
+    def go(l: List[Int], c: Int): Boolean =
+      l match
+        case Nil              => true
+        case n :: _ if n != c => false
+        case _ :: tl          => go(tl, c + 1)
+    go(l.tail, l.head + 1)
 
   // from https://stackoverflow.com/questions/8104479/how-to-find-the-longest-common-prefix-of-two-strings-in-scala
   private def longestCommonPrefix(a: String, b: String): String =
@@ -693,14 +799,13 @@ object Jvm:
       case Expr.FiniteCon(x, ix) => Some(finiteValue(x, ix))
       case _                     => None
 
-  private def finiteValue(name: Name, ix: Long)(using
+  private def finiteValue(name: Name, ix: Int)(using
       moduleCtx: ModuleCtx
   ): AnyRef =
     val finitectx = moduleCtx.finites(name)
     finitectx.amount match
-      case n if n <= 2                    => (ix == 1).asInstanceOf[AnyRef]
-      case n if n <= 128                  => ix.toByte.asInstanceOf[AnyRef]
-      case n if n <= 32768                => ix.toShort.asInstanceOf[AnyRef]
-      case n if n <= 2147483648L          => ix.toInt.asInstanceOf[AnyRef]
-      case n if n <= 9223372036854775807L => ix.asInstanceOf[AnyRef]
+      case n if n <= 2          => (ix == 1).asInstanceOf[AnyRef]
+      case n if n <= 128        => ix.toByte.asInstanceOf[AnyRef]
+      case n if n <= 32768      => ix.toShort.asInstanceOf[AnyRef]
+      case n if n <= 2147483647 => ix.asInstanceOf[AnyRef]
       case n => throw new Exception(s"finite type has too many members: $n")
