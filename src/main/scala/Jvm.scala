@@ -121,6 +121,8 @@ object Jvm:
     def module(name: MName): ModuleCtx = modules(name.module)
     def value(name: MName): JType = module(name).values(name.name)
     def method(name: MName): Method = module(name).methods(name.name)
+    def methodOption(name: MName): Option[Method] =
+      module(name).methods.get(name.name)
     def datatype(name: MName): DatatypeCtx = module(name).datatypes(name.name)
     def record(name: MName): RecordCtx = module(name).records(name.name)
     def finite(name: MName): FiniteCtx = module(name).finites(name.name)
@@ -571,15 +573,20 @@ object Jvm:
           case Local.Label(_, _) =>
             err("tried to retrieve label")
 
-      case Expr.Global(name, Nil) =>
-        mg.getStatic(
-          ctx.module(name).ty,
-          name.name.escape,
-          ctx.value(name)
-        )
       case Expr.Global(name, args) =>
-        args.foreach(gen)
-        mg.invokeStatic(ctx.module(name).ty, ctx.method(name))
+        ctx.methodOption(name) match
+          case Some(method) =>
+            args.foreach(gen)
+            mg.invokeStatic(ctx.module(name).ty, ctx.method(name))
+          case None =>
+            args match
+              case Nil =>
+                mg.getStatic(
+                  ctx.module(name).ty,
+                  name.name.escape,
+                  ctx.value(name)
+                )
+              case _ => impossible()
 
       case Expr.Let(ty, value, body) =>
         val id = mg.newLocal(gen(ty))

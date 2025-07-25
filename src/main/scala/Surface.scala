@@ -9,7 +9,7 @@ object Surface:
 
   final case class Type(name: MName)
 
-  final case class TypeDef(params: List[Type], rty: Type)
+  final case class TypeDef(params: List[Type], io: Boolean, rty: Type)
 
   enum Expr:
     case Var(name: MName)
@@ -33,6 +33,9 @@ object Surface:
 
     case FiniteCon(datatype: Option[MName], name: Name)
     case FiniteCase(scrut: Expr, cases: List[(Option[Name], Expr)])
+
+    case ReturnIO(expr: Expr)
+    case BindIO(name: Name, value: Expr, body: Expr)
 
   final case class Constructor(
       name: Name,
@@ -144,7 +147,7 @@ object Surface:
   private def elaborate(
       ty: TypeDef
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.TypeDef =
-    IR.TypeDef(ty.params.map(elaborate), elaborate(ty.rty))
+    IR.TypeDef(ty.params.map(elaborate), ty.io, elaborate(ty.rty))
 
   private def elaborate(
       ty: Type
@@ -188,7 +191,7 @@ object Surface:
     expr match
       case Expr.Lam(x, body) =>
         exty match
-          case IR.TypeDef(pty :: _, _) =>
+          case IR.TypeDef(pty :: _, _, _) =>
             val ebody =
               check(body, exty.tail)(using
                 localCtx = localCtx.bind(x, IR.TypeDef(pty))
@@ -199,15 +202,15 @@ object Surface:
       case Expr.Let(x, ty, value, body) =>
         val (evalue, ety) = inferValue(ty, value)
         val ebody = check(body, exty)(using localCtx = localCtx.bind(x, ety))
-        IR.Expr.Let(ety, evalue, ebody)
+        IR.Expr.Let(false, ety, evalue, ebody)
       case Expr.LetRec(x, ty, value, body) =>
         val ety = elaborate(ty)
         val evalue = check(value, ety)(using localCtx = localCtx.bind(x, ety))
         val ebody = check(body, exty)(using localCtx = localCtx.bind(x, ety))
-        IR.Expr.LetRec(ety, evalue, ebody)
+        IR.Expr.LetRec(false, ety, evalue, ebody)
 
       case Expr.If(c, t, f) =>
-        val ec = check(c, IR.TypeDef(Nil, IR.Type.Boolean))
+        val ec = check(c, IR.TypeDef(IR.Type.Boolean))
         val et = check(t, exty)
         val ef = check(f, exty)
         IR.Expr.If(exty, ec, et, ef)
@@ -218,21 +221,21 @@ object Surface:
 
       case Expr.Con(None, cx, args) =>
         exty match
-          case IR.TypeDef(Nil, IR.Type.Data(dx)) => inferCon(dx, cx, args)
-          case _                                 =>
+          case IR.TypeDef(Nil, _, IR.Type.Data(dx)) => inferCon(dx, cx, args)
+          case _                                    =>
             err(
               s"cannot check data constructor against $exty"
             )
       case Expr.RecordCon(None, args) =>
         exty match
-          case IR.TypeDef(Nil, IR.Type.Record(x)) => inferRecordCon(x, args)
-          case _                                  =>
+          case IR.TypeDef(Nil, _, IR.Type.Record(x)) => inferRecordCon(x, args)
+          case _                                     =>
             err(
               s"cannot check record constructor against $exty"
             )
       case Expr.FiniteCon(None, cx) =>
         exty match
-          case IR.TypeDef(Nil, IR.Type.Finite(dx)) =>
+          case IR.TypeDef(Nil, _, IR.Type.Finite(dx)) =>
             ctx.finite(dx).zipWithIndex.find((cx2, _) => cx == cx2) match
               case None =>
                 err(s"undefined finite constructor $cx in $dx")
@@ -245,6 +248,25 @@ object Surface:
       case Expr.Case(scrut, cases) => inferCase(scrut, cases, Some(exty))._1
       case Expr.FiniteCase(scrut, cases) =>
         inferFinCase(scrut, cases, Some(exty))._1
+
+      case Expr.ReturnIO(v) =>
+        exty match
+          case IR.TypeDef(Nil, true, ty) =>
+            check(v, IR.TypeDef(Nil, false, ty))
+          case _ =>
+            err(s"cannot check returnIO against $exty")
+      case Expr.BindIO(x, value, body) =>
+        exty match
+          case IR.TypeDef(Nil, true, _) =>
+            val (evalue, ety) = infer(value)
+            ety match
+              case IR.TypeDef(Nil, true, ty) =>
+                val td = IR.TypeDef(ty)
+                val ebody =
+                  check(body, exty)(using localCtx = localCtx.bind(x, td))
+                IR.Expr.Let(true, td, evalue, ebody)
+              case _ => err(s"invalid type in bindIO: $ety")
+          case _ => err(s"cannot match bindIO against type: $exty")
 
       case expr =>
         val (ie, ity) = infer(expr)
@@ -274,7 +296,7 @@ object Surface:
       case Expr.App(fn, arg) =>
         val (efn, ty) = infer(fn)
         ty match
-          case IR.TypeDef(pty :: _, _) =>
+          case IR.TypeDef(pty :: _, _, _) =>
             val earg = check(arg, IR.TypeDef(pty))
             (IR.Expr.App(efn, earg), ty.tail)
           case _ =>
@@ -284,12 +306,12 @@ object Surface:
       case Expr.Let(x, ty, value, body) =>
         val (evalue, ety) = inferValue(ty, value)
         val (ebody, rty) = infer(body)(using localCtx = localCtx.bind(x, ety))
-        (IR.Expr.Let(ety, evalue, ebody), rty)
+        (IR.Expr.Let(false, ety, evalue, ebody), rty)
       case Expr.LetRec(x, ty, value, body) =>
         val ety = elaborate(ty)
         val evalue = check(value, ety)(using localCtx = localCtx.bind(x, ety))
         val (ebody, rty) = infer(body)(using localCtx = localCtx.bind(x, ety))
-        (IR.Expr.LetRec(ety, evalue, ebody), rty)
+        (IR.Expr.LetRec(false, ety, evalue, ebody), rty)
 
       case Expr.IntLit(value) =>
         (IR.Expr.IntLit(value), IR.TypeDef(IR.Type.Int))
@@ -297,7 +319,7 @@ object Surface:
         (IR.Expr.BoolLit(value), IR.TypeDef(IR.Type.Boolean))
 
       case Expr.If(c, t, f) =>
-        val ec = check(c, IR.TypeDef(Nil, IR.Type.Boolean))
+        val ec = check(c, IR.TypeDef(IR.Type.Boolean))
         val (et, ety) = infer(t)
         val ef = check(f, ety)
         (IR.Expr.If(ety, ec, et, ef), ety)
@@ -332,7 +354,7 @@ object Surface:
       case Expr.Field(scrut, ix) =>
         val (escrut, scrutty) = infer(scrut)
         scrutty match
-          case IR.TypeDef(Nil, IR.Type.Record(x)) =>
+          case IR.TypeDef(Nil, false, IR.Type.Record(x)) =>
             val ps = ctx.record(x)
             val i = ix match
               case Left(px) =>
@@ -354,6 +376,24 @@ object Surface:
 
       case Expr.Case(scrut, cases)       => inferCase(scrut, cases, None)
       case Expr.FiniteCase(scrut, cases) => inferFinCase(scrut, cases, None)
+
+      case Expr.ReturnIO(v) =>
+        val (ev, ty) = infer(v)
+        if ty.params.nonEmpty || ty.io then
+          err(s"can only call returnIO on value types: $ty")
+        (ev, IR.TypeDef(ty.params, true, ty.returnty))
+      case Expr.BindIO(x, value, body) =>
+        val (evalue, ety) = infer(value)
+        ety match
+          case IR.TypeDef(Nil, true, ty) =>
+            val td = IR.TypeDef(ty)
+            val (ebody, rty) =
+              infer(body)(using localCtx = localCtx.bind(x, td))
+            rty match
+              case IR.TypeDef(Nil, true, _) =>
+                (IR.Expr.Let(true, td, evalue, ebody), rty)
+              case _ => err(s"invalid return type in bindIO: $rty")
+          case _ => err(s"invalid type in bindIO: $ety")
 
   private def inferFinite(
       x: MName
@@ -424,7 +464,7 @@ object Surface:
   ): (IR.Expr, IR.TypeDef) =
     val (escrut, scrutty) = infer(scrut)
     scrutty match
-      case IR.TypeDef(Nil, IR.Type.Data(dx)) =>
+      case IR.TypeDef(Nil, false, IR.Type.Data(dx)) =>
         val datactx = ctx.data(dx)
         var rty: Option[IR.TypeDef] = exty
         val left = mutable.Set.from(datactx.keySet)
@@ -466,6 +506,7 @@ object Surface:
                   case ((t, i), b) =>
                     val s = IR.Expr.Local(i, IR.TypeDef(IR.Type.Data(dx)))
                     IR.Expr.Let(
+                      false,
                       IR.TypeDef(t),
                       IR.Expr.DataField(dx, cx, s, i),
                       b
@@ -516,7 +557,7 @@ object Surface:
   ): (IR.Expr, IR.TypeDef) =
     val (escrut, scrutty) = infer(scrut)
     scrutty match
-      case IR.TypeDef(Nil, IR.Type.Finite(dx)) =>
+      case IR.TypeDef(Nil, false, IR.Type.Finite(dx)) =>
         val datactx = ctx.finite(dx)
         var rty: Option[IR.TypeDef] = exty
         val left = mutable.Set.from(datactx.toSet)
@@ -652,8 +693,11 @@ object Surface:
     s match
       case S.Call(S.Atom("->") :: hd :: tl) =>
         val ts = (hd :: tl).map(parseType)
-        TypeDef(ts.init, ts.last)
-      case s => TypeDef(Nil, parseType(s))
+        TypeDef(ts.init, false, ts.last)
+      case S.Call(S.Atom("->IO") :: hd :: tl) =>
+        val ts = (hd :: tl).map(parseType)
+        TypeDef(ts.init, true, ts.last)
+      case s => TypeDef(Nil, false, parseType(s))
 
   private val unitTypeName = MName(None, "Unit")
 
@@ -714,6 +758,10 @@ object Surface:
         Expr.Case(parseExpr(scrut), cases.map(parseCase))
       case S.Call(S.Atom("fincase") :: scrut :: cases) =>
         Expr.FiniteCase(parseExpr(scrut), cases.map(parseFinCase))
+      case S.Call(List(S.Atom("returnIO"), v)) =>
+        Expr.ReturnIO(parseExpr(v))
+      case S.Call(List(S.Atom("bindIO"), S.Atom(x), v, b)) =>
+        Expr.BindIO(x, parseExpr(v), parseExpr(b))
       case S.Call(List(hd)) => parseExpr(hd)
       case S.Call(hd :: tl) =>
         (hd :: tl).map(parseExpr).reduceLeft(Expr.App.apply)

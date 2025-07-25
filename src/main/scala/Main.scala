@@ -10,7 +10,9 @@ object Main:
     val modules = files.map((p, m) => Surface.parse(m, Files.readString(p)))
     val orderedModules = orderModules(modules)
     val irModules = Surface.elaborate(orderedModules)
+    println(irModules)
     val jvmModules = IR.toJvm(irModules)
+    println(jvmModules)
     val target = "justatarget"
     resetDir(target)
     Jvm.generateBytecode(jvmModules, target)

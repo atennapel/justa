@@ -1,0 +1,5 @@
+(module TestIO ())
+
+(def v (returnIO 42))
+
+(def bindtest (bindIO x v (returnIO x)))

@@ -37,15 +37,15 @@ object IR:
     case Record(name: MName)
     case Finite(name: MName)
 
-  final case class TypeDef(params: List[Type], returnty: Type):
+  final case class TypeDef(params: List[Type], io: Boolean, returnty: Type):
     def head: Type = params.head
-    def tail: TypeDef = TypeDef(params.tail, returnty)
+    def tail: TypeDef = TypeDef(params.tail, io, returnty)
     def get: Type =
-      if params.isEmpty then returnty
+      if params.isEmpty && !io then returnty
       else err("expected non-function type")
 
   object TypeDef:
-    def apply(ty: Type): TypeDef = TypeDef(Nil, ty)
+    def apply(ty: Type): TypeDef = TypeDef(Nil, false, ty)
 
   private type Occ = Map[Ix, (TypeDef, Int)]
 
@@ -59,8 +59,8 @@ object IR:
     case App(fn: Expr, arg: Expr)
     case Lam(ty: Type, body: Expr)
 
-    case Let(ty: TypeDef, value: Expr, body: Expr)
-    case LetRec(ty: TypeDef, value: Expr, body: Expr)
+    case Let(noinline: Boolean, ty: TypeDef, value: Expr, body: Expr)
+    case LetRec(noinline: Boolean, ty: TypeDef, value: Expr, body: Expr)
 
     case If(ty: TypeDef, scrut: Expr, ifTrue: Expr, ifFalse: Expr)
 
@@ -89,15 +89,17 @@ object IR:
     )
 
     override def toString: String = this match
-      case Expr.Local(i, _)            => s"'$i"
-      case Expr.Global(name)           => name.toString
-      case Expr.IntLit(value)          => value.toString
-      case Expr.BoolLit(value)         => if value then "True" else "False"
-      case Expr.App(fn, arg)           => s"($fn $arg)"
-      case Expr.Lam(_, body)           => s"(\\$body)"
-      case Expr.Let(_, value, body)    => s"(let $value; $body)"
-      case Expr.LetRec(_, value, body) => s"(letrec $value; $body)"
-      case Expr.If(_, s, t, f)         => s"(if $s then $t else $f)"
+      case Expr.Local(i, _)    => s"'$i"
+      case Expr.Global(name)   => name.toString
+      case Expr.IntLit(value)  => value.toString
+      case Expr.BoolLit(value) => if value then "True" else "False"
+      case Expr.App(fn, arg)   => s"($fn $arg)"
+      case Expr.Lam(_, body)   => s"(\\$body)"
+      case Expr.Let(noinline, _, value, body) =>
+        s"(let${if noinline then " noinline" else ""} $value; $body)"
+      case Expr.LetRec(noinline, _, value, body) =>
+        s"(letrec${if noinline then " noinline" else ""} $value; $body)"
+      case Expr.If(_, s, t, f)      => s"(if $s then $t else $f)"
       case Expr.Instr(opcode, args) => s"(instr $opcode ${args.mkString(" ")})"
       case Expr.FiniteCon(x, i)     => s"($x $i)"
       case Expr.Con(d, c, args)     => s"($d $c ${args.mkString(" ")})"
@@ -121,10 +123,10 @@ object IR:
       case f @ Expr.FiniteCon(_, _) => f
       case Expr.App(fn, arg)        => Expr.App(fn.shift(c, d), arg.shift(c, d))
       case Expr.Lam(ty, body)       => Expr.Lam(ty, body.shift(c + 1, d))
-      case Expr.Let(ty, value, body) =>
-        Expr.Let(ty, value.shift(c, d), body.shift(c + 1, d))
-      case Expr.LetRec(ty, value, body) =>
-        Expr.LetRec(ty, value.shift(c + 1, d), body.shift(c + 1, d))
+      case Expr.Let(ni, ty, value, body) =>
+        Expr.Let(ni, ty, value.shift(c, d), body.shift(c + 1, d))
+      case Expr.LetRec(ni, ty, value, body) =>
+        Expr.LetRec(ni, ty, value.shift(c + 1, d), body.shift(c + 1, d))
       case Expr.If(ty, s, t, f) =>
         Expr.If(ty, s.shift(c, d), t.shift(c, d), f.shift(c, d))
       case Expr.Instr(opcode, args) =>
@@ -162,14 +164,16 @@ object IR:
       case Expr.App(fn, arg)        => Expr.App(fn.subst(i, v), arg.subst(i, v))
       case Expr.Lam(ty, body)       =>
         Expr.Lam(ty, body.subst(i + 1, v.shift(0, 1)))
-      case Expr.Let(ty, value, body) =>
+      case Expr.Let(ni, ty, value, body) =>
         Expr.Let(
+          ni,
           ty,
           value.subst(i + 1, v),
           body.subst(i + 1, v.shift(0, 1))
         )
-      case Expr.LetRec(ty, value, body) =>
+      case Expr.LetRec(ni, ty, value, body) =>
         Expr.LetRec(
+          ni,
           ty,
           value.subst(i + 1, v.shift(0, 1)),
           body.subst(i + 1, v.shift(0, 1))
@@ -221,8 +225,8 @@ object IR:
         case Expr.Field(_, s, _)     => s.free
         case Expr.DataField(_, _, s, _)  => s.free
         case Expr.Lam(_, body)           => leave(body.free)
-        case Expr.Let(_, value, body)    => merge(value.free, leave(body.free))
-        case Expr.LetRec(_, value, body) =>
+        case Expr.Let(_, _, value, body) => merge(value.free, leave(body.free))
+        case Expr.LetRec(_, _, value, body) =>
           merge(leave(value.free), leave(body.free))
         case Expr.Case(_, _, s, cs, o) =>
           merge(
@@ -288,7 +292,7 @@ object IR:
       val lifted = lift(removeLams(simplified), ty.params.size, true, Set.empty)
       // println(lifted)
       val defn =
-        if ty.params.isEmpty then
+        if ty.params.isEmpty && !ty.io then
           Jvm.Def.Value(JvmName(name), toJvm(ty.returnty), lifted)
         else
           Jvm.Def.Function(
@@ -332,16 +336,17 @@ object IR:
       case Expr.FiniteCon(_, _) => None
 
       case Expr.App(Expr.Lam(ty, body), arg) =>
-        Some(Expr.Let(TypeDef(Nil, ty), arg, body))
-      case Expr.App(Expr.Let(ty, value, body), arg) =>
-        Some(Expr.Let(ty, value, Expr.App(body, arg.shift(0, 1))))
-      case Expr.App(Expr.LetRec(ty, value, body), arg) =>
-        Some(Expr.LetRec(ty, value, Expr.App(body, arg.shift(0, 1))))
+        Some(Expr.Let(false, TypeDef(ty), arg, body))
+      case Expr.App(Expr.Let(ni, ty, value, body), arg) =>
+        Some(Expr.Let(ni, ty, value, Expr.App(body, arg.shift(0, 1))))
+      case Expr.App(Expr.LetRec(ni, ty, value, body), arg) =>
+        Some(Expr.LetRec(ni, ty, value, Expr.App(body, arg.shift(0, 1))))
       case Expr.App(Expr.If(ty, c, t, f), arg) =>
         val argty = TypeDef(ty.head)
         val local = Expr.Local(0, argty)
         Some(
           Expr.Let(
+            false,
             argty,
             arg,
             Expr.If(
@@ -357,6 +362,7 @@ object IR:
         val local = Expr.Local(0, argty)
         Some(
           Expr.Let(
+            false,
             argty,
             arg,
             Expr.Case(
@@ -375,6 +381,7 @@ object IR:
         val local = Expr.Local(0, argty)
         Some(
           Expr.Let(
+            false,
             argty,
             arg,
             Expr.FiniteCase(
@@ -387,7 +394,7 @@ object IR:
           )
         )
       case Expr.App(fn, arg) =>
-        simplify2(fn, arg).map(Expr.App.apply)
+        simplify2(fn, arg).map((f, a) => Expr.App(f, a))
 
       case Expr.Instr(opcode, args) =>
         simplifyN(args).map(Expr.Instr(opcode, _))
@@ -399,24 +406,25 @@ object IR:
       case Expr.Lam(ty, body) =>
         simplify(body).map(Expr.Lam(ty, _))
 
-      case Expr.Let(ty, value, body) =>
+      case Expr.Let(ni, ty, value, body) =>
         simplify2(value, body) match
-          case Some((value, body)) => Some(Expr.Let(ty, value, body))
+          case Some((value, body)) => Some(Expr.Let(ni, ty, value, body))
           case None                =>
             val (_, n) = body.free.getOrElse(0, (0, 0))
-            if n == 0 then Some(body.shift(0, -1))
-            else if n == 1 || isSmall(value) then Some(body.beta(value))
+            if !ni && n == 0 then Some(body.shift(0, -1))
+            else if (!ni && n == 1) || isSmall(value) then
+              Some(body.beta(value))
             else if !isEtaExpanded(ty.params.size, value) then
-              Some(Expr.Let(ty, eta(ty, value), body))
+              Some(Expr.Let(ni, ty, eta(ty, value), body))
             else None
-      case Expr.LetRec(ty, value, body) =>
+      case Expr.LetRec(ni, ty, value, body) =>
         simplify2(value, body) match
-          case Some((value, body)) => Some(Expr.LetRec(ty, value, body))
+          case Some((value, body)) => Some(Expr.LetRec(ni, ty, value, body))
           case None                =>
             val (_, n) = body.free(0)
-            if n == 0 then Some(body.shift(0, -1))
+            if !ni && n == 0 then Some(body.shift(0, -1))
             else if !isEtaExpanded(ty.params.size, value) then
-              Some(Expr.LetRec(ty, eta(ty, value), body))
+              Some(Expr.LetRec(ni, ty, eta(ty, value), body))
             else None
 
       case Expr.If(_, Expr.BoolLit(true), t, _)  => Some(t)
@@ -441,7 +449,8 @@ object IR:
       case Expr.Case(_, dx, s @ Expr.Con(_, cx2, _), cs, o) =>
         cs.find((cx, _) => cx == cx2) match
           case None         => Some(o.get)
-          case Some((_, b)) => Some(Expr.Let(TypeDef(Type.Data(dx)), s, b))
+          case Some((_, b)) =>
+            Some(Expr.Let(false, TypeDef(Type.Data(dx)), s, b))
       case Expr.Case(ty, dx, s, c, o) =>
         inline def go(
             c: List[(Name, Expr)],
@@ -541,7 +550,7 @@ object IR:
     val newvalue =
       ty.params.zipWithIndex.reverse
         .map((ty, ix) => Expr.Local(ix, TypeDef(ty)))
-        .foldLeft(value.shift(0, ty.params.size))(Expr.App.apply)
+        .foldLeft(value.shift(0, ty.params.size))((f, a) => Expr.App(f, a))
     ty.params.foldRight(newvalue)(Expr.Lam.apply)
 
   private def merge(o1: Occ, o2: Occ): Occ =
@@ -610,7 +619,7 @@ object IR:
       case Expr.RecordCon(dx, args) =>
         Jvm.Expr.RecordCon(dx.toJvm, args.map(lift(_, lvl, false, jumps)))
 
-      case Expr.Let(ty, value, body)
+      case Expr.Let(_, ty, value, body)
           if tail && isUsedInTailOnly(0, body, true) =>
         Jvm.Expr.Join(
           ty.params.map(toJvm),
@@ -618,14 +627,14 @@ object IR:
           lift(body, lvl + 1, tail, jumps + lvl)
         )
 
-      case Expr.Let(TypeDef(Nil, ty), value, body) =>
+      case Expr.Let(_, TypeDef(Nil, false, ty), value, body) =>
         Jvm.Expr.Let(
           toJvm(ty),
           lift(value, lvl, false, jumps),
           lift(body, lvl + 1, tail, jumps)
         )
 
-      case Expr.Let(ty, value, body) =>
+      case Expr.Let(_, ty, value, body) =>
         val newparams = value.free.toList
         val x = emitDef { x =>
           val ren = newparams.zipWithIndex
@@ -651,7 +660,7 @@ object IR:
         }
         lift(body.beta(call), lvl, tail, jumps)
 
-      case Expr.LetRec(ty, value, body)
+      case Expr.LetRec(_, ty, value, body)
           if tail && isUsedInTailOnly(0, value, true) &&
             isUsedInTailOnly(0, body, true) =>
         Jvm.Expr.JoinRec(
@@ -660,7 +669,7 @@ object IR:
           lift(body, lvl + 1, tail, jumps + lvl)
         )
 
-      case Expr.LetRec(ty, value, body) =>
+      case Expr.LetRec(_, ty, value, body) =>
         val newparams = value.free.removed(0).toList.map((k, v) => (k - 1, v))
         inline def call(x: MName): Expr =
           newparams.foldLeft(Expr.Global(x)) { case (tm, (ix, (ty, _))) =>
@@ -686,13 +695,12 @@ object IR:
         }
         lift(body.beta(call(x)), lvl, tail, jumps)
 
-      case Expr.If(TypeDef(Nil, _), s, t, f) =>
+      case Expr.If(_, s, t, f) =>
         Jvm.Expr.If(
           lift(s, lvl, false, jumps),
           lift(t, lvl, tail, jumps),
           lift(f, lvl, tail, jumps)
         )
-      case Expr.If(_, _, _, _) => err("non-lifted if")
 
       case Expr.Field(x, s, i) =>
         Jvm.Expr.Field(x.toJvm, lift(s, lvl, false, jumps), i)
@@ -771,10 +779,10 @@ object IR:
         cs.forall((_, b) => isUsedInTailOnly(ix, b, tail)) &&
         o.forall(isUsedInTailOnly(ix, _, tail))
 
-      case Expr.Lam(_, body)        => isUsedInTailOnly(ix + 1, body, tail)
-      case Expr.Let(_, value, body) =>
+      case Expr.Lam(_, body)           => isUsedInTailOnly(ix + 1, body, tail)
+      case Expr.Let(_, _, value, body) =>
         isUsedInTailOnly(ix, value, false) &&
         isUsedInTailOnly(ix + 1, body, tail)
-      case Expr.LetRec(_, value, body) =>
+      case Expr.LetRec(_, _, value, body) =>
         isUsedInTailOnly(ix + 1, value, false) &&
         isUsedInTailOnly(ix + 1, body, tail)
