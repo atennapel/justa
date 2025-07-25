@@ -1,27 +1,45 @@
-import java.nio.file.{FileSystems, Files}
+import java.nio.file.{FileSystems, Files, Path}
 import scala.jdk.CollectionConverters.*
 
 import Common.err
 
 object Main:
   @main def run(): Unit =
-    val dir = "examples"
-    val path = FileSystems.getDefault.getPath(dir)
-    val files = Files
-      .list(path)
-      .iterator()
-      .asScala
-      .toList
-      .filter(Files.isRegularFile(_))
-      .filter(p => p.getFileName.toFile.getName.endsWith(".justa"))
-      .map(p =>
-        (p.getFileName.toFile.getName.dropRight(6), Files.readString(p))
-      )
-    val modules = files.map((x, f) => Surface.parse(x, f))
+    val root = FileSystems.getDefault.getPath("examples")
+    val files = allSourceFiles(root).map(p => (p, moduleName(root, p)))
+    val modules = files.map((p, m) => Surface.parse(m, Files.readString(p)))
     val orderedModules = orderModules(modules)
     val irModules = Surface.elaborate(orderedModules)
     val jvmModules = IR.toJvm(irModules)
-    Jvm.generateBytecode(jvmModules, "justatarget")
+    val target = "justatarget"
+    resetDir(target)
+    Jvm.generateBytecode(jvmModules, target)
+
+  private def resetDir(target: String): Unit =
+    Path.of(target).toFile.delete()
+    Path.of(target).toFile.mkdir()
+
+  private def moduleName(root: Path, path: Path): String =
+    root
+      .relativize(path)
+      .toFile
+      .getPath
+      .dropRight(6)
+      .replace('/', '.')
+      .replace('\\', '.')
+
+  private def allSourceFiles(path: Path): List[Path] =
+    Files
+      .list(path)
+      .iterator()
+      .asScala
+      .flatMap { p =>
+        if Files.isRegularFile(p) && p.toFile.getName.endsWith(".justa") then
+          List(p)
+        else if Files.isDirectory(p) then allSourceFiles(p)
+        else Nil
+      }
+      .toList
 
   private def orderModules(
       modules: List[Surface.Module]

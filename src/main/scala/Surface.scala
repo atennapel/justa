@@ -599,8 +599,7 @@ object Surface:
   private def parseMName(s: String): MName =
     if s.contains(".") then
       val splitted = s.split("\\.")
-      if splitted.size != 2 then err(s"failed to split name around \".\": $s")
-      else MName(Some(splitted(0)), splitted(1))
+      MName(Some(splitted.init.mkString(".")), splitted.last)
     else MName(None, s)
 
   private def parseDefs(s: List[S])(using ctx: ParseCtx): List[Def] =

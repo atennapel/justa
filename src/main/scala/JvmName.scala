@@ -3,7 +3,9 @@ import scala.collection.mutable
 object JvmName:
   opaque type Name = String
 
-  extension (x: Name) inline def escape: String = escapeName(x)
+  extension (x: Name)
+    inline def escape: String = escapeName(x)
+    inline def escapePath: String = escapeNameInPath(x)
 
   final case class MName(module: Name, name: Name)
 
@@ -18,7 +20,7 @@ object JvmName:
     "!" -> "EXCL",
     "@" -> "AT",
     "#" -> "HASH",
-    "$" -> "DOLLAR",
+    // "$" -> "DOLLAR",
     "%" -> "PERCENT",
     "^" -> "HAT",
     "&" -> "AMPER",
@@ -32,7 +34,7 @@ object JvmName:
     ";" -> "SEMI",
     "," -> "COMMA",
     "<" -> "LT",
-    "." -> "PERIOD",
+    // "." -> "PERIOD",
     ">" -> "GT",
     "?" -> "QUESTION",
     "/" -> "SLASH"
@@ -49,7 +51,10 @@ object JvmName:
         else
           val y = x
             .split("")
-            .map(x => chars.get(x).fold(x)(y => s"_$y"))
+            .map(c => chars.get(c).fold(c)(y => s"_$y"))
             .mkString("")
           nameCache += (x -> y)
           y
+
+  private def escapeNameInPath(x: String): String =
+    x.split('.').map(escapeName).mkString("/")

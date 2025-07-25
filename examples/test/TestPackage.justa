@@ -1,0 +1,9 @@
+(module test.TestPackage (Prelude))
+
+(record TestRecord (name Int))
+
+(data D A B)
+
+(def myNumber 42)
+
+(def myNumber2 (Prelude.iadd 1 2))

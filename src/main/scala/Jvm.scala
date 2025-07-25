@@ -9,8 +9,9 @@ import java.io.BufferedOutputStream
 import java.io.FileOutputStream
 import scala.collection.mutable
 import scala.annotation.tailrec
-
 import Common.*
+
+import java.nio.file.Path
 
 object Jvm:
   import JvmName.{Name, MName}
@@ -82,6 +83,7 @@ object Jvm:
 
   // bytecode generation
   private case class ConstructorCtx(
+      nameParts: List[Name],
       className: String,
       descriptor: String,
       ty: JType,
@@ -89,12 +91,14 @@ object Jvm:
       constructor: Method
   )
   private case class DatatypeCtx(
+      nameParts: List[Name],
       className: String,
       descriptor: String,
       ty: JType,
       constructors: mutable.Map[Name, ConstructorCtx] = mutable.Map.empty
   )
   private case class RecordCtx(
+      nameParts: List[Name],
       className: String,
       descriptor: String,
       ty: JType,
@@ -183,11 +187,7 @@ object Jvm:
 
     // end
     cw.visitEnd()
-    val bos = new BufferedOutputStream(
-      new FileOutputStream(s"$targetDir/${module.name.escape}.class")
-    )
-    bos.write(cw.toByteArray)
-    bos.close()
+    writeClass(cw, targetDir, List(module.name))
 
   private def gen(ty: Type)(using ctx: Ctx): JType = ty match
     case Type.Boolean      => JType.BOOLEAN_TYPE
@@ -220,6 +220,7 @@ object Jvm:
         val descriptor = s"L$className;"
         val ty = JType.getType(descriptor)
         moduleCtx.datatypes += (name -> DatatypeCtx(
+          List(moduleCtx.name, name),
           className,
           descriptor,
           ty
@@ -229,6 +230,7 @@ object Jvm:
         val descriptor = s"L$className;"
         val ty = JType.getType(descriptor)
         moduleCtx.records += (name -> RecordCtx(
+          List(moduleCtx.name, name),
           className,
           descriptor,
           ty
@@ -266,6 +268,7 @@ object Jvm:
           val constructorMethod =
             new Method("<init>", JType.VOID_TYPE, params.map(_._2).toArray)
           datatypeCtx.constructors(c.name) = ConstructorCtx(
+            List(moduleCtx.name, name, c.name),
             conClassName,
             descriptor,
             ty,
@@ -391,11 +394,7 @@ object Jvm:
           name.escape,
           ACC_PUBLIC + ACC_ABSTRACT + ACC_STATIC
         )
-        val bos = new BufferedOutputStream(
-          new FileOutputStream(s"$targetDir/$className.class")
-        )
-        bos.write(datacw.toByteArray)
-        bos.close()
+        writeClass(datacw, targetDir, datactx.nameParts)
       case Def.Record(name, _) =>
         given recordctx: RecordCtx = moduleCtx.records(name)
         val className = recordctx.className
@@ -472,11 +471,7 @@ object Jvm:
           name.escape,
           ACC_PUBLIC + ACC_STATIC
         )
-        val bos = new BufferedOutputStream(
-          new FileOutputStream(s"$targetDir/$className.class")
-        )
-        bos.write(recordcw.toByteArray)
-        bos.close()
+        writeClass(recordcw, targetDir, recordctx.nameParts)
       case _ => ()
 
   private def genDatatypeConstructor(targetDir: String)(using
@@ -558,11 +553,7 @@ object Jvm:
 
     // done
     cw.visitEnd()
-    val bos = new BufferedOutputStream(
-      new FileOutputStream(s"$targetDir/$className.class")
-    )
-    bos.write(cw.toByteArray)
-    bos.close()
+    writeClass(cw, targetDir, conCtx.nameParts)
 
   private def gen(
       expr: Expr
@@ -834,3 +825,15 @@ object Jvm:
       case n if n <= 32768      => ix.toShort.asInstanceOf[AnyRef]
       case n if n <= 2147483647 => ix.asInstanceOf[AnyRef]
       case n                    => err(s"finite type has too many members: $n")
+
+  // io
+  private def writeClass(
+      cw: ClassWriter,
+      targetDir: String,
+      nameParts: List[Name]
+  ): Unit =
+    val path = s"$targetDir/${nameParts.map(_.escapePath).mkString("$")}.class"
+    Path.of(path).toFile.getParentFile.mkdirs()
+    val bos = new BufferedOutputStream(new FileOutputStream(path))
+    bos.write(cw.toByteArray)
+    bos.close()
