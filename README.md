@@ -2,7 +2,10 @@
 Programming language targeting the JVM
 
 TODO:
-- Implement importing
-- Implement private definitions
-- Reduce duplication in JVM bytecode generation code
+- Implement IO
+- Implement arrays
+- Implement foreign API (JVM object management)
 - Get rid of primitive boolean and if (?)
+- Reduce duplication in JVM bytecode generation code
+- Implement importing
+- Implement private and protected definitions
