@@ -7,7 +7,9 @@ object Surface:
 
   final case class MName(module: Option[Name], name: Name)
 
-  final case class Type(name: MName)
+  enum Type:
+    case Type(name: MName)
+    case Jvm(qualifiedName: String)
 
   final case class TypeDef(params: List[Type], io: Boolean, rty: Type)
 
@@ -154,25 +156,28 @@ object Surface:
   private def elaborate(
       ty: Type
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.Type =
-    val mod = ty.name.module.getOrElse(moduleCtx.name)
-    val x = ty.name.name
-    ctx.module(mod).types.get(x) match
-      case Some(DataKind.ADT)               => IR.Type.Data(IR.MName(mod, x))
-      case Some(DataKind.Record)            => IR.Type.Record(IR.MName(mod, x))
-      case Some(DataKind.Finite)            => IR.Type.Finite(IR.MName(mod, x))
-      case None if ty.name.module.isDefined =>
-        err(s"undefined type ${ty.name}")
-      case None =>
-        x match
-          case "Boolean" => IR.Type.Boolean
-          case "Byte"    => IR.Type.Byte
-          case "Char"    => IR.Type.Char
-          case "Short"   => IR.Type.Short
-          case "Int"     => IR.Type.Int
-          case "Long"    => IR.Type.Long
-          case "Float"   => IR.Type.Float
-          case "Double"  => IR.Type.Double
-          case x         => err(s"undefined type $x")
+    ty match
+      case Type.Jvm(x)     => IR.Type.Jvm(x)
+      case Type.Type(name) =>
+        val mod = name.module.getOrElse(moduleCtx.name)
+        val x = name.name
+        ctx.module(mod).types.get(x) match
+          case Some(DataKind.ADT)            => IR.Type.Data(IR.MName(mod, x))
+          case Some(DataKind.Record)         => IR.Type.Record(IR.MName(mod, x))
+          case Some(DataKind.Finite)         => IR.Type.Finite(IR.MName(mod, x))
+          case None if name.module.isDefined =>
+            err(s"undefined type $x")
+          case None =>
+            x match
+              case "Boolean" => IR.Type.Boolean
+              case "Byte"    => IR.Type.Byte
+              case "Char"    => IR.Type.Char
+              case "Short"   => IR.Type.Short
+              case "Int"     => IR.Type.Int
+              case "Long"    => IR.Type.Long
+              case "Float"   => IR.Type.Float
+              case "Double"  => IR.Type.Double
+              case x         => err(s"undefined type $x")
 
   private def inferValue(ty: Option[TypeDef], value: Expr)(using
       ctx: Ctx,

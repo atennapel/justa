@@ -289,7 +289,8 @@ object Parser:
     nextToken(true) match
       case Some(Token.Identifier(x, _)) =>
         dropToken()
-        Some(Surface.Type(parseMName(x)))
+        if x.startsWith("&") then Some(Surface.Type.Jvm(x.tail))
+        else Some(Surface.Type.Type(parseMName(x)))
       case _ => None
 
   private def parseMName(x: String): Surface.MName =
