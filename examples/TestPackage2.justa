@@ -1,3 +1,5 @@
-(module TestPackage2 (test.TestPackage))
+module TestPackage2
 
-(def myNumber test.TestPackage.myNumber)
+import test.TestPackage
+
+def myNumber = test.TestPackage.myNumber

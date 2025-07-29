@@ -1,26 +1,28 @@
-(module Prelude ())
+module Prelude
 
-(finite Void)
-(finite Unit Unit)
-(finite Bool False True)
+finite Void
+finite Unit = Unit
+finite Bool = False | True
 
-(data IntList Nil (Cons (hd Int) (tl IntList)))
-(data IntOption None (Some Int))
+data IntList = Nil | Cons (hd : Int) (tl : IntList)
+data IntOption = None | Some Int
 
-(def head (-> IntList IntOption) (fn l
-  (case l
-    (Cons (hd _) (con_ Some hd))
-    (Nil (con_ None)))))
+def head : IntList -> IntOption = \l =>
+  match l {
+    case Cons hd _ => con Some hd
+    case Nil => con None
+  }
 
-(def iadd (-> Int Int Int) (fn (a b) (instr 96 a b)))
+def iadd : Int -> Int -> Int = \a b => instr 96 a b
 
-(def incList (-> IntList IntList) (fn l
-  (letrec go (-> IntList IntList) (fn l
-    (case l
-      (Cons (hd tl) (con_ Cons (iadd hd 1) (go tl)))
-      (Nil (con_ Nil))))
-    (go l))))
+def incList : IntList -> IntList = \l =>
+  let rec go : IntList -> IntList = \l =>
+    match l {
+      case Cons hd tl => con Cons (iadd hd 1) (go tl)
+      case Nil => con Nil
+    };
+  go l
 
-(def imul (-> Int Int Int) (fn (a b) (instr 104 a b)))
-(def isub (-> Int Int Int) (fn (a b) (instr 100 a b)))
-(def izero (-> Int Boolean) (fn n (instr 0 n)))
+def imul : Int -> Int -> Int = \a b => instr 104 a b
+def isub : Int -> Int -> Int = \a b => instr 100 a b
+def izero : Int -> Boolean = \n => instr 0 n

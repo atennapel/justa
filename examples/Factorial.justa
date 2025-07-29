@@ -1,15 +1,19 @@
-(module Factorial (Prelude))
+module Factorial
 
-(def fac (-> Int Int) (fn n
-  (letrec go (-> Int Int) (fn n
-    (if (Prelude.izero n)
+import Prelude
+
+def fac : Int -> Int = \n =>
+  let rec go : Int -> Int = \n =>
+    if Prelude.izero n then
       1
-      (Prelude.imul n (go (Prelude.isub n 1)))))
-    (go n))))
+    else
+      Prelude.imul n (go (Prelude.isub n 1));
+  go n
 
-(def facTR (-> Int Int) (fn n
-  (letrec go (-> Int Int Int) (fn n
-    (if (Prelude.izero n)
-      (fn acc acc)
-      (fn acc (go (Prelude.isub n 1) (Prelude.imul n acc)))))
-    (go n 1))))
+def facTR : Int -> Int = \n =>
+  let rec go : Int -> Int -> Int = \n =>
+    if Prelude.izero n then
+      \acc => acc
+    else
+      \acc => go (Prelude.isub n 1) (Prelude.imul n acc);
+  go n 1

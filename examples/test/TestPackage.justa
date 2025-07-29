@@ -1,9 +1,11 @@
-(module test.TestPackage (Prelude))
+module test.TestPackage
 
-(record TestRecord (name Int))
+import Prelude
 
-(data D A B)
+record TestRecord (name : Int)
 
-(def myNumber 42)
+data D = A | B
 
-(def myNumber2 (Prelude.iadd 1 2))
+def myNumber = 42
+
+def myNumber2 = Prelude.iadd 1 2

@@ -49,7 +49,14 @@ object Parser:
       "instr",
       "con",
       "rec",
-      "fin"
+      "fin",
+      "IO",
+      "returnIO",
+      "bindIO",
+      "field",
+      "finmatch",
+      "match",
+      "case"
     )
   private val symbols1: Set[Char] = Set(':', ';', '=', '\\', '|')
   private val symbols2: Map[Char, Set[Char]] =
@@ -144,13 +151,17 @@ object Parser:
   // parsing
   private final case class Ctx(tokens: mutable.Buffer[Token])
 
-  def parse(s: String): Surface.Module =
+  def parse(mod: String, s: String): Surface.Module =
     val tokens = tokenize(s)
-    parseNestedUntilEnd(tokens) { parseModule() }
+    parseNestedUntilEnd(tokens) { parseModule(mod) }
 
-  private def parseModule()(using ctx: Ctx): Surface.Module =
+  private def parseModule(mod: String)(using ctx: Ctx): Surface.Module =
     expectKeyword("module")
     val x = expectIdentifier()
+    if x != mod then
+      err(s"Module name does not match filename, expected $mod but got $x")(
+        using -1
+      )
     val imports = mutable.Set.empty[String]
     while maybeKeyword("import") do
       dropToken()
@@ -172,7 +183,7 @@ object Parser:
         Some(parseTypeDef())
       else None
       expectSymbol("=")
-      val body = parseExpr()
+      val body = parseExprBody()
       Some(Surface.Def.Value(x, ty, body))
     else if maybeKeyword("finite") then
       dropToken()
@@ -243,20 +254,36 @@ object Parser:
     val ps = parseDataParams()
     Surface.Constructor(x, ps)
 
-  private def parseTypeDef()(using ctx: Ctx): Surface.TypeDef =
-    parseType() match
-      case Some(ty) =>
-        val ts = ty :: parseTypes()
-        Surface.TypeDef(ts.init, false, ts.last)
-      case _ => err("Failed to parse type")(using -1)
+  private def parseTypeDef()(using ctx: Ctx): Surface.TypeDef = {
+    if maybeKeyword("IO") then
+      val ix = dropToken().getIndex
+      parseType() match
+        case Some(ty) =>
+          Surface.TypeDef(Nil, true, ty)
+        case _ => err("Failed to parse type")(using ix)
+    else
+      parseType() match
+        case Some(ty) =>
+          val (io, rest) = parseTypes()
+          val ts = ty :: rest
+          Surface.TypeDef(ts.init, io, ts.last)
+        case _ => err("Failed to parse type")(using -1)
+  }
 
-  private def parseTypes()(using ctx: Ctx): List[Surface.Type] =
+  private def parseTypes()(using ctx: Ctx): (Boolean, List[Surface.Type]) =
     if maybeSymbol("->") then
       val index = dropToken().getIndex
+      val io = if maybeKeyword("IO") then
+        dropToken()
+        true
+      else false
       parseType() match
-        case Some(ty) => ty :: parseTypes()
-        case None     => err("Failed to parse type")(using index)
-    else Nil
+        case Some(ty) if io => (true, List(ty))
+        case Some(ty)       =>
+          val (io, rest) = parseTypes()
+          (io, ty :: rest)
+        case None => err("Failed to parse type")(using index)
+    else (false, Nil)
 
   private def parseType()(using ctx: Ctx): Option[Surface.Type] =
     nextToken(true) match
@@ -296,7 +323,7 @@ object Parser:
         dropToken()
         val xs = parseIdents()
         expectSymbol("=>")
-        val body = parseExpr()
+        val body = parseExprBody()
         Right(xs.foldRight(body)(Surface.Expr.Lam.apply))
       case Some(Token.Keyword("let", ix)) =>
         dropToken()
@@ -310,22 +337,22 @@ object Parser:
           Some(parseTypeDef())
         else None
         expectSymbol("=")
-        val value = parseExpr()
+        val value = parseExprBody()
         expectSymbol(";")
-        val body = parseExpr()
-        if rec then {
+        val body = parseExprBody()
+        if rec then
           ty match
             case None =>
               err("Let rec expression requires type annotation")(using ix)
             case Some(ty) => Right(Surface.Expr.LetRec(x, ty, value, body))
-        } else Right(Surface.Expr.Let(x, ty, value, body))
+        else Right(Surface.Expr.Let(x, ty, value, body))
       case Some(Token.Keyword("if", _)) =>
         dropToken()
-        val cond = parseExpr()
+        val cond = parseExprBody()
         expectKeyword("then")
-        val ifTrue = parseExpr()
+        val ifTrue = parseExprBody()
         expectKeyword("else")
-        val ifFalse = parseExpr()
+        val ifFalse = parseExprBody()
         Right(Surface.Expr.If(cond, ifTrue, ifFalse))
       case Some(Token.Keyword("instr", _)) =>
         dropToken()
@@ -345,10 +372,62 @@ object Parser:
         dropToken()
         val cx = expectIdentifier()
         Right(Surface.Expr.FiniteCon(None, cx))
-      // TODO: app, field, case, finitecase, returnio, bindio
+      case Some(Token.Keyword("returnIO", _)) =>
+        dropToken()
+        val expr = parseExpr()
+        Right(Surface.Expr.ReturnIO(expr))
+      case Some(Token.Keyword("bindIO", _)) =>
+        dropToken()
+        val x = expectIdentifier()
+        expectSymbol("=")
+        val value = parseExprBody()
+        expectSymbol(";")
+        val body = parseExprBody()
+        Right(Surface.Expr.BindIO(x, value, body))
+      case Some(Token.Keyword("field", ix)) =>
+        dropToken()
+        val scrut = parseExpr()
+        val fix = nextToken() match
+          case Some(Token.Number(fix, i)) =>
+            if ix < 0 then
+              err(s"Field index must be non-negative but got $fix")(using i)
+            Right(fix)
+          case Some(Token.Identifier(x, _)) => Left(x)
+          case Some(t) => err(s"Invalid field index: $t")(using t.getIndex)
+          case None    => err(s"Invalid field index, got nothing")(using ix)
+        Right(Surface.Expr.Field(scrut, fix))
+      case Some(Token.Keyword("match", ix)) =>
+        dropToken()
+        val scrut = parseExpr()
+        val cs = nextToken() match
+          case Some(Token.Braces(tokens, _)) =>
+            parseNestedUntilEnd(tokens) { parseCases() }
+          case Some(t) =>
+            err(s"Expected '{' after match but got $t")(using t.getIndex)
+          case None =>
+            err(s"Expected '{' after match but got nothing")(using ix)
+        Right(Surface.Expr.Case(scrut, cs))
+      case Some(Token.Keyword("finmatch", ix)) =>
+        dropToken()
+        val scrut = parseExpr()
+        val cs = nextToken() match
+          case Some(Token.Braces(tokens, _)) =>
+            parseNestedUntilEnd(tokens) {
+              parseCases()
+            }
+          case Some(t) =>
+            err(s"Expected '{' after finmatch but got $t")(using t.getIndex)
+          case None =>
+            err(s"Expected '{' after finmatch but got nothing")(using ix)
+        val fcs = cs.map { case (x, ps, body) =>
+          if ps.nonEmpty then
+            err(s"Finite case cannot have parameters")(using ix)
+          (x, body)
+        }
+        Right(Surface.Expr.FiniteCase(scrut, fcs))
       case Some(Token.Parens(ts, _)) =>
         dropToken()
-        parseNestedUntilEnd(ts) { tryParseExpr() }
+        parseNestedUntilEnd(ts) { tryParseExprBody() }
       case Some(t) =>
         Left((s"Unexpected token while parsing expression: $t", t.getIndex))
       case None =>
@@ -359,12 +438,34 @@ object Parser:
       case Left(_)  => Nil
       case Right(e) => e :: parseExprs()
 
+  private def tryParseExprBody()(using
+      ctx: Ctx
+  ): Either[(String, Int), Surface.Expr] =
+    parseExprs() match
+      case Nil => Left(("Expected expression but got nothing", -1))
+      case xs  => Right(xs.reduceLeft(Surface.Expr.App.apply))
+
+  private def parseExprBody()(using ctx: Ctx): Surface.Expr =
+    tryParseExprBody() match
+      case Left((msg, i)) => err(msg)(using i)
+      case Right(e)       => e
+
   private def parseIdents()(using ctx: Ctx): List[String] =
     nextToken(true) match
       case Some(Token.Identifier(x, _)) =>
         dropToken()
         x :: parseIdents()
       case _ => Nil
+
+  private def parseCases()(using ctx: Ctx): List[Surface.CaseItem] =
+    if maybeKeyword("case") then
+      dropToken()
+      val con = expectIdentifier()
+      val ps = parseIdents()
+      expectSymbol("=>")
+      val body = parseExprBody()
+      (if con == "_" then None else Some(con), ps, body) :: parseCases()
+    else Nil
 
   // parsing utils
   private def expectKeyword(kw: String)(using ctx: Ctx): Unit =
@@ -431,8 +532,10 @@ object Parser:
     val buffer = ts.toBuffer
     given ctx: Ctx = Ctx(buffer)
     val result = p(using ctx)
-    if buffer.nonEmpty then
+    if buffer.nonEmpty then {
+      println(buffer.mkString(" "))
       err("Unparsed input at end of parsing")(using buffer.head.getIndex)
+    }
     result
 
   // util

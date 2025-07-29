@@ -1,39 +1,19 @@
-import java.nio.file.{Files, Path}
+import java.nio.file.{FileSystems, Files, Path}
 import scala.jdk.CollectionConverters.*
 
 import Common.err
 
 object Main:
   @main def run(): Unit =
-    val s =
-      """
-module test.Factorial
-import Prelude
-import test.TestPackage
-
-finite Void
-finite Unit = Unit
-finite Bool = False | True
-data List = Nil | Cons (head : Int) (tail : List)
-record Person (id : Int) (age: Int) (length : Int)
-
-def iadd : Int -> Int -> Int = \a b => instr 96 a b
-
-def myList : List = con Cons 1 (con Nil)
-"""
-    val res = Parser.parse(s)
-    println(res)
-    /*
     val root = FileSystems.getDefault.getPath("examples")
     val files = allSourceFiles(root).map(p => (p, moduleName(root, p)))
-    val modules = files.map((p, m) => Surface.parse(m, Files.readString(p)))
+    val modules = files.map((p, m) => Parser.parse(m, Files.readString(p)))
     val orderedModules = orderModules(modules)
     val irModules = Surface.elaborate(orderedModules)
     val jvmModules = IR.toJvm(irModules)
     val target = "justatarget"
     resetDir(target)
     Jvm.generateBytecode(jvmModules, target)
-     */
 
   private def resetDir(target: String): Unit =
     Path.of(target).toFile.delete()
