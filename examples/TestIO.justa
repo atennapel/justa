@@ -1,9 +1,19 @@
 module TestIO
 
-def v = returnIO 42
+import Factorial
 
-def bindtest =
-  bindIO x = v;
+def start : IO Int =
+  returnIO (Factorial.facTR 10)
+
+def print : Int -> IO Boolean = \n =>
+  let stdout : &java.io.PrintStream = instr getstatic/java.lang.System.out;
+  let println : &void = instr invokevirtual/println stdout n;
+  let printlnFalse : IO Boolean = instr 3 println;
+  bindIO x = printlnFalse;
   returnIO x
 
-def array : [Int] -> [Int] = \x => x
+def main : [&java.lang.String] -> IO &void = \arg =>
+  bindIO value = start;
+  bindIO action = print value;
+  let action: &void = instr 87 action;
+  instr 177 action

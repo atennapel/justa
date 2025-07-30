@@ -44,17 +44,17 @@ object JvmName:
     nameCache.get(x) match
       case Some(y) => y
       case None    =>
-        if x == "main" then
-          val y = "main$"
-          nameCache += (x -> y)
-          y
-        else
-          val y = x
-            .split("")
-            .map(c => chars.get(c).fold(c)(y => s"_$y"))
-            .mkString("")
-          nameCache += (x -> y)
-          y
+        // if x == "main" then
+        //  val y = "main$"
+        //  nameCache += (x -> y)
+        //  y
+        // else
+        val y = x
+          .split("")
+          .map(c => chars.get(c).fold(c)(y => s"_$y"))
+          .mkString("")
+        nameCache += (x -> y)
+        y
 
   private def escapeNameInPath(x: String): String =
     x.split('.').map(escapeName).mkString("/")

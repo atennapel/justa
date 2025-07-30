@@ -79,7 +79,12 @@ object Jvm:
         otherwise: Option[Expr]
     )
 
-    case Instr(opcode: Int, args: List[Expr])
+    case Instr(
+        instr: String,
+        types: List[Type],
+        returnty: Type,
+        args: List[Expr]
+    )
 
     case If(cond: Expr, ifTrue: Expr, ifFalse: Expr)
 
@@ -138,7 +143,10 @@ object Jvm:
   def generateBytecode(modules: List[Module], targetDir: String): Unit =
     val moduleMap = modules
       .map(m =>
-        m.name -> new ModuleCtx(m.name, JType.getType(s"L${m.name.escape};"))
+        m.name -> new ModuleCtx(
+          m.name,
+          JType.getType(s"L${m.name.escape.replace('.', '/')};")
+        )
       )
       .toMap
     given ctx: Ctx = Ctx(moduleMap)
@@ -205,6 +213,7 @@ object Jvm:
     case Type.Data(name)   => ctx.modules(name.module).datatypes(name.name).ty
     case Type.Record(name) => ctx.modules(name.module).records(name.name).ty
     case Type.Finite(name) => ctx.modules(name.module).finites(name.name).ty
+    case Type.Jvm("void")  => JType.VOID_TYPE
     case Type.Jvm(name)    => JType.getObjectType(name.replace('.', '/'))
     case Type.Array(ty)    => JType.getType(s"[${gen(ty).getDescriptor}")
 
@@ -581,7 +590,7 @@ object Jvm:
         ctx.methodOption(name) match
           case Some(method) =>
             args.foreach(gen)
-            mg.invokeStatic(ctx.module(name).ty, ctx.method(name))
+            mg.invokeStatic(ctx.module(name).ty, method)
           case None =>
             args match
               case Nil =>
@@ -663,7 +672,7 @@ object Jvm:
           if isUsed then
             mg.checkCast(conctx.ty)
             mg.storeLocal(local)
-          else if !isLast then mg.pop()
+          else if isLast then mg.pop()
           gen(body)(using locals = locals :+ Local.Local(local))
           if !isLast then mg.visitJumpInsn(GOTO, lEnd)
           mg.visitLabel(lNext)
@@ -698,9 +707,42 @@ object Jvm:
           case n if n <= 2147483647 => mg.push(ix)
           case n => err(s"finite type has too many members: $n")
 
-      case Expr.Instr(opcode, args) =>
-        args.foreach(gen)
-        mg.visitInsn(opcode)
+      case Expr.Instr(instr, ts, rt, args) =>
+        instr.toIntOption match
+          case Some(opcode) =>
+            args.foreach(gen)
+            mg.visitInsn(opcode)
+          case None =>
+            instr match
+              case _ if instr.startsWith("getstatic/") =>
+                args.foreach(gen)
+                val spl = instr.drop(10).split('.')
+                val owner = JType.getObjectType(spl.init.mkString("/"))
+                val name = spl.last
+                val rty = gen(rt)
+                mg.getStatic(owner, name, rty)
+              case _ if instr.startsWith("invokevirtual/") =>
+                if ts.isEmpty then
+                  err("invokevirtual needs at least one argument")
+                args.foreach(gen)
+                val name = instr.drop(14)
+                val owner = gen(ts.head)
+                val method = new Method(name, gen(rt), ts.tail.map(gen).toArray)
+                mg.invokeVirtual(owner, method)
+              case _ if instr == "ifeq" =>
+                val argA = args.head
+                val ifEq = args(1)
+                val ifNotEq = args(2)
+                val falseLabel = mg.newLabel()
+                val endLabel = mg.newLabel()
+                gen(argA)
+                mg.visitJumpInsn(IFEQ, falseLabel)
+                gen(ifNotEq)
+                mg.visitJumpInsn(GOTO, endLabel)
+                mg.visitLabel(falseLabel)
+                gen(ifEq)
+                mg.visitLabel(endLabel)
+              case _ => err(s"unsupported JVM instruction $instr")
 
       case Expr.If(c, t, f) =>
         val falseLabel = mg.newLabel()

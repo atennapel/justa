@@ -66,7 +66,12 @@ object IR:
 
     case If(ty: TypeDef, scrut: Expr, ifTrue: Expr, ifFalse: Expr)
 
-    case Instr(opcode: Int, args: List[Expr])
+    case Instr(
+        instr: String,
+        types: List[Type],
+        returnty: Type,
+        args: List[Expr]
+    )
 
     case FiniteCon(name: MName, ix: Int)
     case FiniteCase(
@@ -101,12 +106,13 @@ object IR:
         s"(let${if noinline then " noinline" else ""} $value; $body)"
       case Expr.LetRec(noinline, _, value, body) =>
         s"(letrec${if noinline then " noinline" else ""} $value; $body)"
-      case Expr.If(_, s, t, f)      => s"(if $s then $t else $f)"
-      case Expr.Instr(opcode, args) => s"(instr $opcode ${args.mkString(" ")})"
-      case Expr.FiniteCon(x, i)     => s"($x $i)"
-      case Expr.Con(d, c, args)     => s"($d $c ${args.mkString(" ")})"
-      case Expr.RecordCon(d, args)  => s"($d ${args.mkString(" ")})"
-      case Expr.Field(x, s, i)      => s"(field $x $s $i)"
+      case Expr.If(_, s, t, f)            => s"(if $s then $t else $f)"
+      case Expr.Instr(opcode, _, _, args) =>
+        s"(instr $opcode ${args.mkString(" ")})"
+      case Expr.FiniteCon(x, i)         => s"($x $i)"
+      case Expr.Con(d, c, args)         => s"($d $c ${args.mkString(" ")})"
+      case Expr.RecordCon(d, args)      => s"($d ${args.mkString(" ")})"
+      case Expr.Field(x, s, i)          => s"(field $x $s $i)"
       case Expr.DataField(dx, cx, s, i) => s"(field $dx $cx $s $i)"
       case Expr.Case(_, dx, s, cs, o)   =>
         s"(case $dx $s (${cs.map((cx, b) => s"$cx => $b").mkString("; ")}${o
@@ -131,8 +137,8 @@ object IR:
         Expr.LetRec(ni, ty, value.shift(c + 1, d), body.shift(c + 1, d))
       case Expr.If(ty, s, t, f) =>
         Expr.If(ty, s.shift(c, d), t.shift(c, d), f.shift(c, d))
-      case Expr.Instr(opcode, args) =>
-        Expr.Instr(opcode, args.map(_.shift(c, d)))
+      case Expr.Instr(opcode, ts, rt, args) =>
+        Expr.Instr(opcode, ts, rt, args.map(_.shift(c, d)))
       case Expr.Con(dx, cx, args) =>
         Expr.Con(dx, cx, args.map(_.shift(c, d)))
       case Expr.RecordCon(dx, args) =>
@@ -170,7 +176,7 @@ object IR:
         Expr.Let(
           ni,
           ty,
-          value.subst(i + 1, v),
+          value.subst(i, v),
           body.subst(i + 1, v.shift(0, 1))
         )
       case Expr.LetRec(ni, ty, value, body) =>
@@ -182,8 +188,8 @@ object IR:
         )
       case Expr.If(ty, s, t, f) =>
         Expr.If(ty, s.subst(i, v), t.subst(i, v), f.subst(i, v))
-      case Expr.Instr(opcode, args) =>
-        Expr.Instr(opcode, args.map(_.subst(i, v)))
+      case Expr.Instr(opcode, ts, rt, args) =>
+        Expr.Instr(opcode, ts, rt, args.map(_.subst(i, v)))
       case Expr.Con(dx, cx, args) =>
         Expr.Con(dx, cx, args.map(_.subst(i, v)))
       case Expr.RecordCon(dx, args) =>
@@ -221,7 +227,8 @@ object IR:
         case Expr.App(fn, arg)                  => merge(fn.free, arg.free)
         case Expr.If(_, scrut, ifTrue, ifFalse) =>
           merge(scrut.free, merge(ifTrue.free, ifFalse.free))
-        case Expr.Instr(_, args)     => args.map(_.free).fold(Map.empty)(merge)
+        case Expr.Instr(_, _, _, args) =>
+          args.map(_.free).fold(Map.empty)(merge)
         case Expr.Con(_, _, args)    => args.map(_.free).fold(Map.empty)(merge)
         case Expr.RecordCon(_, args) => args.map(_.free).fold(Map.empty)(merge)
         case Expr.Field(_, s, _)     => s.free
@@ -400,8 +407,8 @@ object IR:
       case Expr.App(fn, arg) =>
         simplify2(fn, arg).map((f, a) => Expr.App(f, a))
 
-      case Expr.Instr(opcode, args) =>
-        simplifyN(args).map(Expr.Instr(opcode, _))
+      case Expr.Instr(opcode, ts, rt, args) =>
+        simplifyN(args).map(Expr.Instr(opcode, ts, rt, _))
       case Expr.Con(dx, cx, args) =>
         simplifyN(args).map(Expr.Con(dx, cx, _))
       case Expr.RecordCon(dx, args) =>
@@ -416,7 +423,7 @@ object IR:
           case None                =>
             val (_, n) = body.free.getOrElse(0, (0, 0))
             if !ni && n == 0 then Some(body.shift(0, -1))
-            else if (!ni && n == 1) || isSmall(value) then
+            else if !ni && (n == 1 || isSmall(value)) then
               Some(body.beta(value))
             else if !isEtaExpanded(ty.params.size, value) then
               Some(Expr.Let(ni, ty, eta(ty, value), body))
@@ -531,6 +538,7 @@ object IR:
     if results.forall(_.isEmpty) then None
     else Some(results.zip(args).map((o, d) => o.getOrElse(d)))
 
+  // Expression should require no evaluation and no side-effects to be considered small
   private def isSmall(expr: IR.Expr): Boolean = expr match
     case Expr.Local(_, _)       => true
     case Expr.Global(_)         => true
@@ -612,8 +620,13 @@ object IR:
             else err("local in head position")
           case _ => err("invalid fn in app")
 
-      case Expr.Instr(opcode, args) =>
-        Jvm.Expr.Instr(opcode, args.map(lift(_, lvl, false, jumps)))
+      case Expr.Instr(opcode, ts, rt, args) =>
+        Jvm.Expr.Instr(
+          opcode,
+          ts.map(toJvm),
+          toJvm(rt),
+          args.map(lift(_, lvl, false, jumps))
+        )
       case Expr.Con(dx, cx, args) =>
         Jvm.Expr.Con(
           dx.toJvm,
@@ -623,7 +636,7 @@ object IR:
       case Expr.RecordCon(dx, args) =>
         Jvm.Expr.RecordCon(dx.toJvm, args.map(lift(_, lvl, false, jumps)))
 
-      case Expr.Let(_, ty, value, body)
+      case Expr.Let(false, ty, value, body)
           if tail && isUsedInTailOnly(0, body, true) =>
         Jvm.Expr.Join(
           ty.params.map(toJvm),
@@ -631,7 +644,7 @@ object IR:
           lift(body, lvl + 1, tail, jumps + lvl)
         )
 
-      case Expr.Let(_, TypeDef(Nil, false, ty), value, body) =>
+      case Expr.Let(_, TypeDef(Nil, _, ty), value, body) =>
         Jvm.Expr.Let(
           toJvm(ty),
           lift(value, lvl, false, jumps),
@@ -761,7 +774,8 @@ object IR:
           case Expr.Local(j, _) if j == ix => tail && safeInArgs
           case expr => safeInArgs && isUsedInTailOnly(ix, expr, tail)
 
-      case Expr.Instr(_, args)  => args.forall(isUsedInTailOnly(ix, _, false))
+      case Expr.Instr(_, _, _, args) =>
+        args.forall(isUsedInTailOnly(ix, _, false))
       case Expr.Con(_, _, args) => args.forall(isUsedInTailOnly(ix, _, false))
       case Expr.RecordCon(_, args) =>
         args.forall(isUsedInTailOnly(ix, _, false))

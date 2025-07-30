@@ -332,11 +332,16 @@ object Parser:
         expectKeyword("else")
         val ifFalse = parseExprBody()
         Right(Surface.Expr.If(cond, ifTrue, ifFalse))
-      case Some(Token.Keyword("instr", _)) =>
+      case Some(Token.Keyword("instr", ix)) =>
         dropToken()
-        val op = expectNumber()
+        val instr = nextToken() match
+          case Some(Token.Identifier(x, _)) => x
+          case Some(Token.Number(n, _))     => n.toString
+          case Some(t)                      =>
+            err(s"Expected instruction but got $t")(using t.getIndex)
+          case None => err("Expected instruction but got nothing")(using ix)
         val args = parseExprs()
-        Right(Surface.Expr.Instr(op, args))
+        Right(Surface.Expr.Instr(instr, args))
       case Some(Token.Keyword("con", _)) =>
         dropToken()
         val cx = expectIdentifier()

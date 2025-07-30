@@ -28,7 +28,7 @@ object Surface:
 
     case If(scrut: Expr, ifTrue: Expr, ifFalse: Expr)
 
-    case Instr(opcode: Int, args: List[Expr])
+    case Instr(instr: String, args: List[Expr])
 
     case Con(datatype: Option[MName], name: Name, args: List[Expr])
     case RecordCon(dx: Option[MName], args: List[Expr])
@@ -224,9 +224,22 @@ object Surface:
         val ef = check(f, exty)
         IR.Expr.If(exty, ec, et, ef)
 
-      case Expr.Instr(op, args) =>
-        val eargs = args.map(a => infer(a)._1)
-        IR.Expr.Instr(op, eargs)
+      case Expr.Instr(instr, args) =>
+        val rt = exty match
+          case IR.TypeDef(Nil, _, rt) => rt
+          case ty                     =>
+            err(
+              s"instr can only be checked against a value type of a value type in IO but got $ty"
+            )
+        val (eargs, ts) = args.map { a =>
+          val (ea, ty) = infer(a)
+          ty match
+            case IR.TypeDef(Nil, false, t) =>
+              (ea, t)
+            case ty =>
+              err(s"instr arguments have to be value types, but got $ty")
+        }.unzip
+        IR.Expr.Instr(instr, ts, rt, eargs)
 
       case Expr.Con(None, cx, args) =>
         exty match
