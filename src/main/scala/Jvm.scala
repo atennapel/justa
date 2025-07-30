@@ -627,10 +627,8 @@ object Jvm:
       case Expr.Jump(lvl, args) =>
         locals(lvl) match
           case Local.Label(label, params) =>
-            params.zip(args).foreach { (id, v) =>
-              gen(v)
-              mg.storeLocal(id)
-            }
+            args.foreach(gen)
+            params.reverse.foreach(l => mg.storeLocal(l))
             mg.visitJumpInsn(GOTO, label)
           case _ => err("tried to jump to non-label")
 
