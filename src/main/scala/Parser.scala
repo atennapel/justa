@@ -163,9 +163,7 @@ object Parser:
         using -1
       )
     val imports = mutable.Set.empty[String]
-    while maybeKeyword("import") do
-      dropToken()
-      imports += expectIdentifier()
+    while maybeKeyword("import") do imports += expectIdentifier()
     val defs = parseDefs()
     Surface.Module(x, imports.toSet, defs)
 
@@ -176,44 +174,30 @@ object Parser:
 
   private def parseDef()(using ctx: Ctx): Option[Surface.Def] =
     if maybeKeyword("def") then
-      dropToken()
       val x = expectIdentifier()
-      val ty = if maybeSymbol(":") then
-        dropToken()
-        Some(parseTypeDef())
-      else None
+      val ty = if maybeSymbol(":") then Some(parseTypeDef()) else None
       expectSymbol("=")
       val body = parseExprBody()
       Some(Surface.Def.Value(x, ty, body))
     else if maybeKeyword("finite") then
-      dropToken()
       val x = expectIdentifier()
       val cs =
-        if maybeSymbol("=") then
-          dropToken()
-          expectIdentifier() :: parseFiniteNames()
+        if maybeSymbol("=") then expectIdentifier() :: parseFiniteNames()
         else Nil
       Some(Surface.Def.Finite(x, cs))
     else if maybeKeyword("record") then
-      dropToken()
       val x = expectIdentifier()
       val ps = parseDataParams()
       Some(Surface.Def.Record(x, ps))
     else if maybeKeyword("data") then
-      dropToken()
       val x = expectIdentifier()
       val cs =
-        if maybeSymbol("=") then
-          dropToken()
-          parseDataCon() :: parseDataCons()
-        else Nil
+        if maybeSymbol("=") then parseDataCon() :: parseDataCons() else Nil
       Some(Surface.Def.Data(x, cs))
     else None
 
   private def parseFiniteNames()(using ctx: Ctx): List[String] =
-    if maybeSymbol("|") then
-      dropToken()
-      expectIdentifier() :: parseFiniteNames()
+    if maybeSymbol("|") then expectIdentifier() :: parseFiniteNames()
     else Nil
 
   private def parseDataParams()(using
@@ -244,9 +228,7 @@ object Parser:
           case _ => None
 
   private def parseDataCons()(using ctx: Ctx): List[Surface.Constructor] =
-    if maybeSymbol("|") then
-      dropToken()
-      parseDataCon() :: parseDataCons()
+    if maybeSymbol("|") then parseDataCon() :: parseDataCons()
     else Nil
 
   private def parseDataCon()(using ctx: Ctx): Surface.Constructor =
@@ -255,7 +237,7 @@ object Parser:
     Surface.Constructor(x, ps)
 
   private def parseTypeDef()(using ctx: Ctx): Surface.TypeDef = {
-    if maybeKeyword("IO") then
+    if maybeKeyword("IO", true) then
       val ix = dropToken().getIndex
       parseType() match
         case Some(ty) =>
@@ -271,12 +253,9 @@ object Parser:
   }
 
   private def parseTypes()(using ctx: Ctx): (Boolean, List[Surface.Type]) =
-    if maybeSymbol("->") then
+    if maybeSymbol("->", true) then
       val index = dropToken().getIndex
-      val io = if maybeKeyword("IO") then
-        dropToken()
-        true
-      else false
+      val io = maybeKeyword("IO")
       parseType() match
         case Some(ty) if io => (true, List(ty))
         case Some(ty)       =>
@@ -290,7 +269,11 @@ object Parser:
       case Some(Token.Identifier(x, _)) =>
         dropToken()
         if x.startsWith("&") then Some(Surface.Type.Jvm(x.tail))
-        else Some(Surface.Type.Type(parseMName(x)))
+        else Some(Surface.Type.Named(parseMName(x)))
+      case Some(Token.Brackets(ts, _)) =>
+        dropToken()
+        val ty = parseNestedUntilEnd(ts) { parseType() }
+        ty.map(Surface.Type.Array.apply)
       case _ => None
 
   private def parseMName(x: String): Surface.MName =
@@ -328,15 +311,9 @@ object Parser:
         Right(xs.foldRight(body)(Surface.Expr.Lam.apply))
       case Some(Token.Keyword("let", ix)) =>
         dropToken()
-        val rec = if maybeKeyword("rec") then
-          dropToken()
-          true
-        else false
+        val rec = maybeKeyword("rec")
         val x = expectIdentifier()
-        val ty = if maybeSymbol(":") then
-          dropToken()
-          Some(parseTypeDef())
-        else None
+        val ty = if maybeSymbol(":") then Some(parseTypeDef()) else None
         expectSymbol("=")
         val value = parseExprBody()
         expectSymbol(";")
@@ -460,7 +437,6 @@ object Parser:
 
   private def parseCases()(using ctx: Ctx): List[Surface.CaseItem] =
     if maybeKeyword("case") then
-      dropToken()
       val con = expectIdentifier()
       val ps = parseIdents()
       expectSymbol("=>")
@@ -476,10 +452,14 @@ object Parser:
         err(s"Expected keyword '$kw' but got $token")(using token.getIndex)
       case None => err(s"Expected keyword '$kw' but got nothing")(using -1)
 
-  private def maybeKeyword(kw: String)(using ctx: Ctx): Boolean =
+  private def maybeKeyword(kw: String, keepToken: Boolean = false)(using
+      ctx: Ctx
+  ): Boolean =
     nextToken(true) match
-      case Some(Token.Keyword(kw2, _)) if kw == kw2 => true
-      case _                                        => false
+      case Some(Token.Keyword(kw2, _)) if kw == kw2 =>
+        if !keepToken then dropToken()
+        true
+      case _ => false
 
   private def expectIdentifier()(using ctx: Ctx): String =
     nextToken() match
@@ -488,10 +468,14 @@ object Parser:
         err(s"Expected identifier but got $token")(using token.getIndex)
       case None => err(s"Expected identifier but got nothing")(using -1)
 
-  private def maybeIdentifier()(using ctx: Ctx): Option[String] =
+  private def maybeIdentifier(keepToken: Boolean = false)(using
+      ctx: Ctx
+  ): Option[String] =
     nextToken(true) match
-      case Some(Token.Identifier(x, _)) => Some(x)
-      case _                            => None
+      case Some(Token.Identifier(x, _)) =>
+        if !keepToken then dropToken()
+        Some(x)
+      case _ => None
 
   private def expectNumber()(using ctx: Ctx): Int =
     nextToken() match
@@ -507,10 +491,14 @@ object Parser:
         err(s"Expected symbol '$s' but got $token")(using token.getIndex)
       case None => err(s"Expected symbol '$s' but got nothing")(using -1)
 
-  private def maybeSymbol(s: String)(using ctx: Ctx): Boolean =
+  private def maybeSymbol(s: String, keepToken: Boolean = false)(using
+      ctx: Ctx
+  ): Boolean =
     nextToken(true) match
-      case Some(Token.Symbol(s2, _)) if s == s2 => true
-      case _                                    => false
+      case Some(Token.Symbol(s2, _)) if s == s2 =>
+        if !keepToken then dropToken()
+        true
+      case _ => false
 
   private def nextToken(keepToken: Boolean = false)(using
       ctx: Ctx

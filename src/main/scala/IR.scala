@@ -37,6 +37,7 @@ object IR:
     case Record(name: MName)
     case Finite(name: MName)
     case Jvm(qualifiedName: String)
+    case Array(ty: Type)
 
   final case class TypeDef(params: List[Type], io: Boolean, returnty: Type):
     def head: Type = params.head
@@ -317,6 +318,7 @@ object IR:
     case Type.Record(x) => Jvm.Type.Record(x.toJvm)
     case Type.Finite(x) => Jvm.Type.Finite(x.toJvm)
     case Type.Jvm(x)    => Jvm.Type.Jvm(x)
+    case Type.Array(ty) => Jvm.Type.Array(toJvm(ty))
 
   // simplification:
   // - remove dead lets

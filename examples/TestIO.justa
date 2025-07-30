@@ -5,3 +5,5 @@ def v = returnIO 42
 def bindtest =
   bindIO x = v;
   returnIO x
+
+def array : [Int] -> [Int] = \x => x

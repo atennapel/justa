@@ -8,8 +8,9 @@ object Surface:
   final case class MName(module: Option[Name], name: Name)
 
   enum Type:
-    case Type(name: MName)
+    case Named(name: MName)
     case Jvm(qualifiedName: String)
+    case Array(ty: Type)
 
   final case class TypeDef(params: List[Type], io: Boolean, rty: Type)
 
@@ -157,8 +158,9 @@ object Surface:
       ty: Type
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.Type =
     ty match
-      case Type.Jvm(x)     => IR.Type.Jvm(x)
-      case Type.Type(name) =>
+      case Type.Jvm(x)      => IR.Type.Jvm(x)
+      case Type.Array(ty)   => IR.Type.Array(elaborate(ty))
+      case Type.Named(name) =>
         val mod = name.module.getOrElse(moduleCtx.name)
         val x = name.name
         ctx.module(mod).types.get(x) match

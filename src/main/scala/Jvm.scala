@@ -45,6 +45,7 @@ object Jvm:
     case Record(name: MName)
     case Finite(name: MName)
     case Jvm(qualifiedName: String)
+    case Array(ty: Type)
 
   enum Expr:
     case Local(lvl: Lvl)
@@ -205,6 +206,7 @@ object Jvm:
     case Type.Record(name) => ctx.modules(name.module).records(name.name).ty
     case Type.Finite(name) => ctx.modules(name.module).finites(name.name).ty
     case Type.Jvm(name)    => JType.getObjectType(name.replace('.', '/'))
+    case Type.Array(ty)    => JType.getType(s"[${gen(ty).getDescriptor}")
 
   private def finiteType(amount: Int): JType = amount match
     case n if n <= 2          => JType.BOOLEAN_TYPE
