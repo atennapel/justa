@@ -24,7 +24,6 @@ object Surface:
     case LetRec(name: Name, ty: TypeDef, value: Expr, body: Expr)
 
     case IntLit(value: Int)
-    case BoolLit(value: Boolean)
 
     case If(scrut: Expr, ifTrue: Expr, ifFalse: Expr)
 
@@ -171,15 +170,14 @@ object Surface:
             err(s"undefined type $x")
           case None =>
             x match
-              case "Boolean" => IR.Type.Boolean
-              case "Byte"    => IR.Type.Byte
-              case "Char"    => IR.Type.Char
-              case "Short"   => IR.Type.Short
-              case "Int"     => IR.Type.Int
-              case "Long"    => IR.Type.Long
-              case "Float"   => IR.Type.Float
-              case "Double"  => IR.Type.Double
-              case x         => err(s"undefined type $x")
+              case "Byte"   => IR.Type.Byte
+              case "Char"   => IR.Type.Char
+              case "Short"  => IR.Type.Short
+              case "Int"    => IR.Type.Int
+              case "Long"   => IR.Type.Long
+              case "Float"  => IR.Type.Float
+              case "Double" => IR.Type.Double
+              case x        => err(s"undefined type $x")
 
   private def inferValue(ty: Option[TypeDef], value: Expr)(using
       ctx: Ctx,
@@ -219,10 +217,10 @@ object Surface:
         IR.Expr.LetRec(ety, evalue, ebody)
 
       case Expr.If(c, t, f) =>
-        val ec = check(c, IR.TypeDef(IR.Type.Boolean))
+        val (ec, bty) = inferIfScrut(c)
         val et = check(t, exty)
         val ef = check(f, exty)
-        IR.Expr.If(exty, ec, et, ef)
+        IR.Expr.FiniteCase(exty, bty, ec, List((1, et), (0, ef)), None)
 
       case Expr.Instr(instr, args) =>
         val rt = exty match
@@ -338,14 +336,12 @@ object Surface:
 
       case Expr.IntLit(value) =>
         (IR.Expr.IntLit(value), IR.TypeDef(IR.Type.Int))
-      case Expr.BoolLit(value) =>
-        (IR.Expr.BoolLit(value), IR.TypeDef(IR.Type.Boolean))
 
       case Expr.If(c, t, f) =>
-        val ec = check(c, IR.TypeDef(IR.Type.Boolean))
+        val (ec, bty) = inferIfScrut(c)
         val (et, ety) = infer(t)
         val ef = check(f, ety)
-        (IR.Expr.If(ety, ec, et, ef), ety)
+        (IR.Expr.FiniteCase(ety, bty, ec, List((1, et), (0, ef)), None), ety)
 
       case Expr.Instr(n, _) =>
         err(s"cannot infer instruction $n")
@@ -416,6 +412,23 @@ object Surface:
                 (IR.Expr.BindIO(ty, evalue, ebody), rty)
               case _ => err(s"invalid return type in bindIO: $rty")
           case _ => err(s"invalid type in bindIO: $ety")
+
+  private def inferIfScrut(
+      scrut: Expr
+  )(using
+      ctx: Ctx,
+      moduleCtx: ModuleCtx,
+      localCtx: LocalCtx
+  ): (IR.Expr, IR.MName) =
+    val (escrut, ty) = infer(scrut)
+    ty match
+      case IR.TypeDef(Nil, false, IR.Type.Finite(x))
+          if ctx.finite(x).size == 2 =>
+        (escrut, x)
+      case _ =>
+        err(
+          s"Expected finite type with two elements in if expression but got $ty"
+        )
 
   private def inferFinite(
       x: MName

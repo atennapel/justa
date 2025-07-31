@@ -33,7 +33,6 @@ object Jvm:
     case Finite(name: Name, count: Int)
 
   enum Type:
-    case Boolean
     case Byte
     case Char
     case Short
@@ -51,13 +50,13 @@ object Jvm:
     case Local(lvl: Lvl)
     case Global(name: MName, args: List[Expr])
 
+    case IntLit(value: Int)
+
     case Let(ty: Type, value: Expr, body: Expr)
+
     case Join(params: List[Type], value: Expr, body: Expr)
     case JoinRec(params: List[Type], value: Expr, body: Expr)
     case Jump(lvl: Lvl, args: List[Expr])
-
-    case IntLit(value: Int)
-    case BoolLit(value: Boolean)
 
     case Con(datatype: MName, name: Name, args: List[Expr])
     case DataField(dataname: MName, conname: Name, scrut: Expr, ix: Int)
@@ -85,8 +84,6 @@ object Jvm:
         returnty: Type,
         args: List[Expr]
     )
-
-    case If(cond: Expr, ifTrue: Expr, ifFalse: Expr)
 
   // bytecode generation
   private case class ConstructorCtx(
@@ -202,7 +199,6 @@ object Jvm:
     writeClass(cw, targetDir, List(module.name))
 
   private def gen(ty: Type)(using ctx: Ctx): JType = ty match
-    case Type.Boolean      => JType.BOOLEAN_TYPE
     case Type.Byte         => JType.BYTE_TYPE
     case Type.Char         => JType.CHAR_TYPE
     case Type.Short        => JType.SHORT_TYPE
@@ -632,8 +628,7 @@ object Jvm:
             mg.visitJumpInsn(GOTO, label)
           case _ => err("tried to jump to non-label")
 
-      case Expr.IntLit(value)  => mg.push(value)
-      case Expr.BoolLit(value) => mg.push(value)
+      case Expr.IntLit(value) => mg.push(value)
 
       case Expr.Con(dname, cname, args) =>
         val conctx = ctx.datatype(dname).constructors(cname)
@@ -741,17 +736,6 @@ object Jvm:
                 gen(ifEq)
                 mg.visitLabel(endLabel)
               case _ => err(s"unsupported JVM instruction $instr")
-
-      case Expr.If(c, t, f) =>
-        val falseLabel = mg.newLabel()
-        val endLabel = mg.newLabel()
-        gen(c)
-        mg.visitJumpInsn(IFEQ, falseLabel)
-        gen(t)
-        mg.visitJumpInsn(GOTO, endLabel)
-        mg.visitLabel(falseLabel)
-        gen(f)
-        mg.visitLabel(endLabel)
 
       case Expr.FiniteCase(dx, scrut, cases, otherwise) =>
         val datactx = ctx.finite(dx)
@@ -865,7 +849,6 @@ object Jvm:
   private def constantValue(expr: Expr)(using ctx: Ctx): Option[AnyRef] =
     expr match
       case Expr.IntLit(value)    => Some(Int.box(value))
-      case Expr.BoolLit(value)   => Some(Boolean.box(value))
       case Expr.FiniteCon(x, ix) => Some(finiteValue(x, ix))
       case _                     => None
 

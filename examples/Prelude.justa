@@ -2,7 +2,13 @@ module Prelude
 
 finite Void
 finite Unit = Unit
+
+def Unit : Unit = fin Unit
+
 finite Bool = False | True
+
+def True : Bool = fin True
+def False : Bool = fin False
 
 data IntList = Nil | Cons (hd : Int) (tl : IntList)
 data IntOption = None | Some Int
@@ -25,6 +31,6 @@ def incList : IntList -> IntList = \l =>
 
 def imul : Int -> Int -> Int = \a b => instr 104 a b
 def isub : Int -> Int -> Int = \a b => instr 100 a b
-def izero : Int -> Boolean = \n => instr ifeq n true false
+def izero : Int -> Bool = \n => instr ifeq n True False
 
 def strId : &java.lang.String -> &java.lang.String = \x => x

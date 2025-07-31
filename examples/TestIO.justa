@@ -5,10 +5,10 @@ import Factorial
 def start : IO Int =
   returnIO (Factorial.facTR 10)
 
-def print : Int -> IO Boolean = \n =>
+def print : Int -> IO Prelude.Unit = \n =>
   let stdout : &java.io.PrintStream = instr getstatic/java.lang.System.out;
   let println : &void = instr invokevirtual/println stdout n;
-  let printlnFalse : IO Boolean = instr 3 println;
+  let printlnFalse : IO Prelude.Unit = instr 3 println;
   bindIO x = printlnFalse;
   returnIO x
 

@@ -44,8 +44,6 @@ object Parser:
       "else",
       "let",
       "rec",
-      "true",
-      "false",
       "instr",
       "con",
       "rec",
@@ -294,12 +292,6 @@ object Parser:
       case Some(Token.Number(n, _)) =>
         dropToken()
         Right(Surface.Expr.IntLit(n))
-      case Some(Token.Keyword("true", _)) =>
-        dropToken()
-        Right(Surface.Expr.BoolLit(true))
-      case Some(Token.Keyword("false", _)) =>
-        dropToken()
-        Right(Surface.Expr.BoolLit(false))
       case Some(Token.Identifier(x, _)) =>
         dropToken()
         Right(Surface.Expr.Var(parseMName(x)))
