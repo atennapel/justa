@@ -211,12 +211,12 @@ object Surface:
       case Expr.Let(x, ty, value, body) =>
         val (evalue, ety) = inferValue(ty, value)
         val ebody = check(body, exty)(using localCtx = localCtx.bind(x, ety))
-        IR.Expr.Let(false, ety, evalue, ebody)
+        IR.Expr.Let(ety, evalue, ebody)
       case Expr.LetRec(x, ty, value, body) =>
         val ety = elaborate(ty)
         val evalue = check(value, ety)(using localCtx = localCtx.bind(x, ety))
         val ebody = check(body, exty)(using localCtx = localCtx.bind(x, ety))
-        IR.Expr.LetRec(false, ety, evalue, ebody)
+        IR.Expr.LetRec(ety, evalue, ebody)
 
       case Expr.If(c, t, f) =>
         val ec = check(c, IR.TypeDef(IR.Type.Boolean))
@@ -283,10 +283,11 @@ object Surface:
             val (evalue, ety) = infer(value)
             ety match
               case IR.TypeDef(Nil, true, ty) =>
-                val td = IR.TypeDef(ty)
                 val ebody =
-                  check(body, exty)(using localCtx = localCtx.bind(x, td))
-                IR.Expr.Let(true, td, evalue, ebody)
+                  check(body, exty)(using
+                    localCtx = localCtx.bind(x, IR.TypeDef(ty))
+                  )
+                IR.Expr.BindIO(ty, evalue, ebody)
               case _ => err(s"invalid type in bindIO: $ety")
           case _ => err(s"cannot match bindIO against type: $exty")
 
@@ -328,12 +329,12 @@ object Surface:
       case Expr.Let(x, ty, value, body) =>
         val (evalue, ety) = inferValue(ty, value)
         val (ebody, rty) = infer(body)(using localCtx = localCtx.bind(x, ety))
-        (IR.Expr.Let(false, ety, evalue, ebody), rty)
+        (IR.Expr.Let(ety, evalue, ebody), rty)
       case Expr.LetRec(x, ty, value, body) =>
         val ety = elaborate(ty)
         val evalue = check(value, ety)(using localCtx = localCtx.bind(x, ety))
         val (ebody, rty) = infer(body)(using localCtx = localCtx.bind(x, ety))
-        (IR.Expr.LetRec(false, ety, evalue, ebody), rty)
+        (IR.Expr.LetRec(ety, evalue, ebody), rty)
 
       case Expr.IntLit(value) =>
         (IR.Expr.IntLit(value), IR.TypeDef(IR.Type.Int))
@@ -403,17 +404,16 @@ object Surface:
         val (ev, ty) = infer(v)
         if ty.params.nonEmpty || ty.io then
           err(s"can only call returnIO on value types: $ty")
-        (ev, IR.TypeDef(ty.params, true, ty.returnty))
+        (IR.Expr.ReturnIO(ev), IR.TypeDef(Nil, true, ty.returnty))
       case Expr.BindIO(x, value, body) =>
         val (evalue, ety) = infer(value)
         ety match
           case IR.TypeDef(Nil, true, ty) =>
-            val td = IR.TypeDef(ty)
             val (ebody, rty) =
-              infer(body)(using localCtx = localCtx.bind(x, td))
+              infer(body)(using localCtx = localCtx.bind(x, IR.TypeDef(ty)))
             rty match
               case IR.TypeDef(Nil, true, _) =>
-                (IR.Expr.Let(true, td, evalue, ebody), rty)
+                (IR.Expr.BindIO(ty, evalue, ebody), rty)
               case _ => err(s"invalid return type in bindIO: $rty")
           case _ => err(s"invalid type in bindIO: $ety")
 
@@ -528,7 +528,6 @@ object Surface:
                   case ((t, i), b) =>
                     val s = IR.Expr.Local(i, IR.TypeDef(IR.Type.Data(dx)))
                     IR.Expr.Let(
-                      false,
                       IR.TypeDef(t),
                       IR.Expr.DataField(dx, cx, s, i),
                       b

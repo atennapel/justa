@@ -2,9 +2,8 @@
 Programming language targeting the JVM
 
 TODO:
-- Implement foreign API (JVM object management and JVM IO)
 - Get rid of primitive boolean and if (?)
+- Let/bind re-ordering in simplification
 - Reduce duplication in JVM bytecode generation code
 - Implement importing
 - Implement private and protected definitions
-- Reconsider IO in IR
