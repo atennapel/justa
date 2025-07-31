@@ -1,7 +1,7 @@
 import scala.annotation.tailrec
 import scala.collection.mutable
-
 import Common.*
+import IR.Expr.Case
 
 object IR:
   type Name = String
@@ -391,6 +391,30 @@ object IR:
       case Expr.Lam(ty, body) =>
         simplify(body).map(Expr.Lam(ty, _))
 
+      // bindIO (bindIO v b1) b2 ~> bindIO v (bindIO b1 b2)
+      case Expr.BindIO(t1, Expr.BindIO(t2, v, b1), b2) =>
+        Some(Expr.BindIO(t2, v, Expr.BindIO(t1, b1, b2)))
+      // let (let v b1) b2 ~> let v (let b1 b2)
+      case Expr.Let(t1, Expr.Let(t2, v, b1), b2) =>
+        Some(Expr.Let(t2, v, Expr.Let(t1, b1, b2)))
+      case Expr.LetRec(t1, Expr.LetRec(t2, v, b1), b2) =>
+        Some(Expr.LetRec(t2, v, Expr.LetRec(t1, b1, b2)))
+      case Expr.Let(t1, Expr.LetRec(t2, v, b1), b2) =>
+        Some(Expr.LetRec(t2, v, Expr.Let(t1, b1, b2)))
+      case Expr.LetRec(t1, Expr.Let(t2, v, b1), b2) =>
+        Some(Expr.Let(t2, v, Expr.LetRec(t1, b1, b2)))
+      // bindIO (let v b1) b2 ~> let v (bindIO b1 b2)
+      case Expr.BindIO(t1, Expr.Let(t2, v, b1), b2) =>
+        Some(Expr.Let(t2, v, Expr.BindIO(t1, b1, b2)))
+      case Expr.BindIO(t1, Expr.LetRec(t2, v, b1), b2) =>
+        Some(Expr.LetRec(t2, v, Expr.BindIO(t1, b1, b2)))
+      // let x = (bind y = a1; a2); b ~> bind y = a1; let x = a2; b
+      // TODO: some of these LetRec re-associations might not be a good idea
+      case Expr.Let(t1, Expr.BindIO(t2, v, b1), b2) =>
+        Some(Expr.BindIO(t2, v, Expr.Let(t1, b1, b2)))
+      case Expr.LetRec(t1, Expr.BindIO(t2, v, b1), b2) =>
+        Some(Expr.BindIO(t2, v, Expr.LetRec(t1, b1, b2)))
+
       case Expr.Let(ty, value, body) =>
         simplify2(value, body) match
           case Some((value, body)) => Some(Expr.Let(ty, value, body))
@@ -401,6 +425,7 @@ object IR:
             else if !isEtaExpanded(ty.params.size, value) then
               Some(Expr.Let(ty, eta(ty, value), body))
             else None
+
       case Expr.LetRec(ty, value, body) =>
         simplify2(value, body) match
           case Some((value, body)) => Some(Expr.LetRec(ty, value, body))
