@@ -46,7 +46,8 @@ object Main:
   ): List[Surface.Module] =
     val all = modules.map(_.name).toSet
     modules.foreach {
-      case Surface.Module(x, deps, _) if deps.exists(x => !all.contains(x)) =>
+      case Surface.Module(x, deps, _, _, _)
+          if deps.exists(x => !all.contains(x)) =>
         err(
           s"unknown module in dependencies of module $x: ${deps.filter(!all.contains(_)).mkString(", ")}"
         )

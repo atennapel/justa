@@ -56,7 +56,7 @@ object Parser:
       "match",
       "case"
     )
-  private val symbols1: Set[Char] = Set(':', ';', '=', '\\', '|')
+  private val symbols1: Set[Char] = Set(':', ';', '=', '\\', '|', ',')
   private val symbols2: Map[Char, Set[Char]] =
     Map(':' -> Set('='), '-' -> Set('>'), '=' -> Set('>'))
   private val openingBrackets: Map[Char, Char] =
@@ -160,10 +160,32 @@ object Parser:
       err(s"Module name does not match filename, expected $mod but got $x")(
         using -1
       )
-    val imports = mutable.Set.empty[String]
-    while maybeKeyword("import") do imports += expectIdentifier()
+    val deps = mutable.Set.empty[String]
+    val renames = mutable.Map.empty[String, String]
+    val imports = mutable.Map.empty[String, (String, Option[String])]
+    while maybeKeyword("import") do {
+      val m = expectIdentifier()
+      val xr = if maybeSymbol("=>") then Some(expectIdentifier()) else None
+      renames += m -> xr.getOrElse(m)
+      deps += m
+      nextToken(true) match
+        case Some(Token.Parens(ts, _)) =>
+          dropToken()
+          val is = parseNestedUntilEnd(ts) { parseImports() }
+          is.foreach { (x, r) => imports += x -> (m, r) }
+        case _ => ()
+    }
     val defs = parseDefs()
-    Surface.Module(x, imports.toSet, defs)
+    Surface.Module(x, deps.toSet, imports.toMap, renames.toMap, defs)
+
+  private def parseImports()(using ctx: Ctx): List[(String, Option[String])] =
+    if ctx.tokens.isEmpty then Nil
+    else
+      maybeSymbol(",")
+      val x = expectIdentifier()
+      val r = if maybeSymbol("=>") then Some(expectIdentifier()) else None
+      if maybeSymbol(",") then (x, r) :: parseImports()
+      else List((x, r))
 
   private def parseDefs()(using ctx: Ctx): List[Surface.Def] =
     parseDef() match
@@ -214,7 +236,7 @@ object Parser:
         nextToken(true) match
           case Some(Token.Parens(ts, ix)) =>
             dropToken()
-            parseNestedUntilEnd(ts) {
+            parseNestedUntilEnd(ts):
               val x = expectIdentifier()
               expectSymbol(":")
               parseType() match
@@ -222,7 +244,6 @@ object Parser:
                   err(s"Failed to parse type in data parameter $x")(using ix)
                 case Some(ty) =>
                   Some((if x == "_" then None else Some(x), ty))
-            }
           case _ => None
 
   private def parseDataCons()(using ctx: Ctx): List[Surface.Constructor] =
@@ -387,9 +408,7 @@ object Parser:
         val scrut = parseExpr()
         val cs = nextToken() match
           case Some(Token.Braces(tokens, _)) =>
-            parseNestedUntilEnd(tokens) {
-              parseCases()
-            }
+            parseNestedUntilEnd(tokens) { parseCases() }
           case Some(t) =>
             err(s"Expected '{' after finmatch but got $t")(using t.getIndex)
           case None =>

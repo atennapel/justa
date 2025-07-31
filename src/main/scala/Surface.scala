@@ -52,7 +52,13 @@ object Surface:
     case Record(name: Name, fields: List[(Option[Name], Type)])
     case Finite(name: Name, constructors: List[Name])
 
-  final case class Module(name: Name, deps: Set[Name], defs: List[Def])
+  final case class Module(
+      name: Name,
+      deps: Set[Name],
+      imports: Map[Name, (Name, Option[Name])],
+      renames: Map[Name, Name],
+      defs: List[Def]
+  )
 
   // elaboration
   private enum DataKind:
@@ -69,12 +75,19 @@ object Surface:
 
   private final case class ModuleCtx(
       name: Name,
-      globals: mutable.Map[Name, IR.TypeDef] = mutable.Map.empty,
-      types: mutable.Map[Name, DataKind] = mutable.Map.empty,
-      recordparams: mutable.Map[Name, RecordParams] = mutable.Map.empty,
-      dataparams: mutable.Map[Name, DataParams] = mutable.Map.empty,
-      finiteparams: mutable.Map[Name, FiniteParams] = mutable.Map.empty
+      private val modules: mutable.Map[Name, Name] = mutable.Map.empty,
+      private val imports: mutable.Map[Name, IR.MName] = mutable.Map.empty,
+      private val globals: mutable.Map[Name, IR.TypeDef] = mutable.Map.empty,
+      private val types: mutable.Map[Name, DataKind] = mutable.Map.empty,
+      private val recordparams: mutable.Map[Name, RecordParams] =
+        mutable.Map.empty,
+      private val dataparams: mutable.Map[Name, DataParams] = mutable.Map.empty,
+      private val finiteparams: mutable.Map[Name, FiniteParams] =
+        mutable.Map.empty
   ):
+    def addModule(globalName: Name, innerName: Name): Unit =
+      modules += innerName -> globalName
+
     def addGlobal(x: Name, ty: IR.TypeDef): Unit =
       globals += x -> ty
     def addType(x: Name, kind: DataKind): Unit =
@@ -85,37 +98,104 @@ object Surface:
       dataparams += x -> ps
     def addFiniteParams(x: Name, ps: List[Name]): Unit =
       finiteparams += x -> ps
+    def addImport(m: Name, x: Name, r: Name): Unit =
+      imports += r -> IR.MName(m, x)
+
+    def hasName(x: Name): Boolean = globals.contains(x) || types.contains(x)
+
+    private def datakind(x: Name): DataKind =
+      types.get(x) match
+        case None    => err(s"undefined type $name.$x")
+        case Some(k) => k
+    def dataparam(x: Name): DataParams =
+      dataparams.get(x) match
+        case None     => err(s"undefined data type $name.$x")
+        case Some(ps) => ps
+    def recordparam(x: Name): RecordParams =
+      recordparams.get(x) match
+        case None     => err(s"undefined record type $name.$x")
+        case Some(ps) => ps
+    def finiteparam(x: Name): FiniteParams =
+      finiteparams.get(x) match
+        case None     => err(s"undefined finite type $name.$x")
+        case Some(ps) => ps
+
+    private def module(x: Name)(using ctx: Ctx): ModuleCtx =
+      modules.get(x) match
+        case None    => err(s"undefined module $x")
+        case Some(y) => ctx.module(y)
+
+    private def transform(mx: MName)(using ctx: Ctx): (ModuleCtx, Name) =
+      mx match
+        case MName(Some(m), x) => (module(m), x)
+        case MName(None, x)    =>
+          val target = imports.getOrElse(x, IR.MName(name, x))
+          (ctx.module(target.module), target.name)
+
+    def global(mx: MName)(using ctx: Ctx): (IR.MName, IR.TypeDef) =
+      val (mctx, x) = transform(mx)
+      mctx.global(x)
+    def global(x: Name)(using ctx: Ctx): (IR.MName, IR.TypeDef) =
+      globals.get(x) match
+        case Some(ty) => (IR.MName(name, x), ty)
+        case None     =>
+          imports.get(x) match
+            case Some(x) => ctx.global(x.module, x.name)
+            case None    => err(s"undefined variable $name.$x")
+
+    def datakind(mx: MName)(using ctx: Ctx): (IR.MName, DataKind) =
+      val (mctx, x) = transform(mx)
+      (IR.MName(mctx.name, x), mctx.datakind(x))
+    def dataparam(mx: MName)(using ctx: Ctx): (IR.MName, DataParams) =
+      val (mctx, x) = transform(mx)
+      (IR.MName(mctx.name, x), mctx.dataparam(x))
+    def recordparam(mx: MName)(using ctx: Ctx): (IR.MName, RecordParams) =
+      val (mctx, x) = transform(mx)
+      (IR.MName(mctx.name, x), mctx.recordparam(x))
+    def finiteparam(mx: MName)(using ctx: Ctx): (IR.MName, FiniteParams) =
+      val (mctx, x) = transform(mx)
+      (IR.MName(mctx.name, x), mctx.finiteparam(x))
 
   private final case class Ctx(
-      modules: mutable.Map[Name, ModuleCtx] = mutable.Map.empty
+      private val modules: mutable.Map[Name, ModuleCtx] = mutable.Map.empty
   ):
-    def addModule(name: Name): Unit =
-      modules += name -> ModuleCtx(name)
+    def addModule(m: Name): ModuleCtx =
+      val mctx = ModuleCtx(m)
+      modules += m -> mctx
+      mctx
+
     def module(name: Name): ModuleCtx = modules(name)
 
+    def moduleOption(name: Name): Option[ModuleCtx] = modules.get(name)
+
     def data(name: IR.MName): DataParams =
-      module(name.module).dataparams(name.name)
+      module(name.module).dataparam(name.name)
     def record(name: IR.MName): RecordParams =
-      module(name.module).recordparams(name.name)
+      module(name.module).recordparam(name.name)
     def finite(name: IR.MName): FiniteParams =
-      module(name.module).finiteparams(name.name)
+      module(name.module).finiteparam(name.name)
 
     def global(m: Name, x: Name): (IR.MName, IR.TypeDef) =
       modules.get(m) match
-        case None =>
+        case Some(mod) => mod.global(x)(using this)
+        case None      =>
           err(s"undefined module $m, while looking for variable $m.$x")
-        case Some(mod) =>
-          mod.globals.get(x) match
-            case None     => err(s"undefined variable $m.$x")
-            case Some(ty) => (IR.MName(m, x), ty)
 
   def elaborate(mods: List[Module]): List[IR.Module] =
     given ctx: Ctx = Ctx()
     mods.map(elaborate)
 
   private def elaborate(mod: Module)(using ctx: Ctx): IR.Module =
-    ctx.addModule(mod.name)
-    given moduleCtx: ModuleCtx = ctx.module(mod.name)
+    given moduleCtx: ModuleCtx = ctx.addModule(mod.name)
+    moduleCtx.addModule(mod.name, mod.name)
+    mod.renames.foreach((m, r) => moduleCtx.addModule(m, r))
+    mod.imports.foreach { case (x, (m, r)) =>
+      ctx.moduleOption(m) match
+        case None => err(s"undefined module $m in imports")
+        case Some(mod) if !mod.hasName(x) =>
+          err(s"undefined name $m.$x in imports")
+        case _ => moduleCtx.addImport(m, x, r.getOrElse(x))
+    }
     val ds = mod.defs.map(elaborate)
     IR.Module(mod.name, ds)
 
@@ -157,27 +237,20 @@ object Surface:
       ty: Type
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.Type =
     ty match
-      case Type.Jvm(x)      => IR.Type.Jvm(x)
-      case Type.Array(ty)   => IR.Type.Array(elaborate(ty))
-      case Type.Named(name) =>
-        val mod = name.module.getOrElse(moduleCtx.name)
-        val x = name.name
-        ctx.module(mod).types.get(x) match
-          case Some(DataKind.ADT)            => IR.Type.Data(IR.MName(mod, x))
-          case Some(DataKind.Record)         => IR.Type.Record(IR.MName(mod, x))
-          case Some(DataKind.Finite)         => IR.Type.Finite(IR.MName(mod, x))
-          case None if name.module.isDefined =>
-            err(s"undefined type $x")
-          case None =>
-            x match
-              case "Byte"   => IR.Type.Byte
-              case "Char"   => IR.Type.Char
-              case "Short"  => IR.Type.Short
-              case "Int"    => IR.Type.Int
-              case "Long"   => IR.Type.Long
-              case "Float"  => IR.Type.Float
-              case "Double" => IR.Type.Double
-              case x        => err(s"undefined type $x")
+      case Type.Jvm(x)                       => IR.Type.Jvm(x)
+      case Type.Array(ty)                    => IR.Type.Array(elaborate(ty))
+      case Type.Named(MName(None, "Byte"))   => IR.Type.Byte
+      case Type.Named(MName(None, "Char"))   => IR.Type.Char
+      case Type.Named(MName(None, "Short"))  => IR.Type.Short
+      case Type.Named(MName(None, "Int"))    => IR.Type.Int
+      case Type.Named(MName(None, "Long"))   => IR.Type.Long
+      case Type.Named(MName(None, "Float"))  => IR.Type.Float
+      case Type.Named(MName(None, "Double")) => IR.Type.Double
+      case Type.Named(x)                     =>
+        moduleCtx.datakind(x) match
+          case (tyName, DataKind.ADT)    => IR.Type.Data(tyName)
+          case (tyName, DataKind.Record) => IR.Type.Record(tyName)
+          case (tyName, DataKind.Finite) => IR.Type.Finite(tyName)
 
   private def inferValue(ty: Option[TypeDef], value: Expr)(using
       ctx: Ctx,
@@ -227,7 +300,7 @@ object Surface:
           case IR.TypeDef(Nil, _, rt) => rt
           case ty                     =>
             err(
-              s"instr can only be checked against a value type of a value type in IO but got $ty"
+              s"instr can only be checked against a value type or a value type in IO but got $ty"
             )
         val (eargs, ts) = args.map { a =>
           val (ea, ty) = infer(a)
@@ -300,20 +373,24 @@ object Surface:
       localCtx: LocalCtx
   ): (IR.Expr, IR.TypeDef) =
     expr match
+      case Expr.IntLit(value) =>
+        (IR.Expr.IntLit(value), IR.TypeDef(IR.Type.Int))
+
       case Expr.Var(x) =>
-        val m = x.module.getOrElse(moduleCtx.name)
-        inline def findGlobal(m: Name, x: Name): (IR.Expr, IR.TypeDef) =
-          val (ex, ty) = ctx.global(m, x)
+        inline def findGlobal(x: MName): (IR.Expr, IR.TypeDef) =
+          val (ex, ty) = moduleCtx.global(x)
           (IR.Expr.Global(ex), ty)
         x.module match
           case None =>
             localCtx.env.zipWithIndex.find { case ((y, _), _) =>
               x.name == y
             } match
-              case None                => findGlobal(m, x.name)
+              case None                => findGlobal(x)
               case Some(((_, ty), ix)) => (IR.Expr.Local(ix, ty), ty)
-          case Some(_) => findGlobal(m, x.name)
-      case Expr.Lam(_, _)    => err("cannot infer lambda")
+          case Some(_) => findGlobal(x)
+
+      case Expr.Lam(_, _) => err("cannot infer lambda")
+
       case Expr.App(fn, arg) =>
         val (efn, ty) = infer(fn)
         ty match
@@ -324,18 +401,17 @@ object Surface:
             err(
               s"expected function type in application but got $ty"
             )
+
       case Expr.Let(x, ty, value, body) =>
         val (evalue, ety) = inferValue(ty, value)
         val (ebody, rty) = infer(body)(using localCtx = localCtx.bind(x, ety))
         (IR.Expr.Let(ety, evalue, ebody), rty)
+
       case Expr.LetRec(x, ty, value, body) =>
         val ety = elaborate(ty)
         val evalue = check(value, ety)(using localCtx = localCtx.bind(x, ety))
         val (ebody, rty) = infer(body)(using localCtx = localCtx.bind(x, ety))
         (IR.Expr.LetRec(ety, evalue, ebody), rty)
-
-      case Expr.IntLit(value) =>
-        (IR.Expr.IntLit(value), IR.TypeDef(IR.Type.Int))
 
       case Expr.If(c, t, f) =>
         val (ec, bty) = inferIfScrut(c)
@@ -433,35 +509,15 @@ object Surface:
   private def inferFinite(
       x: MName
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.MName =
-    val m = x.module.getOrElse(moduleCtx.name)
-    ctx.modules.get(m) match
-      case None      => err(s"undefined module in $x")
-      case Some(mod) =>
-        mod.finiteparams.get(x.name) match
-          case None    => err(s"undefined finite type $x")
-          case Some(_) => IR.MName(m, x.name)
-
+    moduleCtx.finiteparam(x)._1
   private def inferRecord(
       x: MName
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.MName =
-    val m = x.module.getOrElse(moduleCtx.name)
-    ctx.modules.get(m) match
-      case None      => err(s"undefined module in $x")
-      case Some(mod) =>
-        mod.recordparams.get(x.name) match
-          case None    => err(s"undefined record type $x")
-          case Some(_) => IR.MName(m, x.name)
-
+    moduleCtx.recordparam(x)._1
   private def inferData(
       x: MName
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.MName =
-    val m = x.module.getOrElse(moduleCtx.name)
-    ctx.modules.get(m) match
-      case None      => err(s"undefined module in $x")
-      case Some(mod) =>
-        mod.dataparams.get(x.name) match
-          case None    => err(s"undefined data type $x")
-          case Some(_) => IR.MName(m, x.name)
+    moduleCtx.dataparam(x)._1
 
   private def inferRecordCon(x: IR.MName, args: List[Expr])(using
       ctx: Ctx,
