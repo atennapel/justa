@@ -1,27 +1,25 @@
 module Prelude
 
-finite Void
-finite Unit = Unit
+pub finite Void
+pub finite Unit = Unit
 
-def Unit : Unit = fin Unit
+pub finite Bool = False | True
 
-finite Bool = False | True
+pub def True : Bool = fin True
+pub def False : Bool = fin False
 
-def True : Bool = fin True
-def False : Bool = fin False
+pub data IntList = Nil | Cons (hd : Int) (tl : IntList)
+pub data IntOption = None | Some Int
 
-data IntList = Nil | Cons (hd : Int) (tl : IntList)
-data IntOption = None | Some Int
-
-def head : IntList -> IntOption = \l =>
+pub def head : IntList -> IntOption = \l =>
   match l {
     case Cons hd _ => con Some hd
     case Nil => con None
   }
 
-def iadd : Int -> Int -> Int = \a b => instr 96 a b
+pub def iadd : Int -> Int -> Int = \a b => instr 96 a b
 
-def incList : IntList -> IntList = \l =>
+pub def incList : IntList -> IntList = \l =>
   let rec go : IntList -> IntList = \l =>
     match l {
       case Cons hd tl => con Cons (iadd hd 1) (go tl)
@@ -29,8 +27,6 @@ def incList : IntList -> IntList = \l =>
     };
   go l
 
-def imul : Int -> Int -> Int = \a b => instr 104 a b
-def isub : Int -> Int -> Int = \a b => instr 100 a b
-def izero : Int -> Bool = \n => instr ifeq n True False
-
-def strId : &java.lang.String -> &java.lang.String = \x => x
+pub def imul : Int -> Int -> Int = \a b => instr 104 a b
+pub def isub : Int -> Int -> Int = \a b => instr 100 a b
+pub def izero : Int -> Bool = \n => instr ifeq n True False

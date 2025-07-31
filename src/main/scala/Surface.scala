@@ -1,18 +1,32 @@
 import scala.collection.mutable
-
 import Common.*
+import IR.Type
+
+import scala.annotation.tailrec
 
 object Surface:
   type Name = String
 
-  final case class MName(module: Option[Name], name: Name)
+  final case class MName(module: Option[Name], name: Name):
+    override def toString: String = module match
+      case None    => name
+      case Some(m) => s"$m.$name"
 
   enum Type:
     case Named(name: MName)
     case Jvm(qualifiedName: String)
     case Array(ty: Type)
 
-  final case class TypeDef(params: List[Type], io: Boolean, rty: Type)
+    override def toString: String = this match
+      case Type.Named(x)  => x.toString
+      case Type.Jvm(q)    => s"&$q"
+      case Type.Array(ty) => s"[$ty]"
+
+  final case class TypeDef(params: List[Type], io: Boolean, rty: Type):
+    override def toString: String =
+      val ret = if io then s"IO $rty" else rty.toString
+      if params.isEmpty then ret
+      else s"${params.mkString(" -> ")} -> $ret"
 
   type CaseItem = (Option[Name], List[Name], Expr)
 
@@ -47,10 +61,10 @@ object Surface:
   )
 
   enum Def:
-    case Value(name: Name, ty: Option[TypeDef], value: Expr)
-    case Data(name: Name, constructors: List[Constructor])
-    case Record(name: Name, fields: List[(Option[Name], Type)])
-    case Finite(name: Name, constructors: List[Name])
+    case Value(public: Boolean, name: Name, ty: Option[TypeDef], value: Expr)
+    case Data(public: Boolean, name: Name, constructors: List[Constructor])
+    case Record(public: Boolean, name: Name, fields: List[(Option[Name], Type)])
+    case Finite(public: Boolean, name: Name, constructors: List[Name])
 
   final case class Module(
       name: Name,
@@ -83,7 +97,8 @@ object Surface:
         mutable.Map.empty,
       private val dataparams: mutable.Map[Name, DataParams] = mutable.Map.empty,
       private val finiteparams: mutable.Map[Name, FiniteParams] =
-        mutable.Map.empty
+        mutable.Map.empty,
+      private val publicNames: mutable.Set[Name] = mutable.Set.empty
   ):
     def addModule(globalName: Name, innerName: Name): Unit =
       modules += innerName -> globalName
@@ -100,6 +115,9 @@ object Surface:
       finiteparams += x -> ps
     def addImport(m: Name, x: Name, r: Name): Unit =
       imports += r -> IR.MName(m, x)
+
+    def setPublicName(x: Name): Unit = publicNames += x
+    def isPublic(x: Name): Boolean = publicNames.contains(x)
 
     def hasName(x: Name): Boolean = globals.contains(x) || types.contains(x)
 
@@ -132,29 +150,33 @@ object Surface:
           val target = imports.getOrElse(x, IR.MName(name, x))
           (ctx.module(target.module), target.name)
 
-    def global(mx: MName)(using ctx: Ctx): (IR.MName, IR.TypeDef) =
+    def global(mx: MName)(using ctx: Ctx): (Boolean, IR.MName, IR.TypeDef) =
       val (mctx, x) = transform(mx)
       mctx.global(x)
-    def global(x: Name)(using ctx: Ctx): (IR.MName, IR.TypeDef) =
+    def global(x: Name)(using ctx: Ctx): (Boolean, IR.MName, IR.TypeDef) =
       globals.get(x) match
-        case Some(ty) => (IR.MName(name, x), ty)
+        case Some(ty) => (isPublic(x), IR.MName(name, x), ty)
         case None     =>
           imports.get(x) match
             case Some(x) => ctx.global(x.module, x.name)
             case None    => err(s"undefined variable $name.$x")
 
-    def datakind(mx: MName)(using ctx: Ctx): (IR.MName, DataKind) =
+    def datakind(mx: MName)(using ctx: Ctx): (Boolean, IR.MName, DataKind) =
       val (mctx, x) = transform(mx)
-      (IR.MName(mctx.name, x), mctx.datakind(x))
-    def dataparam(mx: MName)(using ctx: Ctx): (IR.MName, DataParams) =
+      (mctx.isPublic(x), IR.MName(mctx.name, x), mctx.datakind(x))
+    def dataparam(mx: MName)(using ctx: Ctx): (Boolean, IR.MName, DataParams) =
       val (mctx, x) = transform(mx)
-      (IR.MName(mctx.name, x), mctx.dataparam(x))
-    def recordparam(mx: MName)(using ctx: Ctx): (IR.MName, RecordParams) =
+      (mctx.isPublic(x), IR.MName(mctx.name, x), mctx.dataparam(x))
+    def recordparam(mx: MName)(using
+        ctx: Ctx
+    ): (Boolean, IR.MName, RecordParams) =
       val (mctx, x) = transform(mx)
-      (IR.MName(mctx.name, x), mctx.recordparam(x))
-    def finiteparam(mx: MName)(using ctx: Ctx): (IR.MName, FiniteParams) =
+      (mctx.isPublic(x), IR.MName(mctx.name, x), mctx.recordparam(x))
+    def finiteparam(mx: MName)(using
+        ctx: Ctx
+    ): (Boolean, IR.MName, FiniteParams) =
       val (mctx, x) = transform(mx)
-      (IR.MName(mctx.name, x), mctx.finiteparam(x))
+      (mctx.isPublic(x), IR.MName(mctx.name, x), mctx.finiteparam(x))
 
   private final case class Ctx(
       private val modules: mutable.Map[Name, ModuleCtx] = mutable.Map.empty
@@ -175,7 +197,7 @@ object Surface:
     def finite(name: IR.MName): FiniteParams =
       module(name.module).finiteparam(name.name)
 
-    def global(m: Name, x: Name): (IR.MName, IR.TypeDef) =
+    def global(m: Name, x: Name): (Boolean, IR.MName, IR.TypeDef) =
       modules.get(m) match
         case Some(mod) => mod.global(x)(using this)
         case None      =>
@@ -199,39 +221,107 @@ object Surface:
     val ds = mod.defs.map(elaborate)
     IR.Module(mod.name, ds)
 
+  private def checkPublicType(ty: IR.TypeDef)(using
+      ctx: Ctx,
+      moduleCtx: ModuleCtx
+  ): Boolean =
+    (ty.returnty :: ty.params).forall(checkPublicType)
+
+  @tailrec
+  private def checkPublicType(
+      ty: IR.Type
+  )(using ctx: Ctx, moduleCtx: ModuleCtx): Boolean =
+    inline def checkName(x: IR.MName): Boolean =
+      ctx.module(x.module).isPublic(x.name)
+    ty match
+      case IR.Type.Byte      => true
+      case IR.Type.Char      => true
+      case IR.Type.Short     => true
+      case IR.Type.Int       => true
+      case IR.Type.Long      => true
+      case IR.Type.Float     => true
+      case IR.Type.Double    => true
+      case IR.Type.Jvm(_)    => true
+      case IR.Type.Array(ty) => checkPublicType(ty)
+      case IR.Type.Data(x)   => checkName(x)
+      case IR.Type.Record(x) => checkName(x)
+      case IR.Type.Finite(x) => checkName(x)
+
   private def elaborate(
       defn: Def
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.Def =
     defn match
-      case Def.Value(x, ty, value) =>
+      case Def.Value(pub, x, ty, value) =>
+        if moduleCtx.hasName(x) then
+          err(s"duplicate name defined: ${moduleCtx.name}.$x")
         given localCtx: LocalCtx = LocalCtx()
         val (evalue, ety) = inferValue(ty, value)
         moduleCtx.addGlobal(x, ety)
-        IR.Def.Value(x, ety, evalue)
-      case Def.Data(x, cons) =>
+        if pub then
+          if !checkPublicType(ety) then
+            err(
+              s"public definition ${moduleCtx.name}.$x is using private types: $ety"
+            )
+          moduleCtx.setPublicName(x)
+        IR.Def.Value(pub, x, ety, evalue)
+      case Def.Data(pub, x, cons) =>
+        if moduleCtx.hasName(x) then
+          err(s"duplicate name defined: ${moduleCtx.name}.$x")
         moduleCtx.addType(x, DataKind.ADT)
-        val econs = cons.map { case Constructor(x, params) =>
-          IR.Constructor(x, params.map((x, t) => (x, elaborate(t))))
+        if pub then moduleCtx.setPublicName(x)
+        val econs = cons.map { case Constructor(c, params) =>
+          IR.Constructor(
+            c,
+            params.map { (y, t) =>
+              val et = elaborate(t)
+              if pub && !checkPublicType(et) then
+                err(
+                  s"field ${y.getOrElse("_")} of constructor $c of data type ${moduleCtx.name}.$x is using private types: $et"
+                )
+              (y, et)
+            }
+          )
         }
         moduleCtx.addDataParams(
           x,
           econs.map(c => (c.name, c.parameters.map(_._2))).toMap
         )
-        IR.Def.Data(x, econs)
-      case Def.Record(x, fields) =>
+        IR.Def.Data(pub, x, econs)
+      case Def.Record(pub, x, fields) =>
+        if moduleCtx.hasName(x) then
+          err(s"duplicate name defined: ${moduleCtx.name}.$x")
         moduleCtx.addType(x, DataKind.Record)
-        val efields = fields.map((x, t) => (x, elaborate(t)))
+        if pub then moduleCtx.setPublicName(x)
+        val efields = fields.map { (y, t) =>
+          val et = elaborate(t)
+          if pub && !checkPublicType(et) then
+            err(
+              s"field ${y.getOrElse("_")} of public record ${moduleCtx.name}.$x is using private types: $et"
+            )
+          (y, et)
+        }
         moduleCtx.addRecordParams(x, efields)
-        IR.Def.Record(x, efields)
-      case Def.Finite(x, cs) =>
+        IR.Def.Record(pub, x, efields)
+      case Def.Finite(pub, x, cs) =>
+        if moduleCtx.hasName(x) then
+          err(s"duplicate name defined: ${moduleCtx.name}.$x")
         moduleCtx.addType(x, DataKind.Finite)
+        if pub then moduleCtx.setPublicName(x)
         moduleCtx.addFiniteParams(x, cs)
-        IR.Def.Finite(x, cs.size)
+        IR.Def.Finite(pub, x, cs.size)
 
   private def elaborate(
       ty: TypeDef
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.TypeDef =
     IR.TypeDef(ty.params.map(elaborate), ty.io, elaborate(ty.rty))
+
+  private inline def checkPublic(pub: Boolean, name: IR.MName)(using
+      moduleCtx: ModuleCtx
+  ): Unit =
+    if moduleCtx.name != name.module && !pub then
+      err(
+        s"$name is not public and cannot be used from module ${moduleCtx.name}"
+      )
 
   private def elaborate(
       ty: Type
@@ -248,9 +338,15 @@ object Surface:
       case Type.Named(MName(None, "Double")) => IR.Type.Double
       case Type.Named(x)                     =>
         moduleCtx.datakind(x) match
-          case (tyName, DataKind.ADT)    => IR.Type.Data(tyName)
-          case (tyName, DataKind.Record) => IR.Type.Record(tyName)
-          case (tyName, DataKind.Finite) => IR.Type.Finite(tyName)
+          case (pub, tyName, DataKind.ADT) =>
+            checkPublic(pub, tyName)
+            IR.Type.Data(tyName)
+          case (pub, tyName, DataKind.Record) =>
+            checkPublic(pub, tyName)
+            IR.Type.Record(tyName)
+          case (pub, tyName, DataKind.Finite) =>
+            checkPublic(pub, tyName)
+            IR.Type.Finite(tyName)
 
   private def inferValue(ty: Option[TypeDef], value: Expr)(using
       ctx: Ctx,
@@ -378,7 +474,8 @@ object Surface:
 
       case Expr.Var(x) =>
         inline def findGlobal(x: MName): (IR.Expr, IR.TypeDef) =
-          val (ex, ty) = moduleCtx.global(x)
+          val (pub, ex, ty) = moduleCtx.global(x)
+          checkPublic(pub, ex)
           (IR.Expr.Global(ex), ty)
         x.module match
           case None =>
@@ -509,15 +606,21 @@ object Surface:
   private def inferFinite(
       x: MName
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.MName =
-    moduleCtx.finiteparam(x)._1
+    val (pub, name, _) = moduleCtx.finiteparam(x)
+    checkPublic(pub, name)
+    name
   private def inferRecord(
       x: MName
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.MName =
-    moduleCtx.recordparam(x)._1
+    val (pub, name, _) = moduleCtx.recordparam(x)
+    checkPublic(pub, name)
+    name
   private def inferData(
       x: MName
   )(using ctx: Ctx, moduleCtx: ModuleCtx): IR.MName =
-    moduleCtx.dataparam(x)._1
+    val (pub, name, _) = moduleCtx.dataparam(x)
+    checkPublic(pub, name)
+    name
 
   private def inferRecordCon(x: IR.MName, args: List[Expr])(using
       ctx: Ctx,

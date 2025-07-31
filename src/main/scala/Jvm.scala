@@ -26,11 +26,17 @@ object Jvm:
   )
 
   enum Def:
-    case Value(name: Name, ty: Type, value: Expr)
-    case Function(name: Name, params: List[Type], returnType: Type, body: Expr)
-    case Data(name: Name, constructors: List[Constructor])
-    case Record(name: Name, fields: List[(Option[Name], Type)])
-    case Finite(name: Name, count: Int)
+    case Value(pub: Boolean, name: Name, ty: Type, value: Expr)
+    case Function(
+        pub: Boolean,
+        name: Name,
+        params: List[Type],
+        returnType: Type,
+        body: Expr
+    )
+    case Data(pub: Boolean, name: Name, constructors: List[Constructor])
+    case Record(pub: Boolean, name: Name, fields: List[(Option[Name], Type)])
+    case Finite(pub: Boolean, name: Name, count: Int)
 
   enum Type:
     case Byte
@@ -226,7 +232,7 @@ object Jvm:
   ): Unit =
     // first ensure all datatypes are known
     defs.foreach {
-      case Def.Data(name, _) =>
+      case Def.Data(_, name, _) =>
         val className = s"${moduleCtx.name.escape}$$${name.escape}"
         val descriptor = s"L$className;"
         val ty = JType.getType(descriptor)
@@ -236,7 +242,7 @@ object Jvm:
           descriptor,
           ty
         ))
-      case Def.Record(name, _) =>
+      case Def.Record(_, name, _) =>
         val className = s"${moduleCtx.name.escape}$$${name.escape}"
         val descriptor = s"L$className;"
         val ty = JType.getType(descriptor)
@@ -246,7 +252,7 @@ object Jvm:
           descriptor,
           ty
         ))
-      case Def.Finite(name, amount) =>
+      case Def.Finite(_, name, amount) =>
         moduleCtx.finites += (name -> FiniteCtx(amount, finiteType(amount)))
       case _ =>
     }
@@ -256,16 +262,16 @@ object Jvm:
       defn: Def
   )(using moduleCtx: ModuleCtx, ctx: Ctx): Unit =
     defn match
-      case Def.Value(name, ty, _) =>
+      case Def.Value(_, name, ty, _) =>
         moduleCtx.values += (name -> gen(ty))
-      case Def.Function(name, params, returnType, _) =>
+      case Def.Function(_, name, params, returnType, _) =>
         val m = new Method(
           name.escape,
           gen(returnType),
           params.map(gen).toArray
         )
         moduleCtx.methods += (name -> m)
-      case Def.Data(name, constructors) =>
+      case Def.Data(_, name, constructors) =>
         // handle constructors
         val datatypeCtx = moduleCtx.datatypes(name)
         constructors.foreach { c =>
@@ -287,7 +293,7 @@ object Jvm:
             constructorMethod
           )
         }
-      case Def.Record(name, fields) =>
+      case Def.Record(_, name, fields) =>
         // handle fields
         val recordCtx = moduleCtx.records(name)
         val params = fields.zipWithIndex.map { case ((x, t), i) =>
@@ -298,13 +304,13 @@ object Jvm:
         val constructorMethod =
           new Method("<init>", JType.VOID_TYPE, params.map(_._2).toArray)
         recordCtx.constructor = constructorMethod
-      case Def.Finite(_, _) => ()
+      case Def.Finite(_, _, _) => ()
 
   private def genStaticBlock(
       defs: List[Def]
   )(using cw: ClassWriter, moduleCtx: ModuleCtx, ctx: Ctx): Unit =
     defs.flatMap {
-      case Def.Value(name, ty, value) if constantValue(value).isEmpty =>
+      case Def.Value(_, name, ty, value) if constantValue(value).isEmpty =>
         Some((name, ty, value))
       case _ => None
     } match
@@ -321,25 +327,28 @@ object Jvm:
         mg.visitInsn(RETURN)
         mg.endMethod()
 
+  private def acc(pub: Boolean): Int =
+    if pub then ACC_PUBLIC else ACC_PRIVATE
+
   private def gen(
       defn: Def
   )(using cw: ClassWriter, moduleCtx: ModuleCtx, ctx: Ctx): Unit =
     defn match
-      case Def.Data(_, _)             => ()
-      case Def.Record(_, _)           => ()
-      case Def.Finite(_, _)           => ()
-      case Def.Value(name, ty, value) =>
+      case Def.Data(_, _, _)               => ()
+      case Def.Record(_, _, _)             => ()
+      case Def.Finite(_, _, _)             => ()
+      case Def.Value(pub, name, ty, value) =>
         cw.visitField(
-          ACC_PUBLIC + ACC_FINAL + ACC_STATIC,
+          ACC_FINAL + ACC_STATIC + acc(pub),
           name.escape,
           gen(ty).getDescriptor,
           null,
           constantValue(value).orNull
         )
-      case Def.Function(name, params, _, body) =>
+      case Def.Function(pub, name, params, _, body) =>
         given mg: GeneratorAdapter =
           new GeneratorAdapter(
-            ACC_FINAL + ACC_STATIC + ACC_PUBLIC,
+            ACC_FINAL + ACC_STATIC + acc(pub),
             moduleCtx.methods(name),
             null,
             null,
@@ -356,7 +365,7 @@ object Jvm:
       targetDir: String
   )(using cw: ClassWriter, moduleCtx: ModuleCtx): Unit =
     defn match
-      case Def.Data(name, constructors) =>
+      case Def.Data(pub, name, constructors) =>
         given datactx: DatatypeCtx = moduleCtx.datatypes(name)
         val className = datactx.className
         val datacw = new ClassWriter(
@@ -364,7 +373,7 @@ object Jvm:
         )
         datacw.visit(
           V1_8,
-          ACC_PUBLIC + ACC_ABSTRACT,
+          acc(pub) + ACC_ABSTRACT,
           className,
           null,
           "java/lang/Object",
@@ -388,12 +397,12 @@ object Jvm:
         // constructors
         constructors.foreach { c =>
           given conctx: ConstructorCtx = datactx.constructors(c.name)
-          genDatatypeConstructor(targetDir)
+          genDatatypeConstructor(targetDir, pub)
           datacw.visitInnerClass(
             conctx.className,
             className,
             c.name.escape,
-            ACC_PUBLIC + ACC_STATIC + ACC_FINAL
+            acc(pub) + ACC_STATIC + ACC_FINAL
           )
         }
 
@@ -403,10 +412,10 @@ object Jvm:
           className,
           moduleCtx.name.escape,
           name.escape,
-          ACC_PUBLIC + ACC_ABSTRACT + ACC_STATIC
+          acc(pub) + ACC_ABSTRACT + ACC_STATIC
         )
         writeClass(datacw, targetDir, datactx.nameParts)
-      case Def.Record(name, _) =>
+      case Def.Record(pub, name, _) =>
         given recordctx: RecordCtx = moduleCtx.records(name)
         val className = recordctx.className
         val recordcw = new ClassWriter(
@@ -414,7 +423,7 @@ object Jvm:
         )
         recordcw.visit(
           V1_8,
-          ACC_PUBLIC,
+          acc(pub),
           className,
           null,
           "java/lang/Object",
@@ -427,7 +436,7 @@ object Jvm:
         }
         params.foreach { (x, ty, _) =>
           recordcw.visitField(
-            ACC_PUBLIC + ACC_FINAL,
+            acc(pub) + ACC_FINAL,
             x.escape,
             ty.getDescriptor,
             null,
@@ -439,7 +448,7 @@ object Jvm:
         val m = recordctx.constructor
         val mg: GeneratorAdapter =
           new GeneratorAdapter(
-            if params.isEmpty then ACC_PROTECTED else ACC_PUBLIC,
+            if params.isEmpty then ACC_PROTECTED else acc(pub),
             m,
             null,
             null,
@@ -457,7 +466,7 @@ object Jvm:
         // 0-ary constructor initialization
         if params.isEmpty then
           recordcw.visitField(
-            ACC_PUBLIC + ACC_FINAL + ACC_STATIC,
+            acc(pub) + ACC_FINAL + ACC_STATIC,
             "INSTANCE",
             recordctx.descriptor,
             null,
@@ -480,12 +489,12 @@ object Jvm:
           className,
           moduleCtx.name.escape,
           name.escape,
-          ACC_PUBLIC + ACC_STATIC
+          acc(pub) + ACC_STATIC
         )
         writeClass(recordcw, targetDir, recordctx.nameParts)
       case _ => ()
 
-  private def genDatatypeConstructor(targetDir: String)(using
+  private def genDatatypeConstructor(targetDir: String, pub: Boolean)(using
       datatypeCtx: DatatypeCtx,
       conCtx: ConstructorCtx
   ): Unit =
@@ -495,7 +504,7 @@ object Jvm:
     )
     cw.visit(
       V1_8,
-      ACC_PUBLIC + ACC_STATIC + ACC_FINAL,
+      acc(pub) + ACC_STATIC + ACC_FINAL,
       className,
       null,
       datatypeCtx.className,
@@ -508,7 +517,7 @@ object Jvm:
     }
     params.foreach { (x, ty, _) =>
       cw.visitField(
-        ACC_PUBLIC + ACC_FINAL,
+        acc(pub) + ACC_FINAL,
         x.escape,
         ty.getDescriptor,
         null,
@@ -546,7 +555,7 @@ object Jvm:
     // 0-ary constructor initialization
     if params.isEmpty then
       cw.visitField(
-        ACC_PUBLIC + ACC_FINAL + ACC_STATIC,
+        acc(pub) + ACC_FINAL + ACC_STATIC,
         "INSTANCE",
         conCtx.descriptor,
         null,

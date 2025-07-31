@@ -1,11 +1,11 @@
 module test.TestPackage
 
-import Prelude
+import Prelude => P
 
 record TestRecord (name : Int)
 
 data D = A | B
 
-def myNumber = 42
+pub def myNumber = 42
 
-def myNumber2 = Prelude.iadd 1 2
+def myNumber2 = P.iadd 1 2

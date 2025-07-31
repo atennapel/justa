@@ -2,7 +2,7 @@ module Factorial
 
 import Prelude (izero => isZero, imul => mul, isub => sub)
 
-def fac : Int -> Int = \n =>
+pub def fac : Int -> Int = \n =>
   let rec go : Int -> Int = \n =>
     if isZero n then
       1
@@ -10,7 +10,7 @@ def fac : Int -> Int = \n =>
       mul n (go (sub n 1));
   go n
 
-def facTR : Int -> Int = \n =>
+pub def facTR : Int -> Int = \n =>
   let rec go : Int -> Int -> Int = \n =>
     if isZero n then
       \acc => acc

@@ -19,10 +19,10 @@ object IR:
   )
 
   enum Def:
-    case Value(name: Name, ty: TypeDef, value: Expr)
-    case Data(name: Name, constructors: List[Constructor])
-    case Record(name: Name, fields: List[(Option[Name], Type)])
-    case Finite(name: Name, amount: Int)
+    case Value(pub: Boolean, name: Name, ty: TypeDef, value: Expr)
+    case Data(pub: Boolean, name: Name, constructors: List[Constructor])
+    case Record(pub: Boolean, name: Name, fields: List[(Option[Name], Type)])
+    case Finite(pub: Boolean, name: Name, amount: Int)
 
   enum Type:
     case Byte
@@ -38,12 +38,30 @@ object IR:
     case Jvm(qualifiedName: String)
     case Array(ty: Type)
 
+    override def toString: String = this match
+      case Type.Byte      => "Byte"
+      case Type.Char      => "Char"
+      case Type.Short     => "Short"
+      case Type.Int       => "Int"
+      case Type.Long      => "Long"
+      case Type.Float     => "Float"
+      case Type.Double    => "Double"
+      case Type.Data(x)   => x.toString
+      case Type.Record(x) => x.toString
+      case Type.Finite(x) => x.toString
+      case Type.Jvm(q)    => s"&$q"
+      case Type.Array(ty) => s"[$ty]"
+
   final case class TypeDef(params: List[Type], io: Boolean, returnty: Type):
     def head: Type = params.head
     def tail: TypeDef = TypeDef(params.tail, io, returnty)
     def get: Type =
       if params.isEmpty && !io then returnty
       else err("expected non-function type")
+    override def toString: String =
+      val ret = if io then s"IO $returnty" else returnty.toString
+      if params.isEmpty then ret
+      else s"${params.mkString(" -> ")} -> $ret"
 
   object TypeDef:
     def apply(ty: Type): TypeDef = TypeDef(Nil, false, ty)
@@ -259,9 +277,10 @@ object IR:
   private type EmitDef = (MName => Jvm.Def) => MName
 
   private def toJvm(mod: Name, defn: Def): List[Jvm.Def] = defn match
-    case Def.Data(x, cs) =>
+    case Def.Data(pub, x, cs) =>
       List(
         Jvm.Def.Data(
+          pub,
           JvmName(x),
           cs.map(c =>
             Jvm.Constructor(
@@ -271,16 +290,17 @@ object IR:
           )
         )
       )
-    case Def.Record(x, fields) =>
+    case Def.Record(pub, x, fields) =>
       List(
         Jvm.Def.Record(
+          pub,
           JvmName(x),
           fields.map((x, t) => (x.map(JvmName.apply), toJvm(t)))
         )
       )
-    case Def.Finite(x, amount) =>
-      List(Jvm.Def.Finite(JvmName(x), amount))
-    case Def.Value(name, ty, value) =>
+    case Def.Finite(pub, x, amount) =>
+      List(Jvm.Def.Finite(pub, JvmName(x), amount))
+    case Def.Value(pub, name, ty, value) =>
       // println(s"===simplify $name===")
       val simplified = simplifyTopLevelUntilDone(eta(ty, value))
       val liftedDefs: mutable.ArrayBuffer[Jvm.Def] = mutable.ArrayBuffer.empty
@@ -296,9 +316,10 @@ object IR:
       // println(lifted)
       val defn =
         if ty.params.isEmpty && !ty.io then
-          Jvm.Def.Value(JvmName(name), toJvm(ty.returnty), lifted)
+          Jvm.Def.Value(pub, JvmName(name), toJvm(ty.returnty), lifted)
         else
           Jvm.Def.Function(
+            pub,
             JvmName(name),
             ty.params.map(toJvm),
             toJvm(ty.returnty),
@@ -661,6 +682,7 @@ object IR:
               v.subst(ix, Expr.Local(newix, ty))
             }
           Jvm.Def.Function(
+            false,
             JvmName(x.name),
             newparams.map(p => toJvm(p._2._1.get)) ++ ty.params.map(toJvm),
             toJvm(ty.returnty),
@@ -700,6 +722,7 @@ object IR:
             v.subst(ix, Expr.Local(newix, ty))
           }
           Jvm.Def.Function(
+            false,
             JvmName(x.name),
             newparams.map(p => toJvm(p._2._1.get)) ++ ty.params.map(toJvm),
             toJvm(ty.returnty),

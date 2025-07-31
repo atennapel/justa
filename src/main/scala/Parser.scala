@@ -35,6 +35,7 @@ object Parser:
     Set(
       "module",
       "import",
+      "pub",
       "def",
       "finite",
       "record",
@@ -193,27 +194,28 @@ object Parser:
       case Some(d) => d :: parseDefs()
 
   private def parseDef()(using ctx: Ctx): Option[Surface.Def] =
+    val pub = maybeKeyword("pub")
     if maybeKeyword("def") then
       val x = expectIdentifier()
       val ty = if maybeSymbol(":") then Some(parseTypeDef()) else None
       expectSymbol("=")
       val body = parseExprBody()
-      Some(Surface.Def.Value(x, ty, body))
+      Some(Surface.Def.Value(pub, x, ty, body))
     else if maybeKeyword("finite") then
       val x = expectIdentifier()
       val cs =
         if maybeSymbol("=") then expectIdentifier() :: parseFiniteNames()
         else Nil
-      Some(Surface.Def.Finite(x, cs))
+      Some(Surface.Def.Finite(pub, x, cs))
     else if maybeKeyword("record") then
       val x = expectIdentifier()
       val ps = parseDataParams()
-      Some(Surface.Def.Record(x, ps))
+      Some(Surface.Def.Record(pub, x, ps))
     else if maybeKeyword("data") then
       val x = expectIdentifier()
       val cs =
         if maybeSymbol("=") then parseDataCon() :: parseDataCons() else Nil
-      Some(Surface.Def.Data(x, cs))
+      Some(Surface.Def.Data(pub, x, cs))
     else None
 
   private def parseFiniteNames()(using ctx: Ctx): List[String] =
@@ -419,6 +421,8 @@ object Parser:
           (x, body)
         }
         Right(Surface.Expr.FiniteCase(scrut, fcs))
+      case Some(Token.Parens(ts, _)) if ts.isEmpty =>
+        Right(Surface.Expr.FiniteCon(None, "Unit"))
       case Some(Token.Parens(ts, _)) =>
         dropToken()
         parseNestedUntilEnd(ts) { tryParseExprBody() }

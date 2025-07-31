@@ -13,7 +13,7 @@ def print : Int -> IO Unit = \n =>
   bindIO x = printlnFalse;
   returnIO x
 
-def main : [&java.lang.String] -> IO &void = \arg =>
+pub def main : [&java.lang.String] -> IO &void = \arg =>
   bindIO value = start;
   bindIO action = print value;
   let action: &void = instr 87 action;
