@@ -5,6 +5,20 @@ import Common.err
 
 object Main:
   @main def run(): Unit =
+    val xxx =
+      """
+module A
+
+import B (x, y => z)
+import C => D
+import E => F (x => a, b)
+"""
+    val mod = Parser2.parse("A", xxx)
+    println(mod.name)
+    println(mod.deps)
+    println(mod.imports)
+    println(mod.moduleAliases)
+
     val root = FileSystems.getDefault.getPath("examples")
     val files = allSourceFiles(root).map(p => (p, moduleName(root, p)))
     val modules = files.map((p, m) => Parser.parse(m, Files.readString(p)))
