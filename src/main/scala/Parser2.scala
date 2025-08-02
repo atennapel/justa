@@ -97,7 +97,11 @@ object Parser2:
       case None => Token.Identifier(s, pos)
 
   // parsing
-  private final case class Ctx(var pos: PosInfo, tokens: mutable.Buffer[Token])
+  private final case class Ctx(
+      var pos: PosInfo,
+      var tokens: mutable.Buffer[Token]
+  ):
+    override def toString: String = s"Ctx($pos, [${tokens.mkString(" ")}])"
 
   class ParseError(val pos: PosInfo, val msg: String)
       extends RuntimeException(msg):
@@ -110,7 +114,7 @@ object Parser2:
     val buffer = tokens.toBuffer
     given ctx: Ctx = Ctx(PosInfo.start, buffer)
     val result = parseModule(mod)
-    if buffer.nonEmpty then err(s"unparsed input at end of file")
+    if ctx.tokens.nonEmpty then err(s"unparsed input at end of file")
     result
 
   private def parseModule(mod: String)(using ctx: Ctx): Module =
@@ -199,12 +203,13 @@ object Parser2:
 
   private def parseParams()(using ctx: Ctx): List[DefParam] = list(parseParam)
 
+  private def parseGrouping()(using ctx: Ctx): (List[Bind], Option[Ty]) =
+    val x = bind()
+    val xs = list(tryBind)
+    val ty = if trySymbol(":") then Some(parseExpr()) else None
+    (x :: xs, ty)
+
   private def parseParam()(using ctx: Ctx): Option[DefParam] =
-    inline def parseGrouping(): (List[Bind], Option[Ty]) =
-      val x = bind()
-      val xs = list(tryBind)
-      val ty = if trySymbol(":") then Some(parseExpr()) else None
-      (x :: xs, ty)
     if trySymbol("(") then
       val pos = ctx.pos
       val (xs, ty) = parseGrouping()
@@ -248,20 +253,61 @@ object Parser2:
   private def parseAtom()(using ctx: Ctx): Tm =
     tryParseAtom().getOrElse(err("expected an expression"))
 
-  // TODO: pi
   private def parseExpr()(using ctx: Ctx): Tm =
+    // println(s"parseExpr: $ctx")
     if tryKeyword("let") then
       val rec = tryKeyword("rec")
       parseLet(rec)
     else if trySymbol("\\") then parseLam()
     else if tryKeyword("type") then Tm.UTy(ctx.pos, parseAtom())
     else
-      val hd = parseAtom()
-      val tl = list(parseArg)
-      val optLam =
-        if trySymbol("\\") then List((parseLam(), ArgInfo.Icit(Expl)))
-        else Nil
-      (tl ++ optLam).foldLeft(hd) { case (f, (a, i)) => Tm.App(a.pos, f, a, i) }
+      // TODO: can we improve the backtracking here?
+      backtrack(pi()).getOrElse(apps())
+
+  private def pi()(using ctx: Ctx): Tm =
+    // println(s"pi: $ctx")
+    val p = piParam().getOrElse(err("expected a pi parameter"))
+    val ps = list(piParam)
+    symbol("->")
+    val rt = parseExpr()
+    (p :: ps).foldRight(rt) { case ((pos, i, xs, ty), rt) =>
+      xs.foldRight(rt)((x, rt) => Tm.Pi(pos, x, i, ty, rt))
+    }
+
+  private def piParam()(using
+      ctx: Ctx
+  ): Option[(PosInfo, Icit, List[Bind], Ty)] =
+    if trySymbol("(") then
+      val pos = ctx.pos
+      val x = bind()
+      val xs = list(tryBind)
+      symbol(":")
+      val ty = parseExpr()
+      symbol(")")
+      Some((pos, Expl, x :: xs, ty))
+    else if trySymbol("{") then
+      val pos = ctx.pos
+      val (xs, prety) = parseGrouping()
+      val ty = prety.getOrElse(hole)
+      symbol("}")
+      Some((pos, Impl, xs, ty))
+    else None
+
+  private def apps()(using ctx: Ctx): Tm =
+    // println(s"apps: $ctx")
+    val pos = ctx.pos
+    val hd = parseAtom()
+    val tl = list(parseArg)
+    val optLam =
+      if trySymbol("\\") then List((parseLam(), ArgInfo.Icit(Expl)))
+      else Nil
+    val expr = (tl ++ optLam).foldLeft(hd) { case (f, (a, i)) =>
+      Tm.App(a.pos, f, a, i)
+    }
+    if trySymbol("->") then
+      val rt = parseExpr()
+      Tm.Pi(pos, Bind.DontBind, Expl, expr, rt)
+    else expr
 
   private def parseLet(rec: Boolean)(using ctx: Ctx): Tm =
     val (pos, isMeta, x, ty, value) = parseDefPart()
@@ -383,3 +429,19 @@ object Parser2:
     p() match
       case None    => Nil
       case Some(x) => x :: list(p)
+
+  private def mark()(using ctx: Ctx): Ctx =
+    Ctx(ctx.pos, ctx.tokens.clone())
+
+  private def restore(markedCtx: Ctx)(using ctx: Ctx): Unit =
+    ctx.pos = markedCtx.pos
+    ctx.tokens = markedCtx.tokens
+
+  private def backtrack[A](action: => A)(using ctx: Ctx): Option[A] =
+    val m = mark()
+    try Some(action)
+    catch
+      case _: ParseError =>
+        // println("backtrack")
+        restore(m)
+        None

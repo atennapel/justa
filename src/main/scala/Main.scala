@@ -1,7 +1,8 @@
 import java.nio.file.{FileSystems, Files, Path}
 import scala.jdk.CollectionConverters.*
-
 import Common.err
+
+import java.io.File
 
 object Main:
   @main def run(): Unit =
@@ -13,12 +14,7 @@ import B (x, y => z)
 import C => D
 import E => F (x => a, b)
 
-def f (x : Int) : Int =
-  let a : meta = type Val;
-  let x : cv = f val comp;
-  let b : ^Int := `(f $y x);
-  let rec f x y z := x;
-  f x y \x {y = x} => x
+def g : Int -> {c} {A : type c} (x : A) -> A -> A = x
 """
     val mod = Parser2.parse("A", xxx)
     println(mod.name)
@@ -38,8 +34,12 @@ def f (x : Int) : Int =
     Jvm.generateBytecode(jvmModules, target)
 
   private def resetDir(target: String): Unit =
-    Path.of(target).toFile.delete()
+    deleteDir(Path.of(target).toFile)
     Path.of(target).toFile.mkdir()
+
+  private def deleteDir(f: File): Unit =
+    if f.isFile then f.delete()
+    else if f.isDirectory then f.listFiles().foreach(deleteDir)
 
   private def moduleName(root: Path, path: Path): String =
     root

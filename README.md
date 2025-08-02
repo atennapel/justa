@@ -2,7 +2,6 @@
 Programming language targeting the JVM
 
 TODO:
-- Parsing pi-types
 - Core language
 - Evaluation/quotation
 - Conversion checking
