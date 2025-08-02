@@ -44,55 +44,85 @@ object Surface2:
 
   type Ty = Tm
   enum Tm:
-    case Var(mod: Option[Name], name: Name)
+    case Var(posInfo: PosInfo, mod: Option[Name], name: Name)
 
-    case Let0(name: Name, ty: Option[Ty], value: Tm, body: Tm)
-    case Let1(name: Name, ty: Option[Ty], value: Tm, body: Tm)
-    case LetRec(name: Name, ty: Option[Ty], value: Tm, body: Tm)
+    case Let0(posInfo: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
+    case Let1(posInfo: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
+    case LetRec(
+        posInfo: PosInfo,
+        name: Name,
+        ty: Option[Ty],
+        value: Tm,
+        body: Tm
+    )
 
-    case UTy(cv: Ty)
-    case UMeta
+    case UTy(posInfo: PosInfo, cv: Ty)
+    case UMeta(posInfo: PosInfo)
+    case CV(posInfo: PosInfo)
+    case Val(posInfo: PosInfo)
+    case Comp(posInfo: PosInfo)
 
-    case Pi(name: Bind, icit: Icit, ty: Ty, body: Ty)
-    case Lam(name: Bind, info: ArgInfo, ty: Option[Ty], body: Ty)
-    case App(fn: Tm, arg: Tm, info: ArgInfo)
+    case Pi(posInfo: PosInfo, name: Bind, icit: Icit, ty: Ty, body: Ty)
+    case Lam(
+        posInfo: PosInfo,
+        name: Bind,
+        info: ArgInfo,
+        ty: Option[Ty],
+        body: Ty
+    )
+    case App(posInfo: PosInfo, fn: Tm, arg: Tm, info: ArgInfo)
 
-    case Lift(ty: Ty)
-    case Quote(tm: Tm)
-    case Splice(tm: Tm)
+    case Lift(posInfo: PosInfo, ty: Ty)
+    case Quote(posInfo: PosInfo, tm: Tm)
+    case Splice(posInfo: PosInfo, tm: Tm)
 
-    case Hole(name: Option[Name])
+    case Hole(posInfo: PosInfo, name: Option[Name])
 
-    case Pos(pos: PosInfo, tm: Tm)
-
-    def isPos: Boolean = this match
-      case Pos(_, _) => true
-      case _         => false
+    def pos: PosInfo = this match
+      case Tm.Var(pos, _, _)          => pos
+      case Tm.Let0(pos, _, _, _, _)   => pos
+      case Tm.Let1(pos, _, _, _, _)   => pos
+      case Tm.LetRec(pos, _, _, _, _) => pos
+      case Tm.UTy(pos, _)             => pos
+      case Tm.UMeta(pos)              => pos
+      case Tm.CV(pos)                 => pos
+      case Tm.Val(pos)                => pos
+      case Tm.Comp(pos)               => pos
+      case Tm.Pi(pos, _, _, _, _)     => pos
+      case Tm.Lam(pos, _, _, _, _)    => pos
+      case Tm.App(pos, _, _, _)       => pos
+      case Tm.Lift(pos, _)            => pos
+      case Tm.Quote(pos, _)           => pos
+      case Tm.Splice(pos, _)          => pos
+      case Tm.Hole(pos, _)            => pos
 
     override def toString: String = this match
-      case Var(None, x)      => s"$x"
-      case Var(Some(m), x)   => s"$m.$x"
-      case Let0(x, ty, v, b) =>
+      case Var(_, None, x)      => s"$x"
+      case Var(_, Some(m), x)   => s"$m.$x"
+      case Let0(_, x, ty, v, b) =>
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
-      case Let1(x, ty, v, b) =>
+      case Let1(_, x, ty, v, b) =>
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} = $v; $b)"
-      case LetRec(x, ty, v, b) =>
+      case LetRec(_, x, ty, v, b) =>
         s"(let rec $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
-      case UTy(cv)                   => s"(type $cv)"
-      case UMeta                     => "meta"
-      case Pi(DontBind, Expl, ty, b) => s"($ty -> $b)"
-      case Pi(x, i, ty, b)           => s"(${i.wrap(s"$x : $ty")} -> $b)"
-      case Lam(x, ArgInfo.Icit(Expl), None, b) => s"(\\$x => $b)"
-      case Lam(x, ArgInfo.Icit(i), ty, b)      =>
+      case UTy(_, cv)                   => s"(type $cv)"
+      case UMeta(_)                     => "meta"
+      case CV(_)                        => "cv"
+      case Val(_)                       => "val"
+      case Comp(_)                      => "comp"
+      case Pi(_, DontBind, Expl, ty, b) => s"($ty -> $b)"
+      case Pi(_, x, i, ty, b)           => s"(${i.wrap(s"$x : $ty")} -> $b)"
+      case Lam(_, x, ArgInfo.Icit(Expl), None, b) => s"(\\$x => $b)"
+      case Lam(_, x, ArgInfo.Icit(i), ty, b)      =>
         s"(\\${i.wrap(s"$x${ty.map(t => s" : $t").getOrElse("")}")} => $b)"
-      case Lam(x, ArgInfo.Named(y), ty, b) =>
+      case Lam(_, x, ArgInfo.Named(y), ty, b) =>
         s"(\\${Impl.wrap(s"$x${ty.map(t => s" : $t").getOrElse("")} = $y")} => $b)"
-      case App(fn, arg, ArgInfo.Icit(Expl)) => s"($fn $arg)"
-      case App(fn, arg, ArgInfo.Icit(Impl)) => s"($fn ${Impl.wrap(arg)})"
-      case App(fn, arg, ArgInfo.Named(x)) => s"($fn ${Impl.wrap(s"$x = $arg")})"
-      case Lift(ty)                       => s"^$ty"
-      case Quote(tm)                      => s"`$tm"
-      case Splice(tm)                     => s"$$$tm"
-      case Hole(None)                     => s"_"
-      case Hole(Some(x))                  => s"_$x"
-      case Pos(_, tm)                     => s"$tm"
+      case App(_, fn, arg, ArgInfo.Icit(Expl)) => s"($fn $arg)"
+      case App(_, fn, arg, ArgInfo.Icit(Impl)) => s"($fn ${Impl.wrap(arg)})"
+      case App(_, fn, arg, ArgInfo.Named(x))   =>
+        s"($fn ${Impl.wrap(s"$x = $arg")})"
+      case Lift(_, ty)      => s"^$ty"
+      case Quote(_, tm)     => s"`$tm"
+      case Splice(_, tm)    => s"$$$tm"
+      case Hole(_, None)    => s"_"
+      case Hole(_, Some(x)) => s"_$x"

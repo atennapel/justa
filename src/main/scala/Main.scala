@@ -13,9 +13,12 @@ import B (x, y => z)
 import C => D
 import E => F (x => a, b)
 
-def f (x : Int) : Int = x
-def g (x : Int) : Int = x
-def h (x : Int) : Int = x
+def f (x : Int) : Int =
+  let a : meta = type Val;
+  let x : cv = f val comp;
+  let b : ^Int := `(f $y x);
+  let rec f x y z := x;
+  f x y \x {y = x} => x
 """
     val mod = Parser2.parse("A", xxx)
     println(mod.name)

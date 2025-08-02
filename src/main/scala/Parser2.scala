@@ -1,4 +1,5 @@
 import Common.*
+import Common.Icit.*
 import Surface2.*
 
 import scala.collection.mutable
@@ -24,9 +25,21 @@ object Parser2:
       case Token.Number(_, pos)     => pos
 
   private val keywords: Set[String] =
-    Set("module", "import", "pub", "def", "let", "rec")
+    Set(
+      "module",
+      "import",
+      "pub",
+      "def",
+      "let",
+      "rec",
+      "meta",
+      "type",
+      "cv",
+      "val",
+      "comp"
+    )
   private val symbols1: Set[Char] =
-    Set(':', ';', '=', '\\', ',', '(', ')', '{', '}')
+    Set(':', ';', '=', '\\', ',', '(', ')', '{', '}', '^', '`', '$')
   private val symbols2: Map[Char, Set[Char]] =
     Map(':' -> Set('='), '-' -> Set('>'), '=' -> Set('>'))
 
@@ -34,7 +47,7 @@ object Parser2:
     var i = 0
     val acc = mutable.ArrayBuffer.empty[Char]
     var inComment = false
-    var tokens = mutable.ArrayBuffer.empty[Token]
+    val tokens = mutable.ArrayBuffer.empty[Token]
     var col = 1
     var line = 1
     inline def pos: PosInfo = PosInfo(line, col)
@@ -137,65 +150,152 @@ object Parser2:
   private def parseDefs()(using ctx: Ctx): Defs =
     Defs(list(parseDef))
 
-  private type DefParam = (Icit, List[Bind], Option[Ty])
-  private val hole = Tm.Hole(None)
+  private type DefParam = (PosInfo, ArgInfo, List[Bind], Option[Ty])
+  private def hole(using ctx: Ctx) = Tm.Hole(ctx.pos, None)
 
   private def parseDef()(using ctx: Ctx): Option[Def] =
     val pub = tryKeyword("pub")
     if tryKeyword("def") then
-      val pos = ctx.pos
-      val x = name()
-      val ps = parseParams()
-      val prety = if trySymbol(":") then Some(parseExpr()) else None
-      val isMeta = if trySymbol(":=") then false else { symbol("="); true }
-      val prebody = parseExpr()
-      val (ty, body) = prety match
-        case None =>
-          val body = ps.foldRight(prebody) { case ((i, xs, ty), b) =>
-            xs.foldRight(b)((x, b) => Tm.Lam(x, ArgInfo.Icit(i), ty, b))
-          }
-          (None, body)
-        case Some(rty) =>
-          val ty = ps.foldRight(rty) { case ((i, xs, opty), rty) =>
-            val pty = opty.getOrElse(hole)
-            xs.foldRight(rty)((x, rty) => Tm.Pi(x, i, pty, rty))
-          }
-          val body = ps.foldRight(prebody) { case ((i, xs, _), b) =>
-            xs.foldRight(b)((x, b) => Tm.Lam(x, ArgInfo.Icit(i), None, b))
-          }
-          (Some(ty), body)
+      val (pos, isMeta, x, ty, body) = parseDefPart()
       if isMeta then Some(Def.D1(pos, pub, x, ty, body))
       else Some(Def.D0(pos, pub, x, ty, body))
     else None
 
+  private def parseDefPart()(using
+      ctx: Ctx
+  ): (PosInfo, Boolean, Name, Option[Tm], Tm) =
+    val pos = ctx.pos
+    val x = name()
+    val ps = parseParams()
+    val prety = if trySymbol(":") then Some(parseExpr()) else None
+    val isMeta =
+      if trySymbol(":=") then false
+      else {
+        symbol("="); true
+      }
+    val prebody = parseExpr()
+    val (ty, body) = prety match
+      case None =>
+        val body = ps.foldRight(prebody) { case ((p, i, xs, ty), b) =>
+          xs.foldRight(b)((x, b) => Tm.Lam(p, x, i, ty, b))
+        }
+        (None, body)
+      case Some(rty) =>
+        val ty = ps.foldRight(rty) { case ((p, ai, xs, opty), rty) =>
+          val i = ai match
+            case ArgInfo.Named(_) =>
+              err(
+                "named parameter not allowed for lets or top-level definitions"
+              )
+            case ArgInfo.Icit(i) => i
+          val pty = opty.getOrElse(hole)
+          xs.foldRight(rty)((x, rty) => Tm.Pi(p, x, i, pty, rty))
+        }
+        val body = ps.foldRight(prebody) { case ((p, i, xs, _), b) =>
+          xs.foldRight(b)((x, b) => Tm.Lam(p, x, i, None, b))
+        }
+        (Some(ty), body)
+    (pos, isMeta, x, ty, body)
+
   private def parseParams()(using ctx: Ctx): List[DefParam] = list(parseParam)
 
-  private def parseParam()(using ctx: Ctx): Option[DefParam] = {
+  private def parseParam()(using ctx: Ctx): Option[DefParam] =
     inline def parseGrouping(): (List[Bind], Option[Ty]) =
       val x = bind()
       val xs = list(tryBind)
-      symbol(":")
-      val ty = parseExpr()
-      (x :: xs, Some(ty))
+      val ty = if trySymbol(":") then Some(parseExpr()) else None
+      (x :: xs, ty)
     if trySymbol("(") then
+      val pos = ctx.pos
       val (xs, ty) = parseGrouping()
       symbol(")")
-      Some((Icit.Expl, xs, ty))
+      Some((pos, ArgInfo.Icit(Expl), xs, ty))
     else if trySymbol("{") then
+      val pos = ctx.pos
       val (xs, ty) = parseGrouping()
+      val named = if trySymbol("=") then Some(name()) else None
       symbol("}")
-      Some((Icit.Impl, xs, ty))
-    else tryBind().map(x => (Icit.Expl, List(x), None))
-  }
+      val arginfo = named.map(ArgInfo.Named.apply).getOrElse(ArgInfo.Icit(Impl))
+      Some((pos, arginfo, xs, ty))
+    else tryBind().map(x => (ctx.pos, ArgInfo.Icit(Expl), List(x), None))
+
+  private def tryParseAtom()(using ctx: Ctx): Option[Tm] =
+    tryIdentifier() match
+      case Some(x) if x.startsWith("_") =>
+        Some(
+          Tm.Hole(ctx.pos, if x.length == 1 then None else Some(Name(x.tail)))
+        )
+      case Some(x) if x.contains('.') =>
+        val spl = x.split('.')
+        val m = spl.init.mkString(".")
+        val y = spl.last
+        Some(Tm.Var(ctx.pos, Some(Name(m)), Name(y)))
+      case Some(x) => Some(Tm.Var(ctx.pos, None, Name(x)))
+      case None    =>
+        if tryKeyword("meta") then Some(Tm.UMeta(ctx.pos))
+        else if tryKeyword("cv") then Some(Tm.CV(ctx.pos))
+        else if tryKeyword("val") then Some(Tm.Val(ctx.pos))
+        else if tryKeyword("comp") then Some(Tm.Comp(ctx.pos))
+        else if trySymbol("(") then
+          val expr = parseExpr()
+          symbol(")")
+          Some(expr)
+        else if trySymbol("^") then Some(Tm.Lift(ctx.pos, parseAtom()))
+        else if trySymbol("`") then Some(Tm.Quote(ctx.pos, parseAtom()))
+        else if trySymbol("$") then Some(Tm.Splice(ctx.pos, parseAtom()))
+        else None
 
   private def parseAtom()(using ctx: Ctx): Tm =
-    val x = name()
-    Tm.Var(
-      None,
-      x
-    ) // TOOD: optional module! check uses of name if module should be supported
+    tryParseAtom().getOrElse(err("expected an expression"))
 
-  private def parseExpr()(using ctx: Ctx): Tm = parseAtom()
+  // TODO: pi
+  private def parseExpr()(using ctx: Ctx): Tm =
+    if tryKeyword("let") then
+      val rec = tryKeyword("rec")
+      parseLet(rec)
+    else if trySymbol("\\") then parseLam()
+    else if tryKeyword("type") then Tm.UTy(ctx.pos, parseAtom())
+    else
+      val hd = parseAtom()
+      val tl = list(parseArg)
+      val optLam =
+        if trySymbol("\\") then List((parseLam(), ArgInfo.Icit(Expl)))
+        else Nil
+      (tl ++ optLam).foldLeft(hd) { case (f, (a, i)) => Tm.App(a.pos, f, a, i) }
+
+  private def parseLet(rec: Boolean)(using ctx: Ctx): Tm =
+    val (pos, isMeta, x, ty, value) = parseDefPart()
+    symbol(";")
+    val body = parseExpr()
+    if isMeta then
+      if rec then err("a meta let definition cannot be recursive")
+      else Tm.Let1(pos, x, ty, value, body)
+    else if rec then Tm.LetRec(pos, x, ty, value, body)
+    else Tm.Let0(pos, x, ty, value, body)
+
+  private def parseLam()(using ctx: Ctx): Tm =
+    val ps = parseParams()
+    symbol("=>")
+    val body = parseExpr()
+    ps.foldRight(body) { case ((p, a, xs, ty), b) =>
+      xs.foldRight(b)((x, b) => Tm.Lam(p, x, a, ty, b))
+    }
+
+  private def parseArg()(using ctx: Ctx): Option[(Tm, ArgInfo)] =
+    if trySymbol("{") then
+      inline def next(arginfo: ArgInfo): Option[(Tm, ArgInfo)] =
+        val a = parseExpr()
+        symbol("}")
+        Some((a, arginfo))
+      val pos = ctx.pos
+      tryName() match
+        case None    => next(ArgInfo.Icit(Impl))
+        case Some(x) =>
+          if trySymbol("=") then next(ArgInfo.Named(x))
+          else
+            undoName(x, pos) // TODO: can we prevent this backtracking
+            next(ArgInfo.Icit(Impl))
+    else tryParseAtom().map(a => (a, ArgInfo.Icit(Expl)))
 
   // parsers
   private def keyword(kw: String)(using ctx: Ctx): Unit =
@@ -235,6 +335,10 @@ object Parser2:
   private def tryBind()(using ctx: Ctx): Option[Bind] =
     tryIdentifier().map(Bind.fromString)
 
+  private def undoName(x: Name, pos: PosInfo)(using ctx: Ctx): Unit =
+    ctx.tokens.insert(0, Token.Identifier(x.expose, ctx.pos))
+    ctx.pos = pos
+
   // util
   private def consume()(using ctx: Ctx): Option[Token] =
     val tokens = ctx.tokens
@@ -270,8 +374,8 @@ object Parser2:
             s
       case _ => None
 
-  private inline def tryConsumeMatchBool[A](inline matcher: Token => Boolean)(
-      using ctx: Ctx
+  private inline def tryConsumeMatchBool(inline matcher: Token => Boolean)(using
+      ctx: Ctx
   ): Boolean =
     tryConsumeMatch(t => if matcher(t) then Some(()) else None).isDefined
 
