@@ -12,12 +12,17 @@ module A
 import B (x, y => z)
 import C => D
 import E => F (x => a, b)
+
+def f (x : Int) : Int = x
+def g (x : Int) : Int = x
+def h (x : Int) : Int = x
 """
     val mod = Parser2.parse("A", xxx)
     println(mod.name)
     println(mod.deps)
     println(mod.imports)
     println(mod.moduleAliases)
+    println(mod.defs)
 
     val root = FileSystems.getDefault.getPath("examples")
     val files = allSourceFiles(root).map(p => (p, moduleName(root, p)))

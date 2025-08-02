@@ -147,7 +147,7 @@ object Parser2:
       val x = name()
       val ps = parseParams()
       val prety = if trySymbol(":") then Some(parseExpr()) else None
-      val isMeta = if trySymbol(":=") then true else { symbol("="); false }
+      val isMeta = if trySymbol(":=") then false else { symbol("="); true }
       val prebody = parseExpr()
       val (ty, body) = prety match
         case None =>
@@ -172,20 +172,28 @@ object Parser2:
 
   private def parseParam()(using ctx: Ctx): Option[DefParam] = {
     inline def parseGrouping(): (List[Bind], Option[Ty]) =
+      val x = bind()
       val xs = list(tryBind)
       symbol(":")
       val ty = parseExpr()
-      (xs, ty)
+      (x :: xs, Some(ty))
     if trySymbol("(") then
       val (xs, ty) = parseGrouping()
+      symbol(")")
       Some((Icit.Expl, xs, ty))
     else if trySymbol("{") then
       val (xs, ty) = parseGrouping()
+      symbol("}")
       Some((Icit.Impl, xs, ty))
     else tryBind().map(x => (Icit.Expl, List(x), None))
   }
 
-  private def parseAtom()(using ctx: Ctx): Tm = ???
+  private def parseAtom()(using ctx: Ctx): Tm =
+    val x = name()
+    Tm.Var(
+      None,
+      x
+    ) // TOOD: optional module! check uses of name if module should be supported
 
   private def parseExpr()(using ctx: Ctx): Tm = parseAtom()
 
