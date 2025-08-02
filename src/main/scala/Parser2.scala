@@ -1,4 +1,5 @@
 import Common.*
+import Surface2.*
 
 import scala.collection.mutable
 
@@ -91,7 +92,7 @@ object Parser2:
   private inline def err(msg: String)(using ctx: Ctx): Nothing =
     throw new ParseError(ctx.pos, msg)
 
-  def parse(mod: String, s: String): Surface2.Module =
+  def parse(mod: String, s: String): Module =
     val tokens = tokenize(s)
     val buffer = tokens.toBuffer
     given ctx: Ctx = Ctx(PosInfo.start, buffer)
@@ -99,23 +100,23 @@ object Parser2:
     if buffer.nonEmpty then err(s"unparsed input at end of file")
     result
 
-  private def parseModule(mod: String)(using ctx: Ctx): Surface2.Module =
+  private def parseModule(mod: String)(using ctx: Ctx): Module =
     keyword("module")
-    val x = identifier()
+    val x = name()
     if x.expose != mod then
       err(s"module name does not match filename, expected $mod but got $x")
     val deps = mutable.Set.empty[Name]
     val imports = mutable.Map.empty[Name, (Name, Option[Name])]
     val moduleAliases = mutable.Map.empty[Name, Name]
     while tryKeyword("import") do
-      val m = identifier()
-      val xr = if trySymbol("=>") then Some(identifier()) else None
+      val m = name()
+      val xr = if trySymbol("=>") then Some(name()) else None
       moduleAliases += m -> xr.getOrElse(m)
       deps += m
       if trySymbol("(") then
         parseImports().foreach { (x, r) => imports += x -> (m, r) }
     val defs = parseDefs()
-    Surface2.Module(
+    Module(
       x,
       deps.toSet,
       imports.toMap,
@@ -126,45 +127,67 @@ object Parser2:
   private def parseImports()(using ctx: Ctx): List[(Name, Option[Name])] =
     if trySymbol(")") then Nil
     else
-      val x = identifier()
-      val r = if trySymbol("=>") then Some(identifier()) else None
+      val x = name()
+      val r = if trySymbol("=>") then Some(name()) else None
       if trySymbol(",") then (x, r) :: parseImports()
       else
         symbol(")")
         List((x, r))
 
-  private def parseDefs()(using ctx: Ctx): Surface2.Defs =
-    Surface2.Defs(list(parseDef))
+  private def parseDefs()(using ctx: Ctx): Defs =
+    Defs(list(parseDef))
 
-  private type DefParam = (Icit, Name, Option[Surface2.Ty])
+  private type DefParam = (Icit, List[Bind], Option[Ty])
+  private val hole = Tm.Hole(None)
 
-  private def parseDef()(using ctx: Ctx): Option[Surface2.Def] =
+  private def parseDef()(using ctx: Ctx): Option[Def] =
     val pub = tryKeyword("pub")
-    if tryKeyword("def") then {
-      /*
-        def x a b ... = e
-        def x a b ... : t = e
-        def x a b ... := e
-        def x a b ... : t := e
-        def x (a : t) b ... = e
-        def x a b ... : t = e
-       */
-      ???
-    } else None
+    if tryKeyword("def") then
+      val pos = ctx.pos
+      val x = name()
+      val ps = parseParams()
+      val prety = if trySymbol(":") then Some(parseExpr()) else None
+      val isMeta = if trySymbol(":=") then true else { symbol("="); false }
+      val prebody = parseExpr()
+      val (ty, body) = prety match
+        case None =>
+          val body = ps.foldRight(prebody) { case ((i, xs, ty), b) =>
+            xs.foldRight(b)((x, b) => Tm.Lam(x, ArgInfo.Icit(i), ty, b))
+          }
+          (None, body)
+        case Some(rty) =>
+          val ty = ps.foldRight(rty) { case ((i, xs, opty), rty) =>
+            val pty = opty.getOrElse(hole)
+            xs.foldRight(rty)((x, rty) => Tm.Pi(x, i, pty, rty))
+          }
+          val body = ps.foldRight(prebody) { case ((i, xs, _), b) =>
+            xs.foldRight(b)((x, b) => Tm.Lam(x, ArgInfo.Icit(i), None, b))
+          }
+          (Some(ty), body)
+      if isMeta then Some(Def.D1(pos, pub, x, ty, body))
+      else Some(Def.D0(pos, pub, x, ty, body))
+    else None
 
   private def parseParams()(using ctx: Ctx): List[DefParam] = list(parseParam)
 
-  private def parseParam()(using ctx: Ctx): Option[DefParam] =
-    if trySymbol("(") then ???
-    else if trySymbol("{") then ???
-    else
-      tryIdentifier() match
-        case None    => None
-        case Some(x) => ???
+  private def parseParam()(using ctx: Ctx): Option[DefParam] = {
+    inline def parseGrouping(): (List[Bind], Option[Ty]) =
+      val xs = list(tryBind)
+      symbol(":")
+      val ty = parseExpr()
+      (xs, ty)
+    if trySymbol("(") then
+      val (xs, ty) = parseGrouping()
+      Some((Icit.Expl, xs, ty))
+    else if trySymbol("{") then
+      val (xs, ty) = parseGrouping()
+      Some((Icit.Impl, xs, ty))
+    else tryBind().map(x => (Icit.Expl, List(x), None))
+  }
 
-  private def parseAtom()(using ctx: Ctx): Surface2.Tm = ???
+  private def parseAtom()(using ctx: Ctx): Tm = ???
 
-  private def parseExpr()(using ctx: Ctx): Surface2.Tm = ???
+  private def parseExpr()(using ctx: Ctx): Tm = parseAtom()
 
   // parsers
   private def keyword(kw: String)(using ctx: Ctx): Unit =
@@ -177,9 +200,9 @@ object Parser2:
       case Token.Symbol(s2, _) if s == s2 => Some(())
       case _                              => None
 
-  private def identifier()(using ctx: Ctx): Name =
-    consumeMatch(s"identifier"):
-      case Token.Identifier(id, _) => Some(Name(id))
+  private def identifier()(using ctx: Ctx): String =
+    consumeMatch("identifier"):
+      case Token.Identifier(id, _) => Some(id)
       case _                       => None
 
   private def tryKeyword(kw: String)(using ctx: Ctx): Boolean =
@@ -192,10 +215,17 @@ object Parser2:
       case Token.Symbol(s2, _) if s == s2 => true
       case _                              => false
 
-  private def tryIdentifier()(using ctx: Ctx): Option[Name] =
+  private def tryIdentifier()(using ctx: Ctx): Option[String] =
     tryConsumeMatch:
-      case Token.Identifier(x, _) => Some(Name(x))
+      case Token.Identifier(x, _) => Some(x)
       case _                      => None
+
+  private def name()(using ctx: Ctx): Name = Name(identifier())
+  private def tryName()(using ctx: Ctx): Option[Name] =
+    tryIdentifier().map(Name.apply)
+  private def bind()(using ctx: Ctx): Bind = Bind.fromString(identifier())
+  private def tryBind()(using ctx: Ctx): Option[Bind] =
+    tryIdentifier().map(Bind.fromString)
 
   // util
   private def consume()(using ctx: Ctx): Option[Token] =

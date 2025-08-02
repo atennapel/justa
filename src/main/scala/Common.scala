@@ -57,6 +57,9 @@ object Common:
     def toName: Name = this match
       case DontBind  => Name.Underscore
       case DoBind(x) => x
+  object Bind:
+    def fromString(x: String): Bind =
+      if x.startsWith("_") then Bind.DontBind else Bind.DoBind(Name(x))  
 
   // icit
   enum Icit:
