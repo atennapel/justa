@@ -261,18 +261,15 @@ object Parser2:
     else if trySymbol("\\") then parseLam()
     else if tryKeyword("type") then Tm.UTy(ctx.pos, parseAtom())
     else
-      // TODO: can we improve the backtracking here?
-      backtrack(pi()).getOrElse(apps())
-
-  private def pi()(using ctx: Ctx): Tm =
-    // println(s"pi: $ctx")
-    val p = piParam().getOrElse(err("expected a pi parameter"))
-    val ps = list(piParam)
-    symbol("->")
-    val rt = parseExpr()
-    (p :: ps).foldRight(rt) { case ((pos, i, xs, ty), rt) =>
-      xs.foldRight(rt)((x, rt) => Tm.Pi(pos, x, i, ty, rt))
-    }
+      backtrack(piParam()) match
+        case None    => apps()
+        case Some(p) =>
+          val ps = list(piParam)
+          symbol("->")
+          val rt = parseExpr()
+          (p :: ps).foldRight(rt) { case ((pos, i, xs, ty), rt) =>
+            xs.foldRight(rt)((x, rt) => Tm.Pi(pos, x, i, ty, rt))
+          }
 
   private def piParam()(using
       ctx: Ctx
@@ -329,18 +326,17 @@ object Parser2:
 
   private def parseArg()(using ctx: Ctx): Option[(Tm, ArgInfo)] =
     if trySymbol("{") then
-      inline def next(arginfo: ArgInfo): Option[(Tm, ArgInfo)] =
+      def next(arginfo: ArgInfo): Option[(Tm, ArgInfo)] =
         val a = parseExpr()
         symbol("}")
         Some((a, arginfo))
-      val pos = ctx.pos
-      tryName() match
-        case None    => next(ArgInfo.Icit(Impl))
-        case Some(x) =>
-          if trySymbol("=") then next(ArgInfo.Named(x))
-          else
-            undoName(x, pos) // TODO: can we prevent this backtracking
-            next(ArgInfo.Icit(Impl))
+      backtrack {
+        tryName() match
+          case None    => Some(next(ArgInfo.Icit(Impl)))
+          case Some(x) =>
+            if trySymbol("=") then Some(next(ArgInfo.Named(x)))
+            else None
+      }.getOrElse(next(ArgInfo.Icit(Impl)))
     else tryParseAtom().map(a => (a, ArgInfo.Icit(Expl)))
 
   // parsers
@@ -380,10 +376,6 @@ object Parser2:
   private def bind()(using ctx: Ctx): Bind = Bind.fromString(identifier())
   private def tryBind()(using ctx: Ctx): Option[Bind] =
     tryIdentifier().map(Bind.fromString)
-
-  private def undoName(x: Name, pos: PosInfo)(using ctx: Ctx): Unit =
-    ctx.tokens.insert(0, Token.Identifier(x.expose, ctx.pos))
-    ctx.pos = pos
 
   // util
   private def consume()(using ctx: Ctx): Option[Token] =
@@ -437,11 +429,10 @@ object Parser2:
     ctx.pos = markedCtx.pos
     ctx.tokens = markedCtx.tokens
 
-  private def backtrack[A](action: => A)(using ctx: Ctx): Option[A] =
+  private def backtrack[A](action: => Option[A])(using
+      ctx: Ctx
+  ): Option[A] =
     val m = mark()
-    try Some(action)
-    catch
-      case _: ParseError =>
-        // println("backtrack")
-        restore(m)
-        None
+    action match
+      case None => restore(m); None
+      case s    => s
