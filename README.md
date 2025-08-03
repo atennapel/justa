@@ -2,11 +2,8 @@
 Programming language targeting the JVM
 
 TODO:
-- Core language
-- Evaluation/quotation
-- Conversion checking
 - Elaboration
-- Unification
+- Unification with meta variables
 - Operators
 - Datatypes
 - Reduce duplication in JVM bytecode generation code
