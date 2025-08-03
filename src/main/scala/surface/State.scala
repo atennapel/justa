@@ -29,7 +29,7 @@ class State:
 
 object State:
   enum GlobalEntry:
-    case GlobalEntry0(
+    case Def0(
         x: Name,
         tm: Tm0,
         ty: Ty,
@@ -38,7 +38,7 @@ object State:
         vty: VTy,
         vcv: VTy
     )
-    case GlobalEntry1(
+    case Def1(
         x: Name,
         tm: Tm1,
         ty: Ty,
@@ -47,5 +47,5 @@ object State:
     )
 
     def name: Name = this match
-      case GlobalEntry0(x, _, _, _, _, _, _) => x
-      case GlobalEntry1(x, _, _, _, _)       => x
+      case Def0(x, _, _, _, _, _, _) => x
+      case Def1(x, _, _, _, _)       => x

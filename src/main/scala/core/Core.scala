@@ -106,14 +106,14 @@ object Core:
     case Fun(fn: Val0 => Val0)
 
   object Clos0:
-    def apply(tm: Tm0)(implicit env: Env): Clos0 = Clos0.Clos(env, tm)
+    def apply(tm: Tm0)(using env: Env): Clos0 = Clos0.Clos(env, tm)
 
   enum Clos1:
     case Clos(env: Env, tm: Tm1)
     case Fun(fn: Val1 => Val1)
 
   object Clos1:
-    def apply(tm: Tm1)(implicit env: Env): Clos1 = Clos1.Clos(env, tm)
+    def apply(tm: Tm1)(using env: Env): Clos1 = Clos1.Clos(env, tm)
 
   enum Env:
     case Empty

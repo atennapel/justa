@@ -35,7 +35,7 @@ object Common:
     inline def <(o: Lvl): Boolean = l < o
     @targetName("exposeLvl")
     inline def expose: Int = l
-    inline def toIx(implicit k: Lvl): Ix = k - l - 1
+    inline def toIx(using k: Lvl): Ix = k - l - 1
 
   // names
   case class Name(x: String):
@@ -61,7 +61,7 @@ object Common:
       case DoBind(x) => x
   object Bind:
     def fromString(x: String): Bind =
-      if x.startsWith("_") then Bind.DontBind else Bind.DoBind(Name(x))  
+      if x.startsWith("_") then Bind.DontBind else Bind.DoBind(Name(x))
 
   // icit
   enum Icit:
@@ -74,9 +74,9 @@ object Common:
 
   // pruning
   enum PruneEntry:
-    case PESkip
-    case PEBind0
-    case PEBind1(icit: Icit)
+    case Skip
+    case Bind0
+    case Bind1(icit: Icit)
   type Pruning = List[PruneEntry]
 
   opaque type RevPruning = Pruning

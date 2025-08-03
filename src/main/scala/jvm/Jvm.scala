@@ -472,7 +472,7 @@ object Jvm:
           )
           val staticMethod =
             new Method("<clinit>", JType.VOID_TYPE, Nil.toArray)
-          implicit val stmg: GeneratorAdapter =
+          given stmg: GeneratorAdapter =
             new GeneratorAdapter(ACC_STATIC, staticMethod, null, null, recordcw)
           stmg.newInstance(recordctx.ty)
           stmg.dup()
@@ -560,7 +560,7 @@ object Jvm:
         null
       )
       val staticMethod = new Method("<clinit>", JType.VOID_TYPE, Nil.toArray)
-      implicit val stmg: GeneratorAdapter =
+      given stmg: GeneratorAdapter =
         new GeneratorAdapter(ACC_STATIC, staticMethod, null, null, cw)
       stmg.newInstance(conCtx.ty)
       stmg.dup()
