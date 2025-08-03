@@ -1,20 +1,18 @@
-import org.objectweb.asm.ClassWriter
-import org.objectweb.asm.Type as JType
-import org.objectweb.asm.Label as JLabel
+package jvm
+
+import common.Common.{err, impossible}
+
 import org.objectweb.asm.Opcodes.*
-import org.objectweb.asm.commons.Method
-import org.objectweb.asm.commons.GeneratorAdapter
+import org.objectweb.asm.{ClassWriter, Label as JLabel, Type as JType}
+import org.objectweb.asm.commons.{GeneratorAdapter, Method}
 
-import java.io.BufferedOutputStream
-import java.io.FileOutputStream
-import scala.collection.mutable
-import scala.annotation.tailrec
-import Common.*
-
+import java.io.{BufferedOutputStream, FileOutputStream}
 import java.nio.file.Path
+import scala.annotation.tailrec
+import scala.collection.mutable
 
 object Jvm:
-  import JvmName.{Name, MName}
+  import JvmName.{MName, Name}
 
   type Lvl = Int
 

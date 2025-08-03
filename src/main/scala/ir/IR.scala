@@ -1,7 +1,10 @@
+package ir
+
+import common.Common.*
+import jvm.{Jvm, JvmName}
+
 import scala.annotation.tailrec
 import scala.collection.mutable
-import Common.*
-import IR.Expr.Case
 
 object IR:
   type Name = String

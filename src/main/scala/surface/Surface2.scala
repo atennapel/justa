@@ -1,6 +1,8 @@
-import Common.*
-import Common.Bind.*
-import Common.Icit.*
+package surface
+
+import common.Common.*
+import common.Common.Icit.*
+import common.Common.Bind.*
 
 object Surface2:
   final case class Module(
@@ -40,7 +42,7 @@ object Surface2:
 
   enum ArgInfo:
     case Named(name: Name)
-    case Icit(icit: Common.Icit)
+    case Icit(icit: common.Common.Icit)
 
   type Ty = Tm
   enum Tm:

@@ -1,3 +1,7 @@
+package surface
+
+import surface.Surface
+
 import java.text.ParseException
 import scala.collection.mutable
 

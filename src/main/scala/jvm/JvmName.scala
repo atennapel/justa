@@ -1,3 +1,5 @@
+package jvm
+
 import scala.collection.mutable
 
 object JvmName:

@@ -1,6 +1,7 @@
-import Common.*
-import Value.*
-import Core.{Tm0, Tm1}
+package core
+
+import common.Common.*
+import Core.*
 
 import scala.annotation.tailrec
 
@@ -40,8 +41,6 @@ object Evaluation:
       case Env.E1(env, _)                 => var1(ix - 1)(using env)
       case Env.Empty                      => impossible()
 
-  def global1(m: Name, x: Name): Val1 = ???
-
   def splice(v: Val1): Val0 = v match
     case Val1.Quote(v) => v
     case v             => Val0.Splice(v)
@@ -56,7 +55,8 @@ object Evaluation:
     case Val1.Unfold(h, sp, v) =>
       Val1.Unfold(h, Spine.App(sp, a, i), () => app1(v(), a, i))
     case _ => impossible()
-  inline def appE(f: Val1, a: Val1): Val1 = app1(f, a, Icit.Expl)
+  inline def appE(f: Val1, a: Val1): Val1 =
+    app1(f, a, Icit.Expl)
   inline def appI(f: Val1, a: Val1): Val1 = app1(f, a, Icit.Impl)
 
   def spine(v: Val1, sp: Spine): Val1 = sp match
@@ -79,8 +79,9 @@ object Evaluation:
 
   def eval1(t: Tm1)(using env: Env): Val1 =
     t match
-      case Tm1.Var(ix)          => var1(ix)
-      case Tm1.Global(m, x)     => global1(m, x)
+      case Tm1.Var(ix)         => var1(ix)
+      case Tm1.Global(m, x, v) =>
+        Val1.Unfold(UnfoldHead.Global(m, x, v), Spine.Empty, () => v)
       case Tm1.Let(_, _, v, b)  => eval1(b)(using Env.E1(env, eval1(v)))
       case Tm1.UTy(cv)          => Val1.UTy(eval1(cv))
       case Tm1.UMeta            => Val1.UMeta
@@ -142,8 +143,8 @@ object Evaluation:
       case Val1.Rigid(hd, sp) =>
         hd match
           case Head.Var(lvl) => goSp(Tm1.Var(lvl.toIx), sp)
-      case Val1.Unfold(UnfoldHead.Global(m, x), sp, _) =>
-        goSp(Tm1.Global(m, x), sp)
+      case Val1.Unfold(UnfoldHead.Global(m, x, v), sp, _) =>
+        goSp(Tm1.Global(m, x, v), sp)
       case Val1.Pi(x, i, ty, b)   => Tm1.Pi(x, i, go1(ty), goClos(b))
       case Val1.Lam(x, i, ty, b)  => Tm1.Lam(x, i, go1(ty), goClos(b))
       case Val1.UTy(cv)           => Tm1.UTy(go1(cv))

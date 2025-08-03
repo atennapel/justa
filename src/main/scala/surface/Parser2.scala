@@ -1,5 +1,7 @@
-import Common.*
-import Common.Icit.*
+package surface
+
+import common.Common.*
+import common.Common.Icit.*
 import Surface2.*
 
 import scala.collection.mutable

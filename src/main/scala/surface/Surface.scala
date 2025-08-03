@@ -1,8 +1,10 @@
-import scala.collection.mutable
-import Common.*
-import IR.Type
+package surface
+
+import common.Common.*
+import ir.IR
 
 import scala.annotation.tailrec
+import scala.collection.mutable
 
 object Surface:
   type Name = String

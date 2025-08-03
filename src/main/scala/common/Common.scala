@@ -1,3 +1,5 @@
+package common
+
 import scala.annotation.targetName
 
 object Common:

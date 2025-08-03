@@ -1,6 +1,9 @@
 import java.nio.file.{FileSystems, Files, Path}
 import scala.jdk.CollectionConverters.*
-import Common.err
+import common.Common.err
+import ir.IR
+import jvm.Jvm
+import surface.{Parser, Parser2, Surface}
 
 import java.io.File
 

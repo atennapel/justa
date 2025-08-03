@@ -1,5 +1,7 @@
-import Common.*
-import Value.*
+package core
+
+import common.Common.*
+import Core.*
 import Evaluation.*
 import Evaluation.QuoteOption.UnfoldNone
 
