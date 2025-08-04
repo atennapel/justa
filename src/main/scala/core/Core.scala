@@ -5,6 +5,33 @@ import common.Common.*
 import scala.annotation.tailrec
 
 object Core:
+  final case class Module(name: Name, defs: Defs):
+    override def toString: String =
+      s"module $name\n$defs"
+
+  final case class Defs(defs: List[Def]):
+    override def toString: String = defs.mkString("\n")
+    def toList: List[Def] = defs
+
+  enum Def:
+    case D0(
+        public: Boolean,
+        name: Name,
+        ty: Ty,
+        value: Tm0
+    )
+    case D1(
+        public: Boolean,
+        name: Name,
+        ty: Ty,
+        value: Tm1
+    )
+    override def toString: String = this match
+      case D0(p, x, t, v) =>
+        s"${if p then "pub " else ""}def $x : $t := $v"
+      case D1(p, x, t, v) =>
+        s"${if p then "pub " else ""}def $x : $t = $v"
+
   enum Tm0:
     case Var(ix: Ix)
     case Global(mod: Name, name: Name)

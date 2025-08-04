@@ -8,7 +8,7 @@ object Surface2:
   final case class Module(
       name: Name,
       deps: Set[Name],
-      imports: Map[Name, (Name, Option[Name])],
+      imports: Map[Name, (PosInfo, PosInfo, Name, Option[Name])],
       moduleAliases: Map[Name, Name],
       defs: Defs
   ):

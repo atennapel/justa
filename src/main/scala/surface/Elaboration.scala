@@ -7,9 +7,9 @@ import common.Debug.debug
 import core.Core.*
 import core.Evaluation.*
 import core.Evaluation.QuoteOption.UnfoldNone
-import core.Unification
+import core.{Core, Unification}
 import Ctx.*
-import Surface2.Tm
+import Surface2.{ArgInfo, Tm}
 import State.GlobalEntry
 
 object Elaboration:
@@ -115,6 +115,37 @@ object Elaboration:
     go(t, a1, a2).getOrElse(t)
 
   // helpers
+  private inline def enter[A](pos: PosInfo)(inline action: Ctx ?=> A)(using
+      ctx: Ctx
+  ): A =
+    action(using ctx.enter(pos))
+
+  private def ensureFun(a: VTy)(using ctx: Ctx): (VTy, VTy, VTy) =
+    forceAll1(a) match
+      case Val1.Fun(a, bcv, b) => (a, bcv, b)
+      case _ => err(s"expected function type but got ${ctx.pretty1(a)}")
+
+  private def ensureFunN(n: Int, a: VTy, acv: VTy)(using
+      ctx: Ctx
+  ): (List[VTy], VTy, VTy) =
+    if n == 0 then (Nil, acv, a)
+    else
+      val (t1, cv, t2) = ensureFun(a)
+      val (ps, rcv, rt) = ensureFunN(n - 1, t2, cv)
+      (t1 :: ps, rcv, rt)
+
+  private def apply1(a: VTy, i: Icit, t: Tm1, u: Tm)(using ctx: Ctx): Infer =
+    debug(s"apply1 ${ctx.pretty1(a)} $i @ $u")
+    forceAll1(a) match
+      case Val1.Pi(_, i2, a, b) =>
+        if i != i2 then err(s"icit mismatch in apply1")
+        val u2 = check1(u, a)
+        Infer1(Tm1.App(t, u2, i), b(ctx.eval1(u2)))
+      case Val1.Lift(_, Val1.Fun(a, bcv, b)) =>
+        if i != Expl then err(s"icit mismatch in apply1")
+        val u2 = check0(u, a, Val1.Val)
+        Infer0(Tm0.App(t.splice, u2), b, bcv)
+      case _ => err(s"cannot apply ${ctx.pretty1(a)}")
 
   // checking
   private def check0(tm: Tm, ty: VTy, cv: VTy)(using ctx: Ctx): Tm0 = ???
@@ -126,7 +157,7 @@ object Elaboration:
 
   private def infer1(tm: Tm)(using ctx: Ctx): (Tm1, VTy) = ???
 
-  private def infer(tm: Tm)(using state: State, ctx: Ctx): Infer =
+  private def infer(tm: Tm)(using ctx: Ctx): Infer =
     enter(tm.pos):
       debug(s"infer $tm")
       tm match
@@ -137,19 +168,25 @@ object Elaboration:
         case Tm.UMeta(_)   => Infer1(Tm1.UMeta, Val1.UMeta)
         case Tm.Hole(_, _) => err("cannot infer hole")
 
-        case Tm.Var(_, om, x) =>
+        case Tm.Var(_, m, x) =>
           ctx.lookup(x) match
             case Some(NameInfo.Name0(x, ty, cv)) =>
               Infer0(Tm0.Var(x.toIx(using ctx.lvl)), ty, cv)
             case Some(NameInfo.Name1(x, ty)) =>
               Infer1(Tm1.Var(x.toIx(using ctx.lvl)), ty)
             case None =>
-              val m = om.getOrElse(Name("xxx")) // TOOD: modules
-              state.getGlobal(m, x) match
-                case None => err(s"undefined variable $x")
-                case Some(GlobalEntry.Def0(_, _, _, _, _, ty, cv)) =>
+              State.getGlobal(m, x) match
+                case Left((m, x, State.GlobalLookupFailure.ModuleNotFound)) =>
+                  err(s"undefined variable $m.$x: undefined module")
+                case Left((m, x, State.GlobalLookupFailure.GlobalNotFound)) =>
+                  err(s"undefined variable $m.$x")
+                case Left(
+                      (m, x, State.GlobalLookupFailure.GlobalIsNotAccessible)
+                    ) =>
+                  err(s"inaccessible variable $m.$x")
+                case Right((m, GlobalEntry.Def0(_, _, _, _, _, _, ty, cv))) =>
                   Infer0(Tm0.Global(m, x), ty, cv)
-                case Some(GlobalEntry.Def1(_, _, _, v, ty)) =>
+                case Right((m, GlobalEntry.Def1(_, _, _, _, v, ty))) =>
                   Infer1(Tm1.Global(m, x, v), ty)
 
         case Tm.LetRec(_, x, Some(ty), v, b) =>
@@ -163,14 +200,20 @@ object Elaboration:
           err("let rec requires a type annotation")
 
         case Tm.Let0(_, x, mty, v, b) =>
-          val (ety, cv2, vcv2) =
-            val cv2 = freshCV()
-            val vcv2 = ctx.eval1(cv2)
-            val ety = tyAnnot(mty, Val1.UTy(vcv2))
-            (ety, cv2, vcv2)
-          val vty = ctx.eval1(ety)
-          val nctx = ctx.bind0(DoBind(x), ety, vty, cv2, vcv2)
-          val ev = check0(v, vty, vcv2)
+          val (ev, ety, ecv, vty, vcv) = mty match
+            case None =>
+              val (ev, vty, vcv) = infer0(v)
+              (ev, ctx.quote1(vty), ctx.quote1(vcv), vty, vcv)
+            case Some(ty) =>
+              val (ety, k) = infer1(ty)
+              val vcv = forceAll1(k) match
+                case Val1.UTy(cv) => cv
+                case _            => err("expected value type in let")
+              val ecv = ctx.quote1(vcv)
+              val vty = ctx.eval1(ety)
+              val ev = check0(v, vty, vcv)
+              (ev, ety, ecv, vty, vcv)
+          val nctx = ctx.bind0(DoBind(x), ety, vty, ecv, vcv)
           val (eb, rty, rcv) = infer0(b)(using nctx)
           Infer0(Tm0.Let(x, ety, ev, eb), rty, rcv)
 
@@ -190,73 +233,116 @@ object Elaboration:
           Infer1(Tm1.Let(x, lty, ev, eb), rty)
 
         case Tm.Pi(_, DontBind, Expl, a, b) =>
-          val (ea, vta) = insert(infer1(a))
+          val (ea, vta) = infer1(a)
           forceAll1(vta) match
-            case VU0(cv) =>
-              unify1(cv, VCVV)
-              val bcv = freshCV()
-              val vbcv = ctx.eval1(bcv)
-              val eb = check1(b, VU0(vbcv))
-              Infer1(Fun(ea, bcv, eb), VU0(VCVC))
-            case VU1 =>
-              val eb = check1(b, VU1)(ctx.bind1(DontBind, ea, ctx.eval1(ea)))
-              Infer1(Pi(DontBind, Expl, ea, eb), VU1)
-            case _ => error("expected type for Pi parameter")
+            case Val1.UTy(cv) =>
+              unify1(cv, Val1.Val)
+              val (eb, k) = infer1(b)
+              val vbcv = forceAll1(k) match
+                case Val1.UTy(cv) => cv
+                case _            => err("expected value type in pi")
+              val bcv = ctx.quote1(vbcv)
+              Infer1(Tm1.Fun(ea, bcv, eb), Val1.UTy(Val1.Comp))
+            case Val1.UMeta =>
+              val eb =
+                check1(b, Val1.UMeta)(using
+                  ctx.bind1(DontBind, ea, ctx.eval1(ea))
+                )
+              Infer1(Tm1.Pi(DontBind, Expl, ea, eb), Val1.UMeta)
+            case _ => err("expected type for Pi parameter")
         case Tm.Pi(_, x, i, a, b) =>
-          val ea = check1(a, VU1)
-          val eb = check1(b, VU1)(ctx.bind1(x, ea, ctx.eval1(ea)))
-          Infer1(Pi(x, i, ea, eb), VU1)
+          val ea = check1(a, Val1.UMeta)
+          val eb = check1(b, Val1.UMeta)(using ctx.bind1(x, ea, ctx.eval1(ea)))
+          Infer1(Tm1.Pi(x, i, ea, eb), Val1.UMeta)
 
-        case Tm.Lam(_, x, i, mty, b) =>
+        case Tm.Lam(_, x, i, Some(ty), b) =>
           i match
-            case S.ArgNamed(_)   => error("cannot infer")
-            case S.ArgIcit(Expl) => error("cannot infer")
-            case S.ArgIcit(Impl) =>
-              val ety = tyAnnot(mty, VU1)
+            case ArgInfo.Named(_)   => err("cannot infer")
+            case ArgInfo.Icit(Expl) =>
+              val (ety, k) = infer1(ty)
+              val vty = ctx.eval1(ety)
+              forceAll1(k) match
+                case Val1.UMeta =>
+                  val ctx2 = ctx.bind1(x, ety, vty)
+                  val (eb, vrt) = infer1(b)(using ctx2)
+                  val qrt = ctx2.quote1(vrt)
+                  Infer1(
+                    Tm1.Lam(x, Expl, ety, eb),
+                    Val1.Pi(x, Expl, vty, Clos1.Clos(ctx.env, qrt))
+                  )
+                case Val1.UTy(cv) =>
+                  unify1(cv, Val1.Val)
+                  val ctx2 = ctx.bind1(x, ety, vty)
+                  val (eb, vrt, vcv) = infer0(b)(using ctx2)
+                  Infer0(
+                    Tm0.Lam(x, ety, eb),
+                    Val1.Fun(vty, vcv, vrt),
+                    Val1.Comp
+                  )
+                case _ =>
+                  err(
+                    s"expected type or meta for lambda parameter type but got ${ctx.pretty1(k)}"
+                  )
+            case ArgInfo.Icit(Impl) =>
+              val ety = check1(ty, Val1.UMeta)
               val vty = ctx.eval1(ety)
               val ctx2 = ctx.bind1(x, ety, vty)
-              val (eb, vrt) = insert(infer1(b)(ctx2))(ctx2)
+              val (eb, vrt) = infer1(b)(using ctx2)
               val qrt = ctx2.quote1(vrt)
               Infer1(
-                Lam1(x, Impl, ety, eb),
-                VPi(x, Impl, vty, CClos1(ctx.env, qrt))
+                Tm1.Lam(x, Impl, ety, eb),
+                Val1.Pi(x, Impl, vty, Clos1.Clos(ctx.env, qrt))
               )
+        case Tm.Lam(_, _, _, _, _) => err("cannot infer")
 
         case Tm.App(_, f, a, i) =>
           i match
-            case S.ArgNamed(x) =>
-              val (ef, fty) = insertPi(infer1(f), Until(x))
-              apply1(fty, Impl, ef, a)
-            case S.ArgIcit(Impl) =>
+            case ArgInfo.Named(_)   => err("cannot infer named application")
+            case ArgInfo.Icit(Impl) =>
               val (ef, fty) = infer1(f)
               apply1(fty, Impl, ef, a)
-            case S.ArgIcit(Expl) =>
-              insertPi(infer(f)) match
-                case Infer0(ef, fty, fcv) =>
-                  val (t1, rcv, t2) = ensureFun(fty, fcv)
-                  val ea = check0(a, t1, VCVV)
-                  Infer0(App0(ef, ea), t2, rcv)
+            case ArgInfo.Icit(Expl) =>
+              infer(f) match
+                case Infer0(ef, fty, _) =>
+                  val (t1, rcv, t2) = ensureFun(fty)
+                  val ea = check0(a, t1, Val1.Val)
+                  Infer0(Tm0.App(ef, ea), t2, rcv)
                 case Infer1(ef, fty) => apply1(fty, Expl, ef, a)
 
         case Tm.Lift(_, ty) =>
-          val cv = freshCV()
-          val vcv = ctx.eval1(cv)
-          Infer1(Lift(cv, check1(ty, VU0(vcv))), VU1)
+          val (ety, k) = infer1(ty)
+          val cv = forceAll1(k) match
+            case Val1.UTy(vcv) => ctx.quote1(vcv)
+            case _             => err("expected value type in lift")
+          Infer1(Tm1.Lift(cv, ety), Val1.UMeta)
         case Tm.Quote(_, tm) =>
           val (etm, vty, vcv) = infer0(tm)
-          Infer1(quote(etm), VLift(vcv, vty))
+          Infer1(etm.quote, Val1.Lift(vcv, vty))
         case Tm.Splice(_, tm) =>
-          val (etm, vty) = insert(infer1(tm))
+          val (etm, vty) = infer1(tm)
           forceAll1(vty) match
-            case VLift(cv, a) => Infer0(splice(etm), a, cv)
-            case vty          =>
-              val cv = freshCV()
-              val vcv = ctx.eval1(cv)
-              val vty2 = ctx.eval1(freshMeta(VU0(vcv)))
-              val etm2 = splice(coe(etm, vty, VLift(vcv, vty2)))
-              Infer0(etm2, vty2, vcv)
+            case Val1.Lift(cv, a) => Infer0(etm.splice, a, cv)
+            case _                =>
+              err(s"expected lifted type in splice but got ${ctx.pretty1(vty)}")
 
-  private inline def enter[A](pos: PosInfo)(inline action: Ctx ?=> A)(using
-      ctx: Ctx
-  ): A =
-    action(using ctx.enter(pos))
+  // TODO: check that private types don't escape
+  private def elaborate(defn: Surface2.Def): Def = defn match
+    case Surface2.Def.D0(pos, public, name, ty, value) => ???
+    case Surface2.Def.D1(pos, public, name, ty, value) => ???
+
+  private def elaborate(mod: Surface2.Module): Module =
+    State.enterModule(mod.name)
+    mod.moduleAliases.foreach((m, r) => State.addModuleRenaming(m, r))
+    mod.imports.foreach { case (x, (p1, p2, m, r)) =>
+      val ctx = Ctx.empty
+      if (!State.moduleExists(m))
+        err(s"undefined module $m in imports")(using ctx.enter(p1))
+      else if (!State.moduleHasName(m, x))
+        err(s"undefined name $m.$x in imports")(using ctx.enter(p2))
+      else State.addImport(m, x, r.getOrElse(x))
+    }
+    val ds = mod.defs.toList.map(elaborate)
+    Module(mod.name, Defs(ds))
+
+  def elaborate(mod: List[Surface2.Module]): List[Module] =
+    mod.map(elaborate)

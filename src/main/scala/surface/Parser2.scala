@@ -125,15 +125,19 @@ object Parser2:
     if x.expose != mod then
       err(s"module name does not match filename, expected $mod but got $x")
     val deps = mutable.Set.empty[Name]
-    val imports = mutable.Map.empty[Name, (Name, Option[Name])]
+    val imports =
+      mutable.Map.empty[Name, (PosInfo, PosInfo, Name, Option[Name])]
     val moduleAliases = mutable.Map.empty[Name, Name]
     while tryKeyword("import") do
+      val pos = ctx.pos
       val m = name()
       val xr = if trySymbol("=>") then Some(name()) else None
       moduleAliases += m -> xr.getOrElse(m)
       deps += m
       if trySymbol("(") then
-        parseImports().foreach { (x, r) => imports += x -> (m, r) }
+        parseImports().foreach { (pos2, x, r) =>
+          imports += x -> (pos, pos2, m, r)
+        }
     val defs = parseDefs()
     Module(
       x,
@@ -143,15 +147,18 @@ object Parser2:
       defs
     )
 
-  private def parseImports()(using ctx: Ctx): List[(Name, Option[Name])] =
+  private def parseImports()(using
+      ctx: Ctx
+  ): List[(PosInfo, Name, Option[Name])] =
     if trySymbol(")") then Nil
     else
       val x = name()
+      val pos = ctx.pos
       val r = if trySymbol("=>") then Some(name()) else None
-      if trySymbol(",") then (x, r) :: parseImports()
+      if trySymbol(",") then (pos, x, r) :: parseImports()
       else
         symbol(")")
-        List((x, r))
+        List((pos, x, r))
 
   private def parseDefs()(using ctx: Ctx): Defs =
     Defs(list(parseDef))
