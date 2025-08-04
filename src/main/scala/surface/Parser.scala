@@ -247,9 +247,6 @@ object Parser:
       case Some(x) => Some(Tm.Var(ctx.pos, None, Name(x)))
       case None    =>
         if tryKeyword("meta") then Some(Tm.UMeta(ctx.pos))
-        else if tryKeyword("cv") then Some(Tm.CV(ctx.pos))
-        else if tryKeyword("val") then Some(Tm.Val(ctx.pos))
-        else if tryKeyword("comp") then Some(Tm.Comp(ctx.pos))
         else if trySymbol("(") then
           val expr = parseExpr()
           symbol(")")

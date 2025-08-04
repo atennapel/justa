@@ -62,6 +62,7 @@ object Pretty:
   ): String =
     tm match
       case Tm1.Var(_)              => pretty1(tm)
+      case Tm1.Primitive(_)        => pretty1(tm)
       case Tm1.Global(_, _, _)     => pretty1(tm)
       case Tm1.Lift(_, _)          => pretty1(tm)
       case Tm1.Quote(_)            => pretty1(tm)
@@ -107,6 +108,7 @@ object Pretty:
         case Bind.DoBind(x) if ns.take(ix.expose).contains(Bind.DoBind(x)) =>
           s"$x@${ns.size - ix.expose - 1}"
         case Bind.DoBind(x) => s"$x"
+    case Tm1.Primitive(x)    => s"$x"
     case Tm1.Global(m, x, _) => s"$m.$x"
     case Tm1.Let(x, t, v, b) =>
       s"let $x : ${pretty1(t)} = ${pretty1(v)}; ${prettyLift1(x.toBind, b)}"

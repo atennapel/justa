@@ -80,6 +80,7 @@ object Evaluation:
   def eval1(t: Tm1)(using env: Env): Val1 =
     t match
       case Tm1.Var(ix)         => var1(ix)
+      case Tm1.Primitive(x)    => VPrimitive(x)
       case Tm1.Global(m, x, v) =>
         Val1.Unfold(UnfoldHead.Global(m, x, v), Spine.Empty, () => v)
       case Tm1.Let(_, _, v, b)  => eval1(b)(using Env.E1(env, eval1(v)))
@@ -142,7 +143,8 @@ object Evaluation:
     force(v) match
       case Val1.Rigid(hd, sp) =>
         hd match
-          case Head.Var(lvl) => goSp(Tm1.Var(lvl.toIx), sp)
+          case Head.Var(lvl)     => goSp(Tm1.Var(lvl.toIx), sp)
+          case Head.Primitive(x) => goSp(Tm1.Primitive(x), sp)
       case Val1.Unfold(UnfoldHead.Global(m, x, v), sp, _) =>
         goSp(Tm1.Global(m, x, v), sp)
       case Val1.Pi(x, i, ty, b)   => Tm1.Pi(x, i, go1(ty), goClos(b))

@@ -80,7 +80,7 @@ object Elaboration:
 
         case (Val1.Pi(x, i, a1, b1), Val1.Pi(_, i2, a2, b2)) =>
           if i != i2 then err(s"icit mismatch in coercion")(using ctx)
-          implicit val ctx2: Ctx = ctx.bind1(x, ctx.quote1(a2), a2)
+          given ctx2: Ctx = ctx.bind1(x, ctx.quote1(a2), a2)
           go(Tm1.Var(ix0), a2, a1) match
             case None =>
               go(
@@ -147,26 +147,242 @@ object Elaboration:
         Infer0(Tm0.App(t.splice, u2), b, bcv)
       case _ => err(s"cannot apply ${ctx.pretty1(a)}")
 
-  // checking
-  private def check0(tm: Tm, ty: VTy, cv: VTy)(using ctx: Ctx): Tm0 = ???
+  private def icitMatch(i: ArgInfo, x: Bind, i2: Icit): Boolean = i match
+    case ArgInfo.Named(y) =>
+      x match
+        case DontBind  => false
+        case DoBind(x) => x == y
+    case ArgInfo.Icit(i) => i == i2
 
-  private def check1(tm: Tm, ty: VTy)(using ctx: Ctx): Tm1 = ???
+  private def isNotVar(t: Tm): Boolean = t match
+    case Tm.Var(_, _, _) => false
+    case _               => true
+
+  private def coeQuote(t: Tm1, a1: VTy, a2: VTy, cv: VTy)(using ctx: Ctx): Tm0 =
+    coe(t, a1, Val1.Lift(cv, a2)).splice
+
+  // checking
+  private def check0(tm: Tm, ty: VTy, cv: VTy)(using ctx: Ctx): Tm0 =
+    debug(s"check0 $tm : ${ctx.pretty1(ty)} : ${ctx.pretty1(cv)}")
+    enter(tm.pos):
+      tm match
+        case Tm.Lam(_, x, i, ma, b) =>
+          if i != ArgInfo.Icit(Expl) then err(s"implicit lambda in Ty")
+          val (t1, fcv, t2) = ensureFun(ty)
+          ma.foreach { sty =>
+            unify1(ctx.eval1(check1(sty, Val1.UTy(Val1.Val))), t1)
+          }
+          val qt1 = ctx.quote1(t1)
+          Tm0.Lam(
+            x,
+            qt1,
+            check0(b, t2, fcv)(using ctx.bind0(x, qt1, t1, Tm1.Val, Val1.Val))
+          )
+
+        case Tm.LetRec(_, x, Some(pty), v, b) =>
+          val ety = check1(pty, Val1.UTy(Val1.Comp))
+          val vty = ctx.eval1(ety)
+          val nctx = ctx.bind0(DoBind(x), ety, vty, Tm1.Comp, Val1.Comp)
+          val ev = check0(v, vty, Val1.Comp)(using nctx)
+          val eb = check0(b, ty, cv)(using nctx)
+          Tm0.LetRec(x, ety, ev, eb)
+        case Tm.LetRec(_, _, None, _, _) =>
+          err("let rec requires type annotation")
+
+        case Tm.Let0(_, x, ma, v, b) =>
+          val (ev, ety, ecv, vty, vcv) = ma match
+            case None =>
+              val (ev, vty, vcv) = infer0(v)
+              (ev, ctx.quote1(vty), ctx.quote1(vcv), vty, vcv)
+            case Some(ty) =>
+              val (ety, k) = infer1(ty)
+              val vcv = forceAll1(k) match
+                case Val1.UTy(cv) => cv
+                case _            => err("expected value type in let")
+              val ecv = ctx.quote1(vcv)
+              val vty = ctx.eval1(ety)
+              val ev = check0(v, vty, vcv)
+              (ev, ety, ecv, vty, vcv)
+          val nctx = ctx.bind0(DoBind(x), ety, vty, ecv, vcv)
+          val eb = check0(b, ty, cv)(using nctx)
+          Tm0.Let(x, ety, ev, eb)
+
+        case Tm.Hole(_, x) =>
+          err(s"checking _${x.getOrElse("")} against ${ctx.pretty1(ty)}")
+
+        case Tm.Splice(_, t) => check1(t, Val1.Lift(cv, ty)).splice
+
+        case tm =>
+          infer(tm) match
+            case Infer0(etm, vty, vcv) =>
+              unify1(vcv, cv)
+              unify1(vty, ty)
+              etm
+            case Infer1(etm, vty) =>
+              val (etm2, vty2) = (etm, vty)
+              coeQuote(etm2, vty2, ty, cv)
+
+  private def check1(tm: Tm, ty: VTy)(using ctx: Ctx): Tm1 =
+    debug(s"check1 $tm : ${ctx.pretty1(ty)}")
+    enter(tm.pos):
+      (tm, forceAll1(ty)) match
+        case (Tm.Lam(_, x, i, ma, b), Val1.Pi(x2, i2, t1, t2))
+            if icitMatch(i, x2, i2) =>
+          ma.foreach { sty => unify1(ctx.eval1(check1(sty, Val1.UMeta)), t1) }
+          val qt1 = ctx.quote1(t1)
+          Tm1.Lam(
+            x,
+            i2,
+            qt1,
+            check1(b, t2(Var1(ctx.lvl)))(using ctx.bind1(x, qt1, t1))
+          )
+
+        case (tm, Val1.Pi(x, Impl, t1, t2)) =>
+          val qt1 = ctx.quote1(t1)
+          Tm1.Lam(
+            x,
+            Impl,
+            qt1,
+            check1(tm, t2(Var1(ctx.lvl)))(using ctx.insert1(x, qt1))
+          )
+
+        case (Tm.Pi(_, DontBind, Expl, t1, t2), Val1.UTy(cv)) =>
+          unify1(cv, Val1.Comp)
+          val et1 = check1(t1, Val1.UTy(Val1.Val))
+          val (et2, k) = infer1(t2)
+          val vfcv = forceAll1(k) match
+            case Val1.UTy(vfcv) => vfcv
+            case _ => err(s"expected value type but got ${ctx.pretty1(k)}")
+          val fcv = ctx.quote1(vfcv)
+          Tm1.Fun(et1, fcv, et2)
+        case (Tm.Pi(_, x, i, t1, t2), Val1.UMeta) =>
+          val et1 = check1(t1, Val1.UMeta)
+          val et2 =
+            check1(t2, Val1.UMeta)(using ctx.bind1(x, et1, ctx.eval1(et1)))
+          Tm1.Pi(x, i, et1, et2)
+
+        case (Tm.Lift(_, tm), Val1.UMeta) =>
+          val (etm, k) = infer1(tm)
+          val cv = forceAll1(k) match
+            case Val1.UTy(vcv) => ctx.quote1(vcv)
+            case _             => err("expected value type in lift")
+          Tm1.Lift(cv, etm)
+
+        case (Tm.Let1(_, x, mlty, v, b), _) =>
+          val (ev, lty, vlty) = mlty match
+            case None =>
+              val (ev, vlty) = infer1(v)
+              val lty = ctx.quote1(vlty)
+              (ev, lty, vlty)
+            case Some(ty) =>
+              val lty = check1(ty, Val1.UMeta)
+              val vlty = ctx.eval1(lty)
+              val ev = check1(v, vlty)
+              (ev, lty, vlty)
+          val eb =
+            check1(b, ty)(using ctx.define(x, lty, vlty, ev, ctx.eval1(ev)))
+          Tm1.Let(x, lty, ev, eb)
+
+        case (Tm.Quote(_, tm), Val1.Lift(cv, ty)) => check0(tm, ty, cv).quote
+        case (tm, Val1.Lift(cv, ty))              => check0(tm, ty, cv).quote
+
+        case (Tm.Hole(_, x), _) =>
+          err(s"checking _${x.getOrElse("")} against ${ctx.pretty1(ty)}")
+
+        case (tm, _) =>
+          val (etm, vty) = infer1(tm)
+          coe(etm, vty, ty)
 
   // inference
-  private def infer0(tm: Tm)(implicit ctx: Ctx): (Tm0, VTy, VTy) = ???
+  private def infer0(tm: Tm)(using ctx: Ctx): (Tm0, VTy, VTy) =
+    debug(s"infer0 $tm")
+    enter(tm.pos):
+      tm match
+        case Tm.Lam(_, x, i, mty, b) =>
+          i match
+            case ArgInfo.Named(_)   => err(s"implicit lambda in type")
+            case ArgInfo.Icit(Impl) => err(s"implicit lambda in type")
+            case ArgInfo.Icit(Expl) =>
+              val (ety, vcv) = mty match
+                case None     => err(s"cannot infer unannotated lambda")
+                case Some(ty) =>
+                  val (ety, k) = infer1(ty)
+                  val vcv = forceAll1(k) match
+                    case Val1.UTy(vcv) => vcv
+                    case _             =>
+                      err(
+                        s"expected value type in lambda but got ${ctx.pretty1(k)}"
+                      )
+                  (ety, vcv)
+              val vty = ctx.eval1(ety)
+              val cv = ctx.quote1(vcv)
+              val nctx = ctx.bind0(x, ety, vty, cv, vcv)
+              val (eb, vrt, vrcv) = infer0(b)(using nctx)
+              (Tm0.Lam(x, ety, eb), Val1.Fun(vty, vrcv, vrt), Val1.Comp)
 
-  private def infer1(tm: Tm)(using ctx: Ctx): (Tm1, VTy) = ???
+        case tm =>
+          infer(tm) match
+            case Infer0(etm, ty, cv) => (etm, ty, cv)
+            case Infer1(etm, ty)     =>
+              forceAll1(ty) match
+                case Val1.Lift(cv, vty) => (etm.splice, vty, cv)
+                case _                  =>
+                  err(s"expected lifted type but got ${ctx.pretty1(ty)}")
+
+  private def infer1(tm: Tm)(using ctx: Ctx): (Tm1, VTy) =
+    debug(s"infer1 $tm")
+    enter(tm.pos):
+      tm match
+        case Tm.Lam(_, x, i, mty, b) =>
+          i match
+            case ArgInfo.Named(_) => err(s"cannot infer named lambda")
+            case ArgInfo.Icit(i)  =>
+              val ety = mty match
+                case None     => err(s"cannot infer unannotated lambda")
+                case Some(ty) => check1(ty, Val1.UMeta)
+              val vty = ctx.eval1(ety)
+              val ctx2 = ctx.bind1(x, ety, vty)
+              val (eb, vrt) = infer1(b)(using ctx2)
+              val ert = ctx2.quote1(vrt)
+              (
+                Tm1.Lam(x, i, ety, eb),
+                Val1.Pi(x, i, vty, Clos1.Clos(ctx.env, ert))
+              )
+
+        case tm =>
+          infer(tm) match
+            case Infer0(tm, ty, cv) => (tm.quote, Val1.Lift(cv, ty))
+            case Infer1(tm, ty)     => (tm, ty)
 
   private def infer(tm: Tm)(using ctx: Ctx): Infer =
+    debug(s"infer $tm")
     enter(tm.pos):
-      debug(s"infer $tm")
       tm match
-        case Tm.CV(_)      => Infer1(Tm1.CV, Val1.UMeta)
-        case Tm.Val(_)     => Infer1(Tm1.Val, Val1.CV)
-        case Tm.Comp(_)    => Infer1(Tm1.Comp, Val1.CV)
         case Tm.UTy(_, cv) => Infer1(Tm1.UTy(check1(cv, Val1.CV)), Val1.UMeta)
         case Tm.UMeta(_)   => Infer1(Tm1.UMeta, Val1.UMeta)
         case Tm.Hole(_, _) => err("cannot infer hole")
+
+        case Tm.Var(_, None, x @ Name("cv")) =>
+          Infer1(Tm1.Primitive(x), Val1.UMeta)
+        case Tm.Var(_, None, x @ Name("val")) =>
+          Infer1(Tm1.Primitive(x), Val1.CV)
+        case Tm.Var(_, None, x @ Name("comp")) =>
+          Infer1(Tm1.Primitive(x), Val1.CV)
+
+        case Tm.Var(_, None, x @ Name("Byte")) =>
+          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
+        case Tm.Var(_, None, x @ Name("Char")) =>
+          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
+        case Tm.Var(_, None, x @ Name("Short")) =>
+          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
+        case Tm.Var(_, None, x @ Name("Int")) =>
+          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
+        case Tm.Var(_, None, x @ Name("Long")) =>
+          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
+        case Tm.Var(_, None, x @ Name("Float")) =>
+          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
+        case Tm.Var(_, None, x @ Name("Double")) =>
+          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
 
         case Tm.Var(_, m, x) =>
           ctx.lookup(x) match
@@ -196,8 +412,7 @@ object Elaboration:
           val ev = check0(v, vty, Val1.Comp)(using nctx)
           val (eb, rty, rcv) = infer0(b)(using nctx)
           Infer0(Tm0.LetRec(x, ety, ev, eb), rty, rcv)
-        case Tm.LetRec(_, _, _, _, _) =>
-          err("let rec requires a type annotation")
+        case Tm.LetRec(_, _, _, _, _) => err("let rec requires type annotation")
 
         case Tm.Let0(_, x, mty, v, b) =>
           val (ev, ety, ecv, vty, vcv) = mty match
@@ -327,10 +542,46 @@ object Elaboration:
 
   // TODO: check that private types don't escape
   private def elaborate(defn: Surface.Def): Def = defn match
-    case Surface.Def.D0(pos, public, name, ty, value) => ???
-    case Surface.Def.D1(pos, public, name, ty, value) => ???
+    case Surface.Def.D0(pos, pub, x, mty, v) =>
+      given ctx: Ctx = Ctx.empty.enter(pos)
+      if State.currentModuleHasName(x) then err(s"duplicate name $x")
+      val (ev, ety, cv, vty, vcv) = mty match
+        case None =>
+          val (ev, vty, vcv) = infer0(v)
+          (ev, ctx.quote1(vty), ctx.quote1(vcv), vty, vcv)
+        case Some(ty) =>
+          val (ety, k) = infer1(ty)
+          val vcv = forceAll1(k) match
+            case Val1.UTy(vcv) => vcv
+            case _             =>
+              err(
+                s"value type definition should have value type but got ${ctx.pretty1(k)}"
+              )
+          val cv = ctx.quote1(vcv)
+          val vty = ctx.eval1(ety)
+          val ev = check0(v, vty, vcv)
+          (ev, ety, cv, vty, vcv)
+      val vv = ctx.eval0(ev)
+      State.addGlobal(GlobalEntry.Def0(pub, x, ev, ety, cv, vv, vty, vcv))
+      Def.D0(pub, x, ety, ev)
+    case Surface.Def.D1(pos, pub, x, mty, v) =>
+      given ctx: Ctx = Ctx.empty.enter(pos)
+      if State.currentModuleHasName(x) then err(s"duplicate name $x")
+      val (ev, ety, vty) = mty match
+        case None =>
+          val (ev, vty) = infer1(v)
+          (ev, ctx.quote1(vty), vty)
+        case Some(ty) =>
+          val ety = check1(ty, Val1.UMeta)
+          val vty = ctx.eval1(ety)
+          val ev = check1(v, vty)
+          (ev, ety, vty)
+      val vv = ctx.eval1(ev)
+      State.addGlobal(GlobalEntry.Def1(pub, x, ev, ety, vv, vty))
+      Def.D1(pub, x, ety, ev)
 
   private def elaborate(mod: Surface.Module): Module =
+    // TODO: check for duplicate module name?
     State.enterModule(mod.name)
     mod.moduleAliases.foreach((m, r) => State.addModuleRenaming(m, r))
     mod.imports.foreach { case (x, (p1, p2, m, r)) =>

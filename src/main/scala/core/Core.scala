@@ -66,6 +66,7 @@ object Core:
   type Ty = Tm1
   enum Tm1:
     case Var(ix: Ix)
+    case Primitive(name: Name)
     case Global(mod: Name, name: Name, value: Val1)
     case Let(name: Name, ty: Ty, value: Tm1, body: Tm1)
 
@@ -104,6 +105,7 @@ object Core:
 
     override def toString: String = this match
       case Var(ix)                 => s"'$ix"
+      case Primitive(x)            => s"$x"
       case Global(m, x, _)         => s"$m.$x"
       case Let(x, ty, v, b)        => s"(let $x : $ty = $v; $b)"
       case UTy(cv)                 => s"(type $cv)"
@@ -217,6 +219,7 @@ object Core:
 
   enum Head:
     case Var(lvl: Lvl)
+    case Primitive(name: Name)
 
   enum UnfoldHead:
     case Global(mod: Name, name: Name, value: Val1)
@@ -248,3 +251,9 @@ object Core:
     def unapply(value: Val1): Option[Lvl] = value match
       case Val1.Rigid(Head.Var(hd), Spine.Empty) => Some(hd)
       case _                                     => None
+
+  object VPrimitive:
+    def apply(name: Name): Val1 = Val1.Rigid(Head.Primitive(name), Spine.Empty)
+    def unapply(value: Val1): Option[Name] = value match
+      case Val1.Rigid(Head.Primitive(name), Spine.Empty) => Some(name)
+      case _                                             => None

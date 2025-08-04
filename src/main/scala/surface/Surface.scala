@@ -60,9 +60,6 @@ object Surface:
 
     case UTy(posInfo: PosInfo, cv: Ty)
     case UMeta(posInfo: PosInfo)
-    case CV(posInfo: PosInfo)
-    case Val(posInfo: PosInfo)
-    case Comp(posInfo: PosInfo)
 
     case Pi(posInfo: PosInfo, name: Bind, icit: Icit, ty: Ty, body: Ty)
     case Lam(
@@ -87,9 +84,6 @@ object Surface:
       case Tm.LetRec(pos, _, _, _, _) => pos
       case Tm.UTy(pos, _)             => pos
       case Tm.UMeta(pos)              => pos
-      case Tm.CV(pos)                 => pos
-      case Tm.Val(pos)                => pos
-      case Tm.Comp(pos)               => pos
       case Tm.Pi(pos, _, _, _, _)     => pos
       case Tm.Lam(pos, _, _, _, _)    => pos
       case Tm.App(pos, _, _, _)       => pos
@@ -109,9 +103,6 @@ object Surface:
         s"(let rec $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
       case UTy(_, cv)                   => s"(type $cv)"
       case UMeta(_)                     => "meta"
-      case CV(_)                        => "cv"
-      case Val(_)                       => "val"
-      case Comp(_)                      => "comp"
       case Pi(_, DontBind, Expl, ty, b) => s"($ty -> $b)"
       case Pi(_, x, i, ty, b)           => s"(${i.wrap(s"$x : $ty")} -> $b)"
       case Lam(_, x, ArgInfo.Icit(Expl), None, b) => s"(\\$x => $b)"

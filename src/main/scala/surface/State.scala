@@ -53,12 +53,14 @@ object State:
         a
       case Some(a) => a
 
-  def addGlobal(mod: Name, entry: GlobalEntry): Unit =
-    module(mod) += entry
+  def addGlobal(entry: GlobalEntry): Unit =
+    module(moduleCtx.get.name) += entry
 
   def moduleExists(mod: Name): Boolean = globals.contains(mod)
   def moduleHasName(mod: Name, x: Name): Boolean =
     moduleExists(mod) && globals(mod).findLast(e => e.name == x).isDefined
+  def currentModuleHasName(x: Name): Boolean =
+    moduleHasName(moduleCtx.get.name, x)
 
   private def getGlobal(mod: Name, x: Name): Option[GlobalEntry] =
     globals.get(mod) match
