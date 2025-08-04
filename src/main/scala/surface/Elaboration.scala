@@ -9,7 +9,7 @@ import core.Evaluation.*
 import core.Evaluation.QuoteOption.UnfoldNone
 import core.{Core, Unification}
 import Ctx.*
-import Surface2.{ArgInfo, Tm}
+import Surface.{ArgInfo, Tm}
 import State.GlobalEntry
 
 object Elaboration:
@@ -326,11 +326,11 @@ object Elaboration:
               err(s"expected lifted type in splice but got ${ctx.pretty1(vty)}")
 
   // TODO: check that private types don't escape
-  private def elaborate(defn: Surface2.Def): Def = defn match
-    case Surface2.Def.D0(pos, public, name, ty, value) => ???
-    case Surface2.Def.D1(pos, public, name, ty, value) => ???
+  private def elaborate(defn: Surface.Def): Def = defn match
+    case Surface.Def.D0(pos, public, name, ty, value) => ???
+    case Surface.Def.D1(pos, public, name, ty, value) => ???
 
-  private def elaborate(mod: Surface2.Module): Module =
+  private def elaborate(mod: Surface.Module): Module =
     State.enterModule(mod.name)
     mod.moduleAliases.foreach((m, r) => State.addModuleRenaming(m, r))
     mod.imports.foreach { case (x, (p1, p2, m, r)) =>
@@ -344,5 +344,5 @@ object Elaboration:
     val ds = mod.defs.toList.map(elaborate)
     Module(mod.name, Defs(ds))
 
-  def elaborate(mod: List[Surface2.Module]): List[Module] =
+  def elaborate(mod: List[Surface.Module]): List[Module] =
     mod.map(elaborate)

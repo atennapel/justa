@@ -1,40 +1,26 @@
 import java.nio.file.{FileSystems, Files, Path}
 import scala.jdk.CollectionConverters.*
-import common.Common.err
-import ir.IR
-import jvm.Jvm
-import surface.{Parser, Parser2, Surface}
+import common.Common.{Name, err}
+// import ir.IR
+// import jvm.Jvm
+import surface.{Parser, Surface}
+import surface.Elaboration.elaborate
 
 import java.io.File
 
 object Main:
   @main def run(): Unit =
-    val xxx =
-      """
-module A
-
-import B (x, y => z)
-import C => D
-import E => F (x => a, b)
-
-def g : Int -> {c} {A : type c} (x : A) -> A -> A = x
-"""
-    val mod = Parser2.parse("A", xxx)
-    println(mod.name)
-    println(mod.deps)
-    println(mod.imports)
-    println(mod.moduleAliases)
-    println(mod.defs)
-
     val root = FileSystems.getDefault.getPath("examples")
     val files = allSourceFiles(root).map(p => (p, moduleName(root, p)))
     val modules = files.map((p, m) => Parser.parse(m, Files.readString(p)))
     val orderedModules = orderModules(modules)
-    val irModules = Surface.elaborate(orderedModules)
+    val coreModules = elaborate(orderedModules)
+    println(coreModules)
+    /*
     val jvmModules = IR.toJvm(irModules)
     val target = "justatarget"
     resetDir(target)
-    Jvm.generateBytecode(jvmModules, target)
+    Jvm.generateBytecode(jvmModules, target)*/
 
   private def resetDir(target: String): Unit =
     deleteDir(Path.of(target).toFile)
@@ -80,7 +66,7 @@ def g : Int -> {c} {A : type c} (x : A) -> A -> A = x
     }
     def go(
         modules: List[Surface.Module],
-        available: Set[Surface.Name]
+        available: Set[Name]
     ): List[Surface.Module] =
       if modules.isEmpty then Nil
       else

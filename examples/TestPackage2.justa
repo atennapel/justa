@@ -1,5 +1,0 @@
-module TestPackage2
-
-import test.TestPackage
-
-def myNumber = test.TestPackage.myNumber
