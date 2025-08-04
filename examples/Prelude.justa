@@ -1,0 +1,6 @@
+module Prelude
+
+pub def iadd (a b : Int) : Int = instr 96 a b
+pub def imul (a b : Int) : Int = instr 104 a b
+pub def isub (a b : Int) : Int = instr 100 a b
+-- pub def izero (n : Int) : Bool = instr ifeq n True False

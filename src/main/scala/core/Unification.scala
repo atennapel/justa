@@ -20,7 +20,12 @@ object Unification:
         unify1(ty1, ty2); unify0(v1, v2); goClos(b1, b2)
       case (Val0.LetRec(_, ty1, v1, b1), Val0.LetRec(_, ty2, v2, b2)) =>
         unify1(ty1, ty2); goClos(v1, v2); goClos(b1, b2)
-      case (Val0.Splice(v1), Val0.Splice(v2))       => unify1(v1, v2)
+      case (Val0.Splice(v1), Val0.Splice(v2)) => unify1(v1, v2)
+      case (Val0.Instr(op1, ts1, rt1, args1), Val0.Instr(op2, ts2, rt2, args2))
+          if op1 == op2 && args1.size == args2.size =>
+        ts1.zip(ts2).foreach((a, b) => unify1(a, b))
+        unify1(rt1, rt2)
+        args1.zip(args2).foreach(unify0)
       case (Val0.Lam(_, _, b1), Val0.Lam(_, _, b2)) => goClos(b1, b2)
       case (Val0.App(f1, a1), Val0.App(f2, a2))     =>
         unify0(f1, f2); unify0(a1, a2)

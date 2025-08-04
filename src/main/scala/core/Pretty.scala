@@ -96,7 +96,9 @@ object Pretty:
     case Tm0.Lam(_, _, _) => prettyLam0(tm)
     case Tm0.App(_, _)    => prettyApp0(tm)
 
-    case Tm0.Splice(t) => s"$$${prettyParen1(t)}"
+    case Tm0.Splice(t)            => s"$$${prettyParen1(t)}"
+    case Tm0.Instr(x, _, _, args) =>
+      s"instr $x${if args.isEmpty then "" else " "}${args.mkString(" ")}"
 
     case Tm0.Wk1(tm) => pretty0(tm)(using ns.tail)
     case Tm0.Wk0(tm) => pretty0(tm)(using ns.tail)

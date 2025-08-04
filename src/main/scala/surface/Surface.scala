@@ -77,6 +77,8 @@ object Surface:
 
     case Hole(posInfo: PosInfo, name: Option[Name])
 
+    case Instr(posInfo: PosInfo, instr: String, args: List[Tm])
+
     def pos: PosInfo = this match
       case Tm.Var(pos, _, _)          => pos
       case Tm.Let0(pos, _, _, _, _)   => pos
@@ -91,6 +93,7 @@ object Surface:
       case Tm.Quote(pos, _)           => pos
       case Tm.Splice(pos, _)          => pos
       case Tm.Hole(pos, _)            => pos
+      case Tm.Instr(pos, _, _)        => pos
 
     override def toString: String = this match
       case Var(_, None, x)      => s"$x"
@@ -114,8 +117,9 @@ object Surface:
       case App(_, fn, arg, ArgInfo.Icit(Impl)) => s"($fn ${Impl.wrap(arg)})"
       case App(_, fn, arg, ArgInfo.Named(x))   =>
         s"($fn ${Impl.wrap(s"$x = $arg")})"
-      case Lift(_, ty)      => s"^$ty"
-      case Quote(_, tm)     => s"`$tm"
-      case Splice(_, tm)    => s"$$$tm"
-      case Hole(_, None)    => s"_"
-      case Hole(_, Some(x)) => s"_$x"
+      case Lift(_, ty)       => s"^$ty"
+      case Quote(_, tm)      => s"`$tm"
+      case Splice(_, tm)     => s"$$$tm"
+      case Hole(_, None)     => s"_"
+      case Hole(_, Some(x))  => s"_$x"
+      case Instr(_, x, args) => s"(instr $x ${args.mkString(" ")})"

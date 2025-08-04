@@ -2,7 +2,7 @@
 Programming language targeting the JVM
 
 TODO:
-- JVM instructions
+- If expressions
 - Unstaging
 - IO
 - Datatypes

@@ -36,9 +36,7 @@ object Parser:
       "rec",
       "meta",
       "type",
-      "cv",
-      "val",
-      "comp"
+      "instr"
     )
   private val symbols1: Set[Char] =
     Set(':', ';', '=', '\\', ',', '(', ')', '{', '}', '^', '`', '$')
@@ -266,6 +264,13 @@ object Parser:
       parseLet(rec)
     else if trySymbol("\\") then parseLam()
     else if tryKeyword("type") then Tm.UTy(ctx.pos, parseAtom())
+    else if tryKeyword("instr") then
+      val pos = ctx.pos
+      val op = tryIdentifier() match
+        case Some(x) => x
+        case None    => number().toString
+      val args = list(tryParseAtom)
+      Tm.Instr(pos, op, args)
     else
       backtrack(piParam()) match
         case None    => apps()
@@ -360,6 +365,11 @@ object Parser:
     consumeMatch("identifier"):
       case Token.Identifier(id, _) => Some(id)
       case _                       => None
+
+  private def number()(using ctx: Ctx): Int =
+    consumeMatch("number"):
+      case Token.Number(n, _) => Some(n)
+      case _                  => None
 
   private def tryKeyword(kw: String)(using ctx: Ctx): Boolean =
     tryConsumeMatchBool:

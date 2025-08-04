@@ -212,6 +212,16 @@ object Elaboration:
 
         case Tm.Splice(_, t) => check1(t, Val1.Lift(cv, ty)).splice
 
+        case Tm.Instr(_, op, args) =>
+          forceAll1(cv) match
+            case Val1.Val => ()
+            case _        =>
+              err(
+                s"instr can only be checked against a value type but got ${ctx.pretty1(ty)}"
+              )
+          val (eargs, vts) = args.map(inferValue).unzip
+          Tm0.Instr(op, vts.map(t => ctx.quote1(t)), ctx.quote1(ty), eargs)
+
         case tm =>
           infer(tm) match
             case Infer0(etm, vty, vcv) =>
@@ -221,6 +231,13 @@ object Elaboration:
             case Infer1(etm, vty) =>
               val (etm2, vty2) = (etm, vty)
               coeQuote(etm2, vty2, ty, cv)
+
+  private def inferValue(tm: Tm)(using ctx: Ctx): (Tm0, VTy) =
+    val (etm, vty, vcv) = infer0(tm)
+    forceAll1(vcv) match
+      case Val1.Val => ()
+      case _        => err(s"expected value but got ${ctx.pretty1(vcv)}")
+    (etm, vty)
 
   private def check1(tm: Tm, ty: VTy)(using ctx: Ctx): Tm1 =
     debug(s"check1 $tm : ${ctx.pretty1(ty)}")
@@ -362,12 +379,12 @@ object Elaboration:
         case Tm.UMeta(_)   => Infer1(Tm1.UMeta, Val1.UMeta)
         case Tm.Hole(_, _) => err("cannot infer hole")
 
-        case Tm.Var(_, None, x @ Name("cv")) =>
-          Infer1(Tm1.Primitive(x), Val1.UMeta)
-        case Tm.Var(_, None, x @ Name("val")) =>
-          Infer1(Tm1.Primitive(x), Val1.CV)
-        case Tm.Var(_, None, x @ Name("comp")) =>
-          Infer1(Tm1.Primitive(x), Val1.CV)
+        case Tm.Var(_, None, Name("cv")) =>
+          Infer1(Tm1.CV, Val1.UMeta)
+        case Tm.Var(_, None, Name("val")) =>
+          Infer1(Tm1.Val, Val1.CV)
+        case Tm.Var(_, None, Name("comp")) =>
+          Infer1(Tm1.Comp, Val1.CV)
 
         case Tm.Var(_, None, x @ Name("Byte")) =>
           Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
@@ -539,6 +556,8 @@ object Elaboration:
             case Val1.Lift(cv, a) => Infer0(etm.splice, a, cv)
             case _                =>
               err(s"expected lifted type in splice but got ${ctx.pretty1(vty)}")
+
+        case Tm.Instr(_, _, _) => err(s"cannot infer JVM instruction")
 
   // TODO: check that private types don't escape
   private def elaborate(defn: Surface.Def): Def = defn match

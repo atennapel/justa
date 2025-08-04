@@ -71,11 +71,13 @@ object Evaluation:
         Val0.Let(x, eval1(ty), eval0(v), Clos0(b))
       case Tm0.LetRec(x, ty, v, b) =>
         Val0.LetRec(x, eval1(ty), Clos0(v), Clos0(b))
-      case Tm0.Lam(x, ty, b) => Val0.Lam(x, eval1(ty), Clos0(b))
-      case Tm0.App(f, a)     => Val0.App(eval0(f), eval0(a))
-      case Tm0.Splice(t)     => splice(eval1(t))
-      case Tm0.Wk1(t)        => eval0(t)(using env.wk1)
-      case Tm0.Wk0(t)        => eval0(t)(using env.wk0)
+      case Tm0.Lam(x, ty, b)           => Val0.Lam(x, eval1(ty), Clos0(b))
+      case Tm0.App(f, a)               => Val0.App(eval0(f), eval0(a))
+      case Tm0.Splice(t)               => splice(eval1(t))
+      case Tm0.Instr(op, ts, rt, args) =>
+        Val0.Instr(op, ts.map(eval1), eval1(rt), args.map(eval0))
+      case Tm0.Wk1(t) => eval0(t)(using env.wk1)
+      case Tm0.Wk0(t) => eval0(t)(using env.wk0)
 
   def eval1(t: Tm1)(using env: Env): Val1 =
     t match
@@ -174,9 +176,11 @@ object Evaluation:
         Tm0.Let(x, go1(ty), go0(v), goClos(b))
       case Val0.LetRec(x, ty, v, b) =>
         Tm0.LetRec(x, go1(ty), goClos(v), goClos(b))
-      case Val0.Lam(x, ty, b) => Tm0.Lam(x, go1(ty), goClos(b))
-      case Val0.App(f, a)     => Tm0.App(go0(f), go0(a))
-      case Val0.Splice(tm)    => go1(tm).splice
+      case Val0.Lam(x, ty, b)           => Tm0.Lam(x, go1(ty), goClos(b))
+      case Val0.App(f, a)               => Tm0.App(go0(f), go0(a))
+      case Val0.Splice(tm)              => go1(tm).splice
+      case Val0.Instr(op, ts, rt, args) =>
+        Tm0.Instr(op, ts.map(go1), go1(rt), args.map(go0))
 
   def nf(tm: Tm1, q: QuoteOption = QuoteOption.UnfoldAll): Tm1 =
     quote1(eval1(tm)(using Env.Empty), q)(using lvl0)

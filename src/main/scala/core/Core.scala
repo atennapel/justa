@@ -40,6 +40,7 @@ object Core:
     case Lam(name: Bind, ty: Ty, body: Tm0)
     case App(fn: Tm0, arg: Tm0)
     case Splice(tm: Tm1)
+    case Instr(instr: String, types: List[Ty], returntype: Ty, args: List[Tm0])
     case Wk1(tm: Tm0)
     case Wk0(tm: Tm0)
 
@@ -53,15 +54,16 @@ object Core:
       case t             => Tm1.Quote(t)
 
     override def toString: String = this match
-      case Var(ix)             => s"'$ix"
-      case Global(m, x)        => s"$m.$x"
-      case Let(x, ty, v, b)    => s"(let $x : $ty := $v; $b)"
-      case LetRec(x, ty, v, b) => s"(let rec $x : $ty := $v; $b)"
-      case Lam(x, ty, b)       => s"(\\($x : $ty) => $b)"
-      case App(fn, arg)        => s"($fn $arg)"
-      case Splice(tm)          => s"$$$tm"
-      case Wk1(tm)             => s"Wk10($tm)"
-      case Wk0(tm)             => s"Wk00($tm)"
+      case Var(ix)              => s"'$ix"
+      case Global(m, x)         => s"$m.$x"
+      case Let(x, ty, v, b)     => s"(let $x : $ty := $v; $b)"
+      case LetRec(x, ty, v, b)  => s"(let rec $x : $ty := $v; $b)"
+      case Lam(x, ty, b)        => s"(\\($x : $ty) => $b)"
+      case App(fn, arg)         => s"($fn $arg)"
+      case Splice(tm)           => s"$$$tm"
+      case Instr(x, _, _, args) => s"(instr $x ${args.mkString(" ")})"
+      case Wk1(tm)              => s"Wk10($tm)"
+      case Wk0(tm)              => s"Wk00($tm)"
 
   type Ty = Tm1
   enum Tm1:
@@ -216,6 +218,12 @@ object Core:
     case Lam(name: Bind, ty: VTy, body: Clos0)
     case App(fn: Val0, arg: Val0)
     case Splice(tm: Val1)
+    case Instr(
+        instr: String,
+        types: List[VTy],
+        returntype: VTy,
+        args: List[Val0]
+    )
 
   enum Head:
     case Var(lvl: Lvl)
