@@ -1,5 +1,6 @@
 package jvm
 
+import common.Common
 import scala.collection.mutable
 
 object JvmName:
@@ -12,7 +13,9 @@ object JvmName:
   final case class MName(module: Name, name: Name)
 
   def apply(x: String): Name = x
-  def apply(mod: String, x: String): MName = MName(mod, x)
+  def apply(x: Common.Name): Name = x.expose
+  def apply(mod: Common.Name, x: Common.Name): MName =
+    MName(mod.expose, x.expose)
 
   // naming
   private val nameCache: mutable.Map[String, String] = mutable.Map.empty

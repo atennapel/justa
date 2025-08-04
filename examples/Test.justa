@@ -1,0 +1,5 @@
+module Test
+
+import Prelude (iadd)
+
+def add (a b : Int) := iadd a b

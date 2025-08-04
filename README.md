@@ -3,7 +3,7 @@ Programming language targeting the JVM
 
 TODO:
 - If expressions
-- Unstaging
+- Array type and Class type
 - IO
 - Datatypes
 - Unification with meta variables

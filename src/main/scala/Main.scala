@@ -1,10 +1,11 @@
 import java.nio.file.{FileSystems, Files, Path}
 import scala.jdk.CollectionConverters.*
 import common.Common.{Name, err}
-// import ir.IR
-// import jvm.Jvm
+import ir.IR
+import jvm.Jvm
 import surface.{Parser, Surface}
 import surface.Elaboration.elaborate
+import core.Unstaging.unstage
 
 import java.io.File
 
@@ -15,12 +16,11 @@ object Main:
     val modules = files.map((p, m) => Parser.parse(m, Files.readString(p)))
     val orderedModules = orderModules(modules)
     val coreModules = elaborate(orderedModules)
-    println(coreModules)
-    /*
+    val irModules = unstage(coreModules)
     val jvmModules = IR.toJvm(irModules)
     val target = "justatarget"
     resetDir(target)
-    Jvm.generateBytecode(jvmModules, target)*/
+    Jvm.generateBytecode(jvmModules, target)
 
   private def resetDir(target: String): Unit =
     deleteDir(Path.of(target).toFile)

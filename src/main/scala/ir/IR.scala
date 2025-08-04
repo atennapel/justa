@@ -1,13 +1,12 @@
 package ir
 
-import common.Common.*
+import common.Common.{Name, err}
 import jvm.{Jvm, JvmName}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
 
 object IR:
-  type Name = String
   type Ix = Int
 
   final case class MName(module: Name, name: Name):
@@ -68,6 +67,8 @@ object IR:
 
   object TypeDef:
     def apply(ty: Type): TypeDef = TypeDef(Nil, false, ty)
+    def apply(ty: Type, rt: TypeDef): TypeDef =
+      TypeDef(ty :: rt.params, rt.io, rt.returnty)
 
   private type Occ = Map[Ix, (TypeDef, Int)]
 
@@ -308,7 +309,7 @@ object IR:
       val simplified = simplifyTopLevelUntilDone(eta(ty, value))
       val liftedDefs: mutable.ArrayBuffer[Jvm.Def] = mutable.ArrayBuffer.empty
       given emitDef: EmitDef = k => {
-        val x = s"${name}_lifted_${liftedDefs.size}"
+        val x = Name(s"${name}_lifted_${liftedDefs.size}")
         val mx = MName(mod, x)
         liftedDefs += k(mx)
         mx

@@ -184,7 +184,7 @@ object Evaluation:
 
   def nf(tm: Tm1, q: QuoteOption = QuoteOption.UnfoldAll): Tm1 =
     quote1(eval1(tm)(using Env.Empty), q)(using lvl0)
-  def stage(tm: Tm0): Tm0 =
+  def unstage0(tm: Tm0): Tm0 =
     quote0(eval0(tm)(using Env.Empty), QuoteOption.UnfoldStage)(using lvl0)
-  def stageUnder(tm: Tm0, env: Env): Tm0 =
+  def unstage0Under(tm: Tm0, env: Env): Tm0 =
     quote0(eval0(tm)(using env), QuoteOption.UnfoldStage)(using mkLvl(env.size))
