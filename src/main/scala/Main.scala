@@ -1,27 +1,66 @@
 import java.nio.file.{FileSystems, Files, Path}
 import scala.jdk.CollectionConverters.*
-import common.Common.{Name, err}
+import common.Common.{Name, err, PosInfo}
+import common.Debug.setDebug
+import core.Core
 import ir.IR
 import jvm.Jvm
 import surface.{Parser, Surface}
-import surface.Elaboration.elaborate
+import surface.Parser.ParseError
+import surface.Elaboration
+import surface.Elaboration.ElaborationError
 import core.Unstaging.unstage
 
 import java.io.File
 
 object Main:
   @main def run(): Unit =
+    setDebug(false)
     val root = FileSystems.getDefault.getPath("examples")
     val files = allSourceFiles(root).map(p => (p, moduleName(root, p)))
-    val modules = files.map((p, m) => Parser.parse(m, Files.readString(p)))
+    val modules = files.map((p, m) => parse(m, Files.readString(p)))
     val orderedModules = orderModules(modules)
-    val coreModules = elaborate(orderedModules)
+    val coreModules = elaborate(orderedModules, files)
     val irModules = unstage(coreModules)
     val jvmModules = IR.toJvm(irModules)
     val target = "justatarget"
     resetDir(target)
     Jvm.generateBytecode(jvmModules, target)
 
+  // helpers
+  private def parse(m: String, text: String): Surface.Module =
+    try Parser.parse(m, text)
+    catch
+      case err: ParseError =>
+        val pos = err.pos
+        System.err.println(err.msg)
+        System.err.println(s"in $m at $pos")
+        System.err.println(showPos(text, pos))
+        throw err
+
+  private def elaborate(
+      ms: List[Surface.Module],
+      files: List[(Path, String)]
+  ): List[Core.Module] =
+    try Elaboration.elaborate(ms)
+    catch
+      case err: ElaborationError =>
+        val pos = err.pos
+        val m = err.module.expose
+        System.err.println(err.msg)
+        System.err.println(s"in $m at $pos")
+        files.find((_, m2) => m == m2) match
+          case None         => ()
+          case Some((p, _)) =>
+            System.err.println(showPos(Files.readString(p), pos))
+        throw err
+
+  private def showPos(text: String, pos: PosInfo): String =
+    val line = text.lines.toArray.apply(pos.line - 1)
+    val indicator = " " * (pos.column - 1)
+    s"$line\n$indicator^"
+
+  // util
   private def resetDir(target: String): Unit =
     deleteDir(Path.of(target).toFile)
     Path.of(target).toFile.mkdir()

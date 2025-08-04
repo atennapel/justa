@@ -45,6 +45,8 @@ object State:
 
   private var moduleCtx: Option[ModuleCtx] = None
 
+  def currentModule: Name = moduleCtx.get.name
+
   private def module(mod: Name): mutable.ArrayBuffer[GlobalEntry] =
     globals.get(mod) match
       case None =>
@@ -54,13 +56,13 @@ object State:
       case Some(a) => a
 
   def addGlobal(entry: GlobalEntry): Unit =
-    module(moduleCtx.get.name) += entry
+    module(currentModule) += entry
 
   def moduleExists(mod: Name): Boolean = globals.contains(mod)
   def moduleHasName(mod: Name, x: Name): Boolean =
     moduleExists(mod) && globals(mod).findLast(e => e.name == x).isDefined
   def currentModuleHasName(x: Name): Boolean =
-    moduleHasName(moduleCtx.get.name, x)
+    moduleHasName(currentModule, x)
 
   private def getGlobal(mod: Name, x: Name): Option[GlobalEntry] =
     globals.get(mod) match

@@ -713,6 +713,18 @@ object Jvm:
             args.foreach(gen)
             mg.visitInsn(opcode)
           case None =>
+            def branch(op: Int, n: Int): Unit =
+              val ifEq = args(n)
+              val ifNotEq = args(n + 1)
+              val falseLabel = mg.newLabel()
+              val endLabel = mg.newLabel()
+              args.take(n).foreach(gen)
+              mg.visitJumpInsn(op, falseLabel)
+              gen(ifNotEq)
+              mg.visitJumpInsn(GOTO, endLabel)
+              mg.visitLabel(falseLabel)
+              gen(ifEq)
+              mg.visitLabel(endLabel)
             instr match
               case _ if instr.startsWith("getstatic/") =>
                 args.foreach(gen)
@@ -729,19 +741,25 @@ object Jvm:
                 val owner = gen(ts.head)
                 val method = new Method(name, gen(rt), ts.tail.map(gen).toArray)
                 mg.invokeVirtual(owner, method)
-              case _ if instr == "ifeq" =>
-                val argA = args.head
-                val ifEq = args(1)
-                val ifNotEq = args(2)
-                val falseLabel = mg.newLabel()
-                val endLabel = mg.newLabel()
-                gen(argA)
-                mg.visitJumpInsn(IFEQ, falseLabel)
-                gen(ifNotEq)
-                mg.visitJumpInsn(GOTO, endLabel)
-                mg.visitLabel(falseLabel)
-                gen(ifEq)
-                mg.visitLabel(endLabel)
+
+              case _ if instr == "ifeq"      => branch(IFEQ, 1)
+              case _ if instr == "ifge"      => branch(IFGE, 1)
+              case _ if instr == "ifgt"      => branch(IFGT, 1)
+              case _ if instr == "ifle"      => branch(IFLE, 1)
+              case _ if instr == "iflt"      => branch(IFLT, 1)
+              case _ if instr == "ifne"      => branch(IFNE, 1)
+              case _ if instr == "ifnonnull" => branch(IFNONNULL, 1)
+              case _ if instr == "ifnull"    => branch(IFNULL, 1)
+
+              case _ if instr == "if_acmpeq" => branch(IF_ACMPEQ, 2)
+              case _ if instr == "if_acmpne" => branch(IF_ACMPNE, 2)
+              case _ if instr == "if_icmpeq" => branch(IF_ICMPEQ, 2)
+              case _ if instr == "if_icmpge" => branch(IF_ICMPGE, 2)
+              case _ if instr == "if_icmpgt" => branch(IF_ICMPGT, 2)
+              case _ if instr == "if_icmple" => branch(IF_ICMPLE, 2)
+              case _ if instr == "if_icmplt" => branch(IF_ICMPLT, 2)
+              case _ if instr == "if_icmpne" => branch(IF_ICMPNE, 2)
+
               case _ => err(s"unsupported JVM instruction $instr")
 
       case Expr.FiniteCase(dx, scrut, cases, otherwise) =>

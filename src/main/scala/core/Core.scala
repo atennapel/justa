@@ -34,6 +34,7 @@ object Core:
 
   enum Tm0:
     case Var(ix: Ix)
+    case IntLit(value: Int)
     case Global(mod: Name, name: Name)
     case Let(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case LetRec(name: Name, ty: Ty, value: Tm0, body: Tm0)
@@ -55,6 +56,7 @@ object Core:
 
     override def toString: String = this match
       case Var(ix)              => s"'$ix"
+      case IntLit(v)            => v.toString
       case Global(m, x)         => s"$m.$x"
       case Let(x, ty, v, b)     => s"(let $x : $ty := $v; $b)"
       case LetRec(x, ty, v, b)  => s"(let rec $x : $ty := $v; $b)"
@@ -202,6 +204,7 @@ object Core:
 
   enum Val0:
     case Var(lvl: Lvl)
+    case IntLit(value: Int)
     case Global(mod: Name, name: Name)
     case Let(
         name: Name,

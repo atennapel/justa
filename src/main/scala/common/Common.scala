@@ -11,6 +11,7 @@ object Common:
 
   final case class PosInfo(line: Int, column: Int): // 1-based
     override def toString: String = s"$line:$column"
+    def subCol(n: Int): PosInfo = PosInfo(line, column - n)
   object PosInfo:
     def start: PosInfo = PosInfo(1, 1)
 

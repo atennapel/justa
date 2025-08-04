@@ -28,6 +28,7 @@ object Unstaging:
     inline def extEnv(td: IR.TypeDef) = td :: env
     inline def extVEnv = Env.E0(venv, Val0.Var(mkLvl(venv.size)))
     tm match
+      case Tm0.IntLit(v)        => IR.Expr.IntLit(v)
       case Tm0.Global(m, x)     => IR.Expr.Global(IR.MName(m, x))
       case Tm0.Let(_, ty, v, b) =>
         val td = goTypeDef(ty)

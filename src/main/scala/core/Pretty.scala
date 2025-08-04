@@ -50,6 +50,7 @@ object Pretty:
   ): String =
     tm match
       case Tm0.Var(_)           => pretty0(tm)
+      case Tm0.IntLit(_)        => pretty0(tm)
       case Tm0.Global(_, _)     => pretty0(tm)
       case Tm0.Splice(_)        => pretty0(tm)
       case Tm0.App(_, _) if app => pretty0(tm)
@@ -87,6 +88,7 @@ object Pretty:
         case Bind.DoBind(x) if ns.take(ix.expose).contains(Bind.DoBind(x)) =>
           s"$x@${ns.size - ix.expose - 1}"
         case Bind.DoBind(x) => s"$x"
+    case Tm0.IntLit(v)       => v.toString
     case Tm0.Global(m, x)    => s"$m.$x"
     case Tm0.Let(x, t, v, b) =>
       s"let $x : ${pretty1(t)} := ${pretty0(v)}; ${prettyLift0(x.toBind, b)}"

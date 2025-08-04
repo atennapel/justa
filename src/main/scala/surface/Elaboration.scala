@@ -13,11 +13,11 @@ import Surface.{ArgInfo, Tm}
 import State.GlobalEntry
 
 object Elaboration:
-  class ElaborationError(val pos: PosInfo, val msg: String)
+  class ElaborationError(val pos: PosInfo, val module: Name, val msg: String)
       extends RuntimeException(msg):
     override def toString: String = s"elaboration error at $pos: $msg"
   private inline def err(msg: String)(using ctx: Ctx): Nothing =
-    throw new ElaborationError(ctx.pos, msg)
+    throw new ElaborationError(ctx.pos, State.currentModule, msg)
 
   private enum Infer:
     case Infer0(tm: Tm0, ty: VTy, cv: VTy)
@@ -378,6 +378,9 @@ object Elaboration:
         case Tm.UTy(_, cv) => Infer1(Tm1.UTy(check1(cv, Val1.CV)), Val1.UMeta)
         case Tm.UMeta(_)   => Infer1(Tm1.UMeta, Val1.UMeta)
         case Tm.Hole(_, _) => err("cannot infer hole")
+
+        case Tm.IntLit(_, v) =>
+          Infer0(Tm0.IntLit(v), VPrimitive(Name("Int")), Val1.Val)
 
         case Tm.Var(_, None, Name("cv")) =>
           Infer1(Tm1.CV, Val1.UMeta)

@@ -66,7 +66,7 @@ object Parser:
         i += 1
       else if symbol2Match(c, next) then
         handleAcc()
-        tokens += Token.Symbol(s"$c$next", pos)
+        tokens += Token.Symbol(s"$c$next", pos.subCol(1))
         i += 1
       else if symbols1.contains(c) then
         handleAcc()
@@ -86,7 +86,8 @@ object Parser:
       case None         => false
       case Some(follow) => follow.contains(b)
 
-  private def tokenizeAcc(s: String, pos: PosInfo): Token =
+  private def tokenizeAcc(s: String, posAfter: PosInfo): Token = {
+    val pos = posAfter.subCol(s.length)
     s.toIntOption match
       case Some(n)                      => Token.Number(n, pos)
       case None if keywords.contains(s) => Token.Keyword(s, pos)
@@ -95,6 +96,7 @@ object Parser:
       case None if s.length == 2 && symbol2Match(s(0), s(1)) =>
         Token.Symbol(s, pos)
       case None => Token.Identifier(s, pos)
+  }
 
   // parsing
   private final case class Ctx(
@@ -181,9 +183,9 @@ object Parser:
     val prety = if trySymbol(":") then Some(parseExpr()) else None
     val isMeta =
       if trySymbol(":=") then false
-      else {
-        symbol("="); true
-      }
+      else
+        symbol("=")
+        true
     val prebody = parseExpr()
     val (ty, body) = prety match
       case None =>
@@ -200,7 +202,10 @@ object Parser:
               )
             case ArgInfo.Icit(i) => i
           val pty = opty.getOrElse(hole)
-          xs.foldRight(rty)((x, rty) => Tm.Pi(p, x, i, pty, rty))
+          xs.foldRight(rty) { (x, rty) =>
+            val px = if isMeta then x else Bind.DontBind
+            Tm.Pi(p, px, i, pty, rty)
+          }
         }
         val body = ps.foldRight(prebody) { case ((p, i, xs, _), b) =>
           xs.foldRight(b)((x, b) => Tm.Lam(p, x, i, None, b))
@@ -252,7 +257,10 @@ object Parser:
         else if trySymbol("^") then Some(Tm.Lift(ctx.pos, parseAtom()))
         else if trySymbol("`") then Some(Tm.Quote(ctx.pos, parseAtom()))
         else if trySymbol("$") then Some(Tm.Splice(ctx.pos, parseAtom()))
-        else None
+        else
+          tryNumber() match
+            case None    => None
+            case Some(v) => Some(Tm.IntLit(ctx.pos, v))
 
   private def parseAtom()(using ctx: Ctx): Tm =
     tryParseAtom().getOrElse(err("expected an expression"))
@@ -385,6 +393,11 @@ object Parser:
     tryConsumeMatch:
       case Token.Identifier(x, _) => Some(x)
       case _                      => None
+
+  private def tryNumber()(using ctx: Ctx): Option[Int] =
+    tryConsumeMatch:
+      case Token.Number(v, _) => Some(v)
+      case _                  => None
 
   private def name()(using ctx: Ctx): Name = Name(identifier())
   private def tryName()(using ctx: Ctx): Option[Name] =

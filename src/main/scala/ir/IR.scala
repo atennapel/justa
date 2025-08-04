@@ -794,8 +794,6 @@ object IR:
           case Expr.Local(j, _) if j == ix => tail && safeInArgs
           case expr => safeInArgs && isUsedInTailOnly(ix, expr, tail)
 
-      case Expr.Instr(_, _, _, args) =>
-        args.forall(isUsedInTailOnly(ix, _, false))
       case Expr.Con(_, _, args) => args.forall(isUsedInTailOnly(ix, _, false))
       case Expr.RecordCon(_, args) =>
         args.forall(isUsedInTailOnly(ix, _, false))
@@ -825,3 +823,26 @@ object IR:
         isUsedInTailOnly(ix, v, false) &&
         isUsedInTailOnly(ix + 1, b, tail)
       case Expr.ReturnIO(v) => isUsedInTailOnly(ix, v, tail)
+
+      case Expr.Instr(instr, _, _, args) if isJVMBranch1.contains(instr) =>
+        isUsedInTailOnly(ix, args.head, false) &&
+        args.tail.forall(isUsedInTailOnly(ix, _, tail))
+      case Expr.Instr(instr, _, _, args) if isJVMBranch2.contains(instr) =>
+        isUsedInTailOnly(ix, args.head, false) &&
+        isUsedInTailOnly(ix, args(1), false) &&
+        args.drop(2).forall(isUsedInTailOnly(ix, _, tail))
+      case Expr.Instr(_, _, _, args) =>
+        args.forall(isUsedInTailOnly(ix, _, false))
+
+  private val isJVMBranch1: Set[String] =
+    Set("ifeq", "ifge", "ifgt", "ifle", "iflt", "ifne", "ifnonnull", "ifnull")
+  private val isJVMBranch2: Set[String] = Set(
+    "if_acmpeq",
+    "if_acmpne",
+    "if_icmpeq",
+    "if_icmpge",
+    "if_icmpgt",
+    "if_icmple",
+    "if_icmplt",
+    "if_icmpne"
+  )

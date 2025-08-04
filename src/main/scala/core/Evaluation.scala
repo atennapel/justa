@@ -66,6 +66,7 @@ object Evaluation:
   def eval0(t: Tm0)(using env: Env): Val0 =
     t match
       case Tm0.Var(ix)          => var0(ix)
+      case Tm0.IntLit(v)        => Val0.IntLit(v)
       case Tm0.Global(m, x)     => Val0.Global(m, x)
       case Tm0.Let(x, ty, v, b) =>
         Val0.Let(x, eval1(ty), eval0(v), Clos0(b))
@@ -171,6 +172,7 @@ object Evaluation:
       case QuoteOption.UnfoldStage => forceStage0(v)
     force(v) match
       case Val0.Var(x)           => Tm0.Var(x.toIx)
+      case Val0.IntLit(v)        => Tm0.IntLit(v)
       case Val0.Global(m, x)     => Tm0.Global(m, x)
       case Val0.Let(x, ty, v, b) =>
         Tm0.Let(x, go1(ty), go0(v), goClos(b))

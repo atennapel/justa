@@ -2,10 +2,10 @@
 Programming language targeting the JVM
 
 TODO:
-- If expressions
 - Array type and Class type
 - IO
 - Datatypes
+- If expressions
 - Unification with meta variables
 - Operators
 - Reduce duplication in JVM bytecode generation code
