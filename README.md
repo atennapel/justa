@@ -2,7 +2,8 @@
 Programming language targeting the JVM
 
 TODO:
-- Array type and Class type
+- Class type
+- JVM descriptor type?
 - IO
 - Datatypes
 - If expressions

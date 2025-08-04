@@ -404,6 +404,18 @@ object Elaboration:
         case Tm.Var(_, None, x @ Name("Double")) =>
           Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
 
+        case Tm.Var(_, None, x @ Name("Array")) =>
+          val vty = Val1.UTy(Val1.Val)
+          Infer1(
+            Tm1.Lam(
+              Bind.DoBind(Name("ty")),
+              Expl,
+              Tm1.UTy(Tm1.Val),
+              Tm1.App(Tm1.Primitive(x), Tm1.Var(ix0), Expl)
+            ),
+            vfun1(vty, vty)
+          )
+
         case Tm.Var(_, m, x) =>
           ctx.lookup(x) match
             case Some(NameInfo.Name0(x, ty, cv)) =>

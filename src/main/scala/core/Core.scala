@@ -256,15 +256,34 @@ object Core:
 
     case Quote(tm: Val0)
 
+  private inline def bind(x: String): Bind =
+    if x == "_" then Bind.DontBind else Bind.DoBind(Name(x))
+  def vlam1(x: String, ty: VTy, b: Val1 => Val1): Val1 =
+    Val1.Lam(bind(x), Icit.Expl, ty, Clos1.Fun(b))
+  def vlamI(x: String, ty: VTy, b: Val1 => Val1): Val1 =
+    Val1.Lam(bind(x), Icit.Impl, ty, Clos1.Fun(b))
+  def vfun1(ty: VTy, rt: VTy): Val1 =
+    Val1.Pi(Bind.DontBind, Icit.Expl, ty, Clos1.Fun(_ => rt))
+  def vpi(x: String, ty: VTy, b: Val1 => Val1): Val1 =
+    Val1.Pi(bind(x), Icit.Expl, ty, Clos1.Fun(b))
+  def vpiI(x: String, ty: VTy, b: Val1 => Val1): Val1 =
+    Val1.Pi(bind(x), Icit.Impl, ty, Clos1.Fun(b))
+
   object Var1:
     def apply(lvl: Lvl): Val1 = Val1.Rigid(Head.Var(lvl), Spine.Empty)
-
     def unapply(value: Val1): Option[Lvl] = value match
       case Val1.Rigid(Head.Var(hd), Spine.Empty) => Some(hd)
       case _                                     => None
 
   object VPrimitive:
-    def apply(name: Name): Val1 = Val1.Rigid(Head.Primitive(name), Spine.Empty)
-    def unapply(value: Val1): Option[Name] = value match
-      case Val1.Rigid(Head.Primitive(name), Spine.Empty) => Some(name)
-      case _                                             => None
+    def apply(name: Name, args: List[Val1] = Nil): Val1 =
+      val spine =
+        args.foldLeft(Spine.Empty)((s, a) => Spine.App(s, a, Icit.Expl))
+      Val1.Rigid(Head.Primitive(name), spine)
+    def unapply(value: Val1): Option[(Name, List[Val1])] = value match
+      case Val1.Rigid(Head.Primitive(name), spine) =>
+        def args(s: Spine): List[Val1] = s match
+          case Spine.Empty           => Nil
+          case Spine.App(sp, arg, _) => args(sp) ++ List(arg)
+        Some((name, args(spine)))
+      case _ => None

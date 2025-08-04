@@ -70,11 +70,14 @@ object Unstaging:
 
   private def goVTy(t: VTy): IR.Type =
     forceAll1(t) match
-      case VPrimitive(Name("Byte"))   => IR.Type.Byte
-      case VPrimitive(Name("Char"))   => IR.Type.Char
-      case VPrimitive(Name("Short"))  => IR.Type.Short
-      case VPrimitive(Name("Int"))    => IR.Type.Int
-      case VPrimitive(Name("Long"))   => IR.Type.Long
-      case VPrimitive(Name("Float"))  => IR.Type.Float
-      case VPrimitive(Name("Double")) => IR.Type.Double
-      case _                          => impossible()
+      case VPrimitive(Name("Byte"), _)   => IR.Type.Byte
+      case VPrimitive(Name("Char"), _)   => IR.Type.Char
+      case VPrimitive(Name("Short"), _)  => IR.Type.Short
+      case VPrimitive(Name("Int"), _)    => IR.Type.Int
+      case VPrimitive(Name("Long"), _)   => IR.Type.Long
+      case VPrimitive(Name("Float"), _)  => IR.Type.Float
+      case VPrimitive(Name("Double"), _) => IR.Type.Double
+
+      case VPrimitive(Name("Array"), List(ty)) => IR.Type.Array(goVTy(ty))
+
+      case _ => impossible()
