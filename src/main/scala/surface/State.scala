@@ -92,6 +92,11 @@ object State:
     case GlobalIsNotAccessible
   import GlobalLookupFailure.*
 
+  def checkAccessibility(m: Name, x: Name): Boolean =
+    getGlobal(m, x) match
+      case None    => true
+      case Some(e) => e.isPublic
+
   def getGlobal(
       mod: Option[Name],
       px: Name

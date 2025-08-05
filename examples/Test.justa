@@ -35,9 +35,3 @@ def ioTest2 : IO Int :=
 --   bindIO {Int} {Int} (print value) \action =>
 --   let action: &void = instr 87 action;
 --   instr 177 action
-
-def MyInt = Int
-
-pub def Hidden = MyInt
-
-pub def escape : Hidden = 5 -- This should fail!

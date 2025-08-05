@@ -550,6 +550,59 @@ object Elaboration:
 
         case Tm.Instr(_, _, _) => err(s"cannot infer JVM instruction")
 
+  private def checkAccessibility(ty: VTy)(using ctx: Ctx): Unit =
+    debug(s"checkAccessibility ${ctx.pretty1(ty)}")
+    def checkGlobal(m: Name, x: Name): Unit =
+      if !State.checkAccessibility(m, x) then
+        err(s"escaping private definition $m.$x in type: ${ctx.pretty1(ty)}")
+    def goSp(sp: Spine)(using lvl: Lvl): Unit =
+      sp match
+        case Spine.Empty         => ()
+        case Spine.App(sp, a, _) => goSp(sp); go1(a)
+    def goHead(hd: Head): Unit =
+      hd match
+        case Head.Var(_)          => ()
+        case Head.Primitive(m, x) => checkGlobal(m, x)
+    def goUnfoldHead(hd: UnfoldHead)(using lvl: Lvl): Unit =
+      hd match
+        case UnfoldHead.Global(m, x, v) => checkGlobal(m, x); go1(v)
+    def go1(ty: VTy)(using lvl: Lvl): Unit =
+      inline def goClos(c: Clos1): Unit = go1(c(Var1(lvl)))(using lvl + 1)
+      ty match
+        case Val1.UMeta => ()
+        case Val1.CV    => ()
+        case Val1.Val   => ()
+        case Val1.Comp  => ()
+
+        case Val1.UTy(cv)           => go1(cv)
+        case Val1.Fun(pty, cv, rty) => go1(pty); go1(cv); go1(rty)
+        case Val1.Lift(cv, ty)      => go1(cv); go1(ty)
+
+        case Val1.Quote(tm) => go0(tm)
+
+        case Val1.Rigid(hd, sp)     => goHead(hd); goSp(sp)
+        case Val1.Unfold(hd, sp, _) => goUnfoldHead(hd); goSp(sp)
+
+        case Val1.Pi(_, _, ty, b)  => go1(ty); goClos(b)
+        case Val1.Lam(_, _, ty, b) => go1(ty); goClos(b)
+    def go0(tm: Val0)(using lvl: Lvl): Unit =
+      inline def goClos(c: Clos0): Unit = go0(c(Val0.Var(lvl)))(using lvl + 1)
+      tm match
+        case Val0.Global(m, x) => checkGlobal(m, x)
+
+        case Val0.Var(_)    => ()
+        case Val0.IntLit(_) => ()
+
+        case Val0.Instr(_, ts, rt, args) =>
+          ts.foreach(go1); go1(rt); args.foreach(go0)
+        case Val0.App(f, a)  => go0(f); go0(a)
+        case Val0.Splice(tm) => go1(tm)
+
+        case Val0.Let(_, ty, v, b)    => go1(ty); go0(v); goClos(b)
+        case Val0.LetRec(_, ty, v, b) => go1(ty); goClos(v); goClos(b)
+        case Val0.Lam(_, ty, b)       => go1(ty); goClos(b)
+    go1(ty)(using lvl0)
+
   // TODO: check that private types don't escape
   private def elaborate(defn: Surface.Def): Def = defn match
     case Surface.Def.D0(pos, pub, x, mty, v) =>
@@ -571,6 +624,7 @@ object Elaboration:
           val vty = ctx.eval1(ety)
           val ev = check0(v, vty, vcv)
           (ev, ety, cv, vty, vcv)
+      if pub then checkAccessibility(vty)
       val vv = ctx.eval0(ev)
       State.addGlobal(GlobalEntry.Def0(pub, x, ev, ety, cv, vv, vty, vcv))
       Def.D0(pub, x, ety, ev)
@@ -586,6 +640,7 @@ object Elaboration:
           val vty = ctx.eval1(ety)
           val ev = check1(v, vty)
           (ev, ety, vty)
+      if pub then checkAccessibility(vty)
       val vv = ctx.eval1(ev)
       State.addGlobal(GlobalEntry.Def1(pub, x, ev, ety, vv, vty))
       Def.D1(pub, x, ety, ev)
@@ -594,11 +649,11 @@ object Elaboration:
       if State.currentModuleHasName(x) then err(s"duplicate name $x")
       val ety = check1(ty, Val1.UMeta)
       val vty = ctx.eval1(ety)
+      if pub then checkAccessibility(vty)
       State.addGlobal(GlobalEntry.Primitive(pub, x, ety, vty))
       Def.Primitive(pub, x, ety)
 
   private def elaborate(mod: Surface.Module): Module =
-    // TODO: check for duplicate module name?
     State.enterModule(mod.name)
     mod.moduleAliases.foreach((m, r) => State.addModuleRenaming(m, r))
     mod.imports.foreach { case (x, (p1, p2, m, r)) =>

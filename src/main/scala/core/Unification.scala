@@ -11,9 +11,10 @@ object Unification:
   private inline def err(msg: String): Nothing =
     throw new UnificationError(msg)
 
-  def unify0(a: Val0, b: Val0)(using lvl: Lvl): Unit =
+  private def unify0(a: Val0, b: Val0)(using lvl: Lvl): Unit =
     inline def goClos(a: Clos0, b: Clos0): Unit =
-      unify0(a(Val0.Var(lvl)), b(Val0.Var(lvl)))(using lvl + 1)
+      val v = Val0.Var(lvl)
+      unify0(a(v), b(v))(using lvl + 1)
     (a, b) match
       case (Val0.Var(x), Val0.Var(y)) if x == y                 => ()
       case (Val0.IntLit(x), Val0.IntLit(y)) if x == y           => ()
