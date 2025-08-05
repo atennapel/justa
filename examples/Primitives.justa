@@ -1,0 +1,18 @@
+module Primitives
+
+pub def vtype = type val
+pub def ctype = type comp
+
+pub primitive Byte : vtype
+pub primitive Char : vtype
+pub primitive Short : vtype
+pub primitive Int : vtype
+pub primitive Long : vtype
+pub primitive Float : vtype
+pub primitive Double : vtype
+
+pub primitive Array : vtype -> vtype
+
+pub primitive IO : vtype -> ctype
+pub primitive returnIO {A : vtype} (x : A) : IO A
+pub primitive bindIO {A B : vtype} (action : IO A) (k : ^(A -> IO B)) : IO B

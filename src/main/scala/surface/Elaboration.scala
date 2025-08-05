@@ -371,6 +371,8 @@ object Elaboration:
             case Infer0(tm, ty, cv) => (tm.quote, Val1.Lift(cv, ty))
             case Infer1(tm, ty)     => (tm, ty)
 
+  private val intType: Val1 = VPrimitive(Name("Primitives"), Name("Int"))
+
   private def infer(tm: Tm)(using ctx: Ctx): Infer =
     debug(s"infer $tm")
     enter(tm.pos):
@@ -379,8 +381,7 @@ object Elaboration:
         case Tm.UMeta(_)   => Infer1(Tm1.UMeta, Val1.UMeta)
         case Tm.Hole(_, _) => err("cannot infer hole")
 
-        case Tm.IntLit(_, v) =>
-          Infer0(Tm0.IntLit(v), VPrimitive(Name("Int")), Val1.Val)
+        case Tm.IntLit(_, v) => Infer0(Tm0.IntLit(v), intType, Val1.Val)
 
         case Tm.Var(_, None, Name("cv")) =>
           Infer1(Tm1.CV, Val1.UMeta)
@@ -388,33 +389,6 @@ object Elaboration:
           Infer1(Tm1.Val, Val1.CV)
         case Tm.Var(_, None, Name("comp")) =>
           Infer1(Tm1.Comp, Val1.CV)
-
-        case Tm.Var(_, None, x @ Name("Byte")) =>
-          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
-        case Tm.Var(_, None, x @ Name("Char")) =>
-          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
-        case Tm.Var(_, None, x @ Name("Short")) =>
-          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
-        case Tm.Var(_, None, x @ Name("Int")) =>
-          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
-        case Tm.Var(_, None, x @ Name("Long")) =>
-          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
-        case Tm.Var(_, None, x @ Name("Float")) =>
-          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
-        case Tm.Var(_, None, x @ Name("Double")) =>
-          Infer1(Tm1.Primitive(x), Val1.UTy(Val1.Val))
-
-        case Tm.Var(_, None, x @ Name("Array")) =>
-          val vty = Val1.UTy(Val1.Val)
-          Infer1(
-            Tm1.Lam(
-              Bind.DoBind(Name("ty")),
-              Expl,
-              Tm1.UTy(Tm1.Val),
-              Tm1.App(Tm1.Primitive(x), Tm1.Var(ix0), Expl)
-            ),
-            vfun1(vty, vty)
-          )
 
         case Tm.Var(_, m, x) =>
           ctx.lookup(x) match
@@ -436,6 +410,8 @@ object Elaboration:
                   Infer0(Tm0.Global(m, x), ty, cv)
                 case Right((m, GlobalEntry.Def1(_, _, _, _, v, ty))) =>
                   Infer1(Tm1.Global(m, x, v), ty)
+                case Right((m, GlobalEntry.Primitive(_, _, _, ty))) =>
+                  Infer1(Tm1.Primitive(m, x), ty)
 
         case Tm.LetRec(_, x, Some(ty), v, b) =>
           val ety = check1(ty, Val1.UTy(Val1.Comp))
@@ -613,6 +589,13 @@ object Elaboration:
       val vv = ctx.eval1(ev)
       State.addGlobal(GlobalEntry.Def1(pub, x, ev, ety, vv, vty))
       Def.D1(pub, x, ety, ev)
+    case Surface.Def.Primitive(pos, pub, x, ty) =>
+      given ctx: Ctx = Ctx.empty.enter(pos)
+      if State.currentModuleHasName(x) then err(s"duplicate name $x")
+      val ety = check1(ty, Val1.UMeta)
+      val vty = ctx.eval1(ety)
+      State.addGlobal(GlobalEntry.Primitive(pub, x, ety, vty))
+      Def.Primitive(pub, x, ety)
 
   private def elaborate(mod: Surface.Module): Module =
     // TODO: check for duplicate module name?

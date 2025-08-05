@@ -1,5 +1,7 @@
 module Prelude
 
+import Primitives (Int)
+
 pub def iadd (a b : Int) : Int = instr 96 a b
 pub def imul (a b : Int) : Int = instr 104 a b
 pub def isub (a b : Int) : Int = instr 100 a b

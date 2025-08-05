@@ -26,11 +26,18 @@ object Core:
         ty: Ty,
         value: Tm1
     )
+    case Primitive(
+        public: Boolean,
+        name: Name,
+        ty: Ty
+    )
     override def toString: String = this match
       case D0(p, x, t, v) =>
         s"${if p then "pub " else ""}def $x : $t := $v"
       case D1(p, x, t, v) =>
         s"${if p then "pub " else ""}def $x : $t = $v"
+      case Primitive(p, x, t) =>
+        s"${if p then "pub " else ""}primitive $x : $t"
 
   enum Tm0:
     case Var(ix: Ix)
@@ -70,7 +77,7 @@ object Core:
   type Ty = Tm1
   enum Tm1:
     case Var(ix: Ix)
-    case Primitive(name: Name)
+    case Primitive(mod: Name, name: Name)
     case Global(mod: Name, name: Name, value: Val1)
     case Let(name: Name, ty: Ty, value: Tm1, body: Tm1)
 
@@ -109,7 +116,7 @@ object Core:
 
     override def toString: String = this match
       case Var(ix)                 => s"'$ix"
-      case Primitive(x)            => s"$x"
+      case Primitive(m, x)         => s"$m.$x"
       case Global(m, x, _)         => s"$m.$x"
       case Let(x, ty, v, b)        => s"(let $x : $ty = $v; $b)"
       case UTy(cv)                 => s"(type $cv)"
@@ -230,7 +237,7 @@ object Core:
 
   enum Head:
     case Var(lvl: Lvl)
-    case Primitive(name: Name)
+    case Primitive(mod: Name, name: Name)
 
   enum UnfoldHead:
     case Global(mod: Name, name: Name, value: Val1)
@@ -276,14 +283,14 @@ object Core:
       case _                                     => None
 
   object VPrimitive:
-    def apply(name: Name, args: List[Val1] = Nil): Val1 =
+    def apply(mod: Name, name: Name, args: List[Val1] = Nil): Val1 =
       val spine =
         args.foldLeft(Spine.Empty)((s, a) => Spine.App(s, a, Icit.Expl))
-      Val1.Rigid(Head.Primitive(name), spine)
-    def unapply(value: Val1): Option[(Name, List[Val1])] = value match
-      case Val1.Rigid(Head.Primitive(name), spine) =>
+      Val1.Rigid(Head.Primitive(mod, name), spine)
+    def unapply(value: Val1): Option[(Name, Name, List[Val1])] = value match
+      case Val1.Rigid(Head.Primitive(mod, name), spine) =>
         def args(s: Spine): List[Val1] = s match
           case Spine.Empty           => Nil
           case Spine.App(sp, arg, _) => args(sp) ++ List(arg)
-        Some((name, args(spine)))
+        Some((mod, name, args(spine)))
       case _ => None

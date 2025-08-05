@@ -25,14 +25,22 @@ object State:
         value: Val1,
         vty: VTy
     )
+    case Primitive(
+        public: Boolean,
+        x: Name,
+        ty: Ty,
+        vty: VTy
+    )
 
     def name: Name = this match
       case Def0(_, x, _, _, _, _, _, _) => x
       case Def1(_, x, _, _, _, _)       => x
+      case Primitive(_, x, _, _)        => x
 
     def isPublic: Boolean = this match
       case Def0(p, _, _, _, _, _, _, _) => p
       case Def1(p, _, _, _, _, _)       => p
+      case Primitive(p, _, _, _)        => p
 
   private final case class ModuleCtx(
       name: Name,

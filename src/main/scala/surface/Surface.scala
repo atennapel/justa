@@ -34,11 +34,19 @@ object Surface:
         ty: Option[Ty],
         value: Tm
     )
+    case Primitive(
+        pos: PosInfo,
+        public: Boolean,
+        name: Name,
+        ty: Ty
+    )
     override def toString: String = this match
       case D0(_, p, x, t, v) =>
         s"${if p then "pub " else ""}def $x${t.map(t => s" : $t").getOrElse("")} := $v"
       case D1(_, p, x, t, v) =>
         s"${if p then "pub " else ""}def $x${t.map(t => s" : $t").getOrElse("")} = $v"
+      case Primitive(_, p, x, t) =>
+        s"${if p then "pub " else ""}primitive $x : $t"
 
   enum ArgInfo:
     case Named(name: Name)

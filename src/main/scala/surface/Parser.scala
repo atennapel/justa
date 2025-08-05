@@ -2,6 +2,7 @@ package surface
 
 import common.Common.*
 import common.Common.Icit.*
+import common.Debug.debug
 import Surface.*
 
 import scala.collection.mutable
@@ -32,6 +33,7 @@ object Parser:
       "import",
       "pub",
       "def",
+      "primitive",
       "let",
       "rec",
       "meta",
@@ -172,7 +174,32 @@ object Parser:
       val (pos, isMeta, x, ty, body) = parseDefPart()
       if isMeta then Some(Def.D1(pos, pub, x, ty, body))
       else Some(Def.D0(pos, pub, x, ty, body))
+    else if tryKeyword("primitive") then
+      val pos = ctx.pos
+      val x = name()
+      val ps = parseParams()
+      symbol(":")
+      val rty = parseExpr()
+      val ty = createPi(ps, rty, true)
+      Some(Def.Primitive(pos, pub, x, ty))
     else None
+
+  private def createPi(ps: List[DefParam], rty: Ty, isMeta: Boolean)(using
+      ctx: Ctx
+  ): Tm =
+    ps.foldRight(rty) { case ((p, ai, xs, opty), rty) =>
+      val i = ai match
+        case ArgInfo.Named(_) =>
+          err(
+            "named parameter not allowed for lets or top-level definitions"
+          )
+        case ArgInfo.Icit(i) => i
+      val pty = opty.getOrElse(hole)
+      xs.foldRight(rty) { (x, rty) =>
+        val px = if isMeta then x else Bind.DontBind
+        Tm.Pi(p, px, i, pty, rty)
+      }
+    }
 
   private def parseDefPart()(using
       ctx: Ctx
@@ -194,19 +221,7 @@ object Parser:
         }
         (None, body)
       case Some(rty) =>
-        val ty = ps.foldRight(rty) { case ((p, ai, xs, opty), rty) =>
-          val i = ai match
-            case ArgInfo.Named(_) =>
-              err(
-                "named parameter not allowed for lets or top-level definitions"
-              )
-            case ArgInfo.Icit(i) => i
-          val pty = opty.getOrElse(hole)
-          xs.foldRight(rty) { (x, rty) =>
-            val px = if isMeta then x else Bind.DontBind
-            Tm.Pi(p, px, i, pty, rty)
-          }
-        }
+        val ty = createPi(ps, rty, isMeta)
         val body = ps.foldRight(prebody) { case ((p, i, xs, _), b) =>
           xs.foldRight(b)((x, b) => Tm.Lam(p, x, i, None, b))
         }
@@ -263,22 +278,33 @@ object Parser:
             case Some(v) => Some(Tm.IntLit(ctx.pos, v))
 
   private def parseAtom()(using ctx: Ctx): Tm =
+    debug(s"parseAtom: $ctx")
     tryParseAtom().getOrElse(err("expected an expression"))
 
   private def parseExpr()(using ctx: Ctx): Tm =
-    // println(s"parseExpr: $ctx")
+    debug(s"parseExpr: $ctx")
     if tryKeyword("let") then
       val rec = tryKeyword("rec")
       parseLet(rec)
     else if trySymbol("\\") then parseLam()
-    else if tryKeyword("type") then Tm.UTy(ctx.pos, parseAtom())
+    else if tryKeyword("type") then
+      val pos = ctx.pos
+      val ty = Tm.UTy(pos, parseAtom())
+      if trySymbol("->") then
+        val rest = apps()
+        Tm.Pi(pos, Bind.DontBind, Expl, ty, rest)
+      else ty
     else if tryKeyword("instr") then
       val pos = ctx.pos
       val op = tryIdentifier() match
         case Some(x) => x
         case None    => number().toString
       val args = list(tryParseAtom)
-      Tm.Instr(pos, op, args)
+      val instr = Tm.Instr(pos, op, args)
+      if trySymbol("->") then
+        val rest = apps()
+        Tm.Pi(pos, Bind.DontBind, Expl, instr, rest)
+      else instr
     else
       backtrack(piParam()) match
         case None    => apps()

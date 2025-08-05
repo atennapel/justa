@@ -2,9 +2,9 @@
 Programming language targeting the JVM
 
 TODO:
+- Check that private types don't escape definitions
 - Class type
 - JVM descriptor type?
-- IO
 - Datatypes
 - If expressions
 - Unification with meta variables

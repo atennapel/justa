@@ -5,6 +5,8 @@ import Core.*
 import ir.IR
 import Evaluation.*
 
+import scala.annotation.tailrec
+
 // convert from Core to IR
 object Unstaging:
   def unstage(mods: List[Module]): List[IR.Module] = mods.flatMap(unstage)
@@ -15,11 +17,11 @@ object Unstaging:
     else Some(IR.Module(mod.name, defs))
 
   private def unstage(defn: Def): Option[IR.Def] = defn match
-    case Def.D1(_, _, _, _)    => None
     case Def.D0(pub, x, ty, v) =>
       val ety = goTypeDef(ty)
       val value = unstage(v)
       Some(IR.Def.Value(pub, x, ety, value))
+    case _ => None
 
   private inline def unstage(tm: Tm0): IR.Expr =
     go(unstage0(tm))(using Nil, Env.Empty)
@@ -48,12 +50,33 @@ object Unstaging:
       case Tm0.Instr(op, ts, rt, args) =>
         IR.Expr.Instr(op, ts.map(t => goTy(t)), goTy(rt), args.map(go))
       case Tm0.Wk1(tm) => go(tm)
-      case Tm0.Wk0(tm) =>
-        go(tm)(using env.tail, venv.tail) // TODO: is this correct?
+      case Tm0.Wk0(tm) => go(tm)(using env.tail, venv.tail)
 
       case Tm0.Var(ix) => IR.Expr.Local(ix.expose, env(ix.expose))
 
-      case Tm0.Splice(_) => impossible()
+      case Tm0.Splice(tm) =>
+        @tailrec
+        def apps(tm: Tm1, args: List[Tm1] = Nil): (Name, Name, List[Tm1]) =
+          tm match
+            case Tm1.App(f, a, _)    => apps(f, a :: args)
+            case Tm1.Primitive(m, x) => (m, x, args)
+            case _                   => impossible()
+        def stWithEnv(t: Tm1, e: Env) = unstage0Under(t.splice, e)
+        inline def st(t: Tm1) = stWithEnv(t, venv)
+        inline def stgo(t: Tm1) = go(st(t))
+        apps(tm) match
+          case (Name("Primitives"), Name("returnIO"), List(_, v)) =>
+            IR.Expr.ReturnIO(stgo(v))
+          case (Name("Primitives"), Name("bindIO"), List(ty, _, v, k)) =>
+            val ety = goTy(ty)
+            val ev = stgo(v)
+            val ek = stgo(k)
+            IR.Expr.BindIO(
+              ety,
+              ev,
+              IR.Expr.App(ek, IR.Expr.Local(0, IR.TypeDef(ety)))
+            )
+          case (m, x, _) => err(s"invalid primitive in unstaging: $m.$x")
 
   // types
   private inline def goTypeDef(t: Ty, env: Env = Env.Empty): IR.TypeDef =
@@ -63,6 +86,8 @@ object Unstaging:
     forceAll1(t) match
       case Val1.Fun(pty, _, rty) =>
         IR.TypeDef(goVTy(pty), goVTypeDef(rty))
+      case VPrimitive(Name("Primitives"), Name("IO"), List(ty)) =>
+        IR.TypeDef(Nil, true, goVTy(ty))
       case t => IR.TypeDef(goVTy(t))
 
   private inline def goTy(t: Ty, env: Env = Env.Empty): IR.Type =
@@ -70,14 +95,15 @@ object Unstaging:
 
   private def goVTy(t: VTy): IR.Type =
     forceAll1(t) match
-      case VPrimitive(Name("Byte"), _)   => IR.Type.Byte
-      case VPrimitive(Name("Char"), _)   => IR.Type.Char
-      case VPrimitive(Name("Short"), _)  => IR.Type.Short
-      case VPrimitive(Name("Int"), _)    => IR.Type.Int
-      case VPrimitive(Name("Long"), _)   => IR.Type.Long
-      case VPrimitive(Name("Float"), _)  => IR.Type.Float
-      case VPrimitive(Name("Double"), _) => IR.Type.Double
+      case VPrimitive(Name("Primitives"), Name("Byte"), _)   => IR.Type.Byte
+      case VPrimitive(Name("Primitives"), Name("Char"), _)   => IR.Type.Char
+      case VPrimitive(Name("Primitives"), Name("Short"), _)  => IR.Type.Short
+      case VPrimitive(Name("Primitives"), Name("Int"), _)    => IR.Type.Int
+      case VPrimitive(Name("Primitives"), Name("Long"), _)   => IR.Type.Long
+      case VPrimitive(Name("Primitives"), Name("Float"), _)  => IR.Type.Float
+      case VPrimitive(Name("Primitives"), Name("Double"), _) => IR.Type.Double
 
-      case VPrimitive(Name("Array"), List(ty)) => IR.Type.Array(goVTy(ty))
+      case VPrimitive(Name("Primitives"), Name("Array"), List(ty)) =>
+        IR.Type.Array(goVTy(ty))
 
       case _ => impossible()

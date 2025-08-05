@@ -1,5 +1,6 @@
 module Test
 
+import Primitives (Int, Array, IO, returnIO, bindIO)
 import Prelude (imul => mul, isub => sub)
 
 pub def fac (n : Int) :=
@@ -17,3 +18,26 @@ pub def facTR (n : Int) :=
   go n 1
 
 def a (x : Array Int) := x
+
+def ioTest : IO Int := returnIO {Int} 42
+
+def ioTest2 : IO Int :=
+  bindIO {Int} {Int} ioTest \x => returnIO {Int} x
+
+-- def print (n : Int) : IO Int =
+--   let stdout : &java.io.PrintStream = instr getstatic/java.lang.System.out;
+--   let println : &void = instr invokevirtual/println stdout n;
+--   let printlnFalse : IO Int = instr 3 println;
+--   bindIO {Int} {Int} printlnFalse \x => returnIO {Int} x
+
+-- pub def main (args : Array &java.lang.String) : IO &void =
+--   bindIO {Int} {Int} start \value =>
+--   bindIO {Int} {Int} (print value) \action =>
+--   let action: &void = instr 87 action;
+--   instr 177 action
+
+def MyInt = Int
+
+pub def Hidden = MyInt
+
+pub def escape : Hidden = 5 -- This should fail!
