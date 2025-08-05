@@ -589,6 +589,10 @@ object Elaboration:
 
         case Tm.Instr(_, _, _) => err(s"cannot infer JVM instruction")
 
+        case Tm.Match(_, scrut, cs, o) =>
+          println(tm)
+          ???
+
   private def checkAccessibility(ty: VTy)(using ctx: Ctx): Unit =
     debug(s"checkAccessibility ${ctx.pretty1(ty)}")
     def checkGlobal(m: Name, x: Name): Unit =

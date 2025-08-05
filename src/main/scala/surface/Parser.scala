@@ -39,7 +39,8 @@ object Parser:
       "finite",
       "let",
       "rec",
-      "instr"
+      "instr",
+      "match"
     )
   private val symbols1: Set[Char] =
     Set(':', ';', '=', '\\', ',', '(', ')', '{', '}', '^', '`', '$', '|')
@@ -329,6 +330,7 @@ object Parser:
       val rec = tryKeyword("rec")
       parseLet(rec)
     else if trySymbol("\\") then parseLam()
+    else if tryKeyword("match") then parseMatch()
     else if tryKeyword("instr") then
       val pos = ctx.pos
       val op = tryIdentifier() match
@@ -379,6 +381,7 @@ object Parser:
     val tl = list(parseArg)
     val optLam =
       if trySymbol("\\") then List((parseLam(), ArgInfo.Icit(Expl)))
+      else if tryKeyword("match") then List((parseMatch(), ArgInfo.Icit(Expl)))
       else Nil
     val expr = (tl ++ optLam).foldLeft(hd) { case (f, (a, i)) =>
       Tm.App(a.pos, f, a, i)
@@ -405,6 +408,46 @@ object Parser:
     ps.foldRight(body) { case ((p, a, xs, ty), b) =>
       xs.foldRight(b)((x, b) => Tm.Lam(p, x, a, ty, b))
     }
+
+  private def parseMatch()(using ctx: Ctx): Tm =
+    val pos = ctx.pos
+    val scrut =
+      if trySymbol("{") then None
+      else
+        val scrut = parseAtom()
+        symbol("{")
+        Some(scrut)
+    val (cs, o) =
+      if trySymbol("}") then (Nil, None)
+      else
+        trySymbol("|")
+        parseCase() match
+          case Left(c)   => (Nil, Some(c))
+          case Right(hd) =>
+            val tl = mutable.ArrayBuffer.empty[(PosInfo, Name, List[Bind], Tm)]
+            var otherwiseFound: Option[(PosInfo, Tm)] = None
+            while otherwiseFound.isEmpty && trySymbol("|") do
+              parseCase() match
+                case Left(o)  => otherwiseFound = Some(o)
+                case Right(c) => tl += c
+            (hd :: tl.toList, otherwiseFound)
+    symbol("}")
+    Tm.Match(pos, scrut, cs, o)
+
+  private def parseCase()(using
+      ctx: Ctx
+  ): Either[(PosInfo, Tm), (PosInfo, Name, List[Bind], Tm)] =
+    val cx = identifier()
+    val pos = ctx.pos
+    if cx == "_" then
+      symbol("=>")
+      val b = parseExpr()
+      Left((pos, b))
+    else
+      val ps = list(tryBind)
+      symbol("=>")
+      val b = parseExpr()
+      Right((pos, Name(cx), ps, b))
 
   private def parseArg()(using ctx: Ctx): Option[(Tm, ArgInfo)] =
     if trySymbol("{") then
