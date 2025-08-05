@@ -78,6 +78,7 @@ object Surface:
   enum Tm:
     case Var(posInfo: PosInfo, mod: Option[Name], name: Name)
     case IntLit(posInfo: PosInfo, value: Int)
+    case Unit(posInfo: PosInfo)
 
     case Let0(posInfo: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
     case Let1(posInfo: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
@@ -110,6 +111,7 @@ object Surface:
     def pos: PosInfo = this match
       case Tm.Var(pos, _, _)          => pos
       case Tm.IntLit(pos, _)          => pos
+      case Tm.Unit(pos)               => pos
       case Tm.Let0(pos, _, _, _, _)   => pos
       case Tm.Let1(pos, _, _, _, _)   => pos
       case Tm.LetRec(pos, _, _, _, _) => pos
@@ -126,6 +128,7 @@ object Surface:
       case Var(_, None, x)      => s"$x"
       case Var(_, Some(m), x)   => s"$m.$x"
       case IntLit(_, v)         => v.toString
+      case Unit(_)              => "()"
       case Let0(_, x, ty, v, b) =>
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
       case Let1(_, x, ty, v, b) =>

@@ -33,7 +33,9 @@ object State:
     )
     case Finite(
         public: Boolean,
-        x: Name
+        x: Name,
+        cons: List[Name],
+        tm: Tm1
     )
     case FiniteCon(
         public: Boolean,
@@ -49,14 +51,14 @@ object State:
       case Def0(_, x, _, _, _, _, _, _)   => x
       case Def1(_, x, _, _, _, _)         => x
       case Primitive(_, x, _, _)          => x
-      case Finite(_, x)                   => x
+      case Finite(_, x, _, _)             => x
       case FiniteCon(_, x, _, _, _, _, _) => x
 
     def isPublic: Boolean = this match
       case Def0(p, _, _, _, _, _, _, _)   => p
       case Def1(p, _, _, _, _, _)         => p
       case Primitive(p, _, _, _)          => p
-      case Finite(p, _)                   => p
+      case Finite(p, _, _, _)             => p
       case FiniteCon(p, _, _, _, _, _, _) => p
 
   private final case class ModuleCtx(

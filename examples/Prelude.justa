@@ -5,6 +5,8 @@ import Primitives (Int)
 pub def vtype = type val
 pub def ctype = type comp
 
+pub finite Void
+pub finite Unit = MkUnit
 pub finite Bool = False | True
 
 pub def iadd (a b : Int) : Int = instr 96 a b

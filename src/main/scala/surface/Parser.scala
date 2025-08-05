@@ -305,9 +305,12 @@ object Parser:
       case Some(x) => Some(Tm.Var(ctx.pos, None, Name(x)))
       case None    =>
         if trySymbol("(") then
-          val expr = parseExpr()
-          symbol(")")
-          Some(expr)
+          val pos = ctx.pos
+          if trySymbol(")") then Some(Tm.Unit(pos))
+          else
+            val expr = parseExpr()
+            symbol(")")
+            Some(expr)
         else if trySymbol("^") then Some(Tm.Lift(ctx.pos, parseAtom()))
         else if trySymbol("`") then Some(Tm.Quote(ctx.pos, parseAtom()))
         else if trySymbol("$") then Some(Tm.Splice(ctx.pos, parseAtom()))
@@ -352,13 +355,15 @@ object Parser:
       ctx: Ctx
   ): Option[(PosInfo, Icit, List[Bind], Ty)] =
     if trySymbol("(") then
-      val pos = ctx.pos
-      val x = bind()
-      val xs = list(tryBind)
-      symbol(":")
-      val ty = parseExpr()
-      symbol(")")
-      Some((pos, Expl, x :: xs, ty))
+      if trySymbol(")") then None
+      else
+        val pos = ctx.pos
+        val x = bind()
+        val xs = list(tryBind)
+        symbol(":")
+        val ty = parseExpr()
+        symbol(")")
+        Some((pos, Expl, x :: xs, ty))
     else if trySymbol("{") then
       val pos = ctx.pos
       val (xs, prety) = parseGrouping()

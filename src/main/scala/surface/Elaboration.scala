@@ -211,6 +211,25 @@ object Elaboration:
         case Tm.Hole(_, x) =>
           err(s"checking _${x.getOrElse("")} against ${ctx.pretty1(ty)}")
 
+        case Tm.Unit(_) =>
+          forceAll1(ty) match
+            case Val1.Rigid(Head.TypeCon(DataKind.Data, m, x), _)   => ???
+            case Val1.Rigid(Head.TypeCon(DataKind.Record, m, x), _) => ???
+            case Val1.Rigid(Head.TypeCon(DataKind.Finite, m, x), _) =>
+              State.getGlobal(m, x) match
+                case Some(GlobalEntry.Finite(_, _, xs, _)) =>
+                  if xs.size == 1 then
+                    State.getGlobal(m, xs.head) match
+                      case Some(GlobalEntry.FiniteCon(_, _, _, _, tm, _, _)) =>
+                        tm
+                      case _ => impossible()
+                  else
+                    err(
+                      s"cannot check () against ${ctx.pretty1(ty)}: type does not have exactly one constructor"
+                    )
+                case _ => impossible()
+            case _ => err(s"cannot check () against ${ctx.pretty1(ty)}")
+
         case Tm.Splice(_, t) => check1(t, Val1.Lift(cv, ty)).splice
 
         case Tm.Instr(_, op, args) =>
@@ -379,6 +398,7 @@ object Elaboration:
     enter(tm.pos):
       tm match
         case Tm.Hole(_, _) => err("cannot infer hole")
+        case Tm.Unit(_)    => err("cannot infer ()")
 
         case Tm.IntLit(_, v) => Infer0(Tm0.IntLit(v), intType, Val1.Val)
 
@@ -427,8 +447,8 @@ object Elaboration:
                   Infer1(Tm1.Global(m, x, v), ty)
                 case Right((m, GlobalEntry.Primitive(_, _, _, ty))) =>
                   Infer1(Tm1.Primitive(m, x), ty)
-                case Right((m, GlobalEntry.Finite(_, _))) =>
-                  Infer1(Tm1.TypeCon(DataKind.Finite, m, x), Val1.UTy(Val1.Val))
+                case Right((_, GlobalEntry.Finite(_, _, _, tm))) =>
+                  Infer1(tm, Val1.UTy(Val1.Val))
                 case Right((_, GlobalEntry.FiniteCon(_, _, _, _, tm, _, ty))) =>
                   Infer0(tm, ty, Val1.Val)
 
@@ -680,20 +700,21 @@ object Elaboration:
         case DataKind.Data   => ???
         case DataKind.Record => ???
         case DataKind.Finite =>
+          val m = State.currentModule
           val xs = cs.zipWithIndex.map {
             case (Surface.Constructor(pos, pub, cx, ps), ix) =>
               given conctx: Ctx = ctx.enter(pos)
               if ps.nonEmpty then
                 err(s"a finite datatype cannot have constructor parameters")
               if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
-              val m = State.currentModule
               val ty = Tm1.TypeCon(k, m, x)
               val vty = ctx.eval1(ty)
               val tm = Tm0.Con(k, m, cx)
               State.addGlobal(FiniteCon(pub, cx, x, ix, tm, ty, vty))
               cx
           }
-          State.addGlobal(GlobalEntry.Finite(pub, x))
+          val tm = Tm1.TypeCon(DataKind.Finite, m, x)
+          State.addGlobal(GlobalEntry.Finite(pub, x, xs, tm))
           Def.Finite(pub, x, xs)
 
   private def elaborate(mod: Surface.Module): Module =
