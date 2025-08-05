@@ -31,6 +31,7 @@ object Core:
         name: Name,
         ty: Ty
     )
+    case Finite(public: Boolean, name: Name, cons: List[Name])
     override def toString: String = this match
       case D0(p, x, t, v) =>
         s"${if p then "pub " else ""}def $x : $t := $v"
@@ -38,11 +39,14 @@ object Core:
         s"${if p then "pub " else ""}def $x : $t = $v"
       case Primitive(p, x, t) =>
         s"${if p then "pub " else ""}primitive $x : $t"
+      case Finite(p, x, cs) =>
+        s"${if p then "pub " else ""}finite $x = ${cs.mkString(" | ")}"
 
   enum Tm0:
     case Var(ix: Ix)
     case IntLit(value: Int)
     case Global(mod: Name, name: Name)
+    case Con(kind: DataKind, mod: Name, cx: Name)
     case Let(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case LetRec(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case Lam(name: Bind, ty: Ty, body: Tm0)
@@ -61,9 +65,16 @@ object Core:
       case Tm0.Splice(t) => t
       case t             => Tm1.Quote(t)
 
+    def flattenApps: (Tm0, List[Tm0]) = this match
+      case Tm0.App(f, a) =>
+        val (hd, args) = f.flattenApps
+        (hd, args ++ List(a))
+      case t => (t, Nil)
+
     override def toString: String = this match
       case Var(ix)              => s"'$ix"
       case IntLit(v)            => v.toString
+      case Con(_, m, x)         => s"$m.$x"
       case Global(m, x)         => s"$m.$x"
       case Let(x, ty, v, b)     => s"(let $x : $ty := $v; $b)"
       case LetRec(x, ty, v, b)  => s"(let rec $x : $ty := $v; $b)"
@@ -78,6 +89,7 @@ object Core:
   enum Tm1:
     case Var(ix: Ix)
     case Primitive(mod: Name, name: Name)
+    case TypeCon(kind: DataKind, mod: Name, name: Name)
     case Global(mod: Name, name: Name, value: Val1)
     case Let(name: Name, ty: Ty, value: Tm1, body: Tm1)
 
@@ -118,6 +130,7 @@ object Core:
       case Var(ix)                 => s"'$ix"
       case Primitive(m, x)         => s"$m.$x"
       case Global(m, x, _)         => s"$m.$x"
+      case TypeCon(_, m, x)        => s"$m.$x"
       case Let(x, ty, v, b)        => s"(let $x : $ty = $v; $b)"
       case UTy(cv)                 => s"(type $cv)"
       case UMeta                   => "meta"
@@ -213,6 +226,7 @@ object Core:
     case Var(lvl: Lvl)
     case IntLit(value: Int)
     case Global(mod: Name, name: Name)
+    case Con(kind: DataKind, mod: Name, cx: Name)
     case Let(
         name: Name,
         ty: VTy,
@@ -238,6 +252,7 @@ object Core:
   enum Head:
     case Var(lvl: Lvl)
     case Primitive(mod: Name, name: Name)
+    case TypeCon(kind: DataKind, mod: Name, name: Name)
 
   enum UnfoldHead:
     case Global(mod: Name, name: Name, value: Val1)
@@ -293,4 +308,12 @@ object Core:
           case Spine.Empty           => Nil
           case Spine.App(sp, arg, _) => args(sp) ++ List(arg)
         Some((mod, name, args(spine)))
+      case _ => None
+
+  object VTypeCon:
+    def apply(kind: DataKind, mod: Name, name: Name): Val1 =
+      Val1.Rigid(Head.TypeCon(kind, mod, name), Spine.Empty)
+    def unapply(value: Val1): Option[(DataKind, Name, Name)] = value match
+      case Val1.Rigid(Head.TypeCon(kind, mod, name), Spine.Empty) =>
+        Some((kind, mod, name))
       case _ => None

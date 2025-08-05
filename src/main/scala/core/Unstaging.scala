@@ -4,6 +4,8 @@ import common.Common.*
 import Core.*
 import ir.IR
 import Evaluation.*
+import surface.State
+import surface.State.GlobalEntry
 
 import scala.annotation.tailrec
 
@@ -21,7 +23,9 @@ object Unstaging:
       val ety = goTypeDef(ty)
       val value = unstage(v)
       Some(IR.Def.Value(pub, x, ety, value))
-    case _ => None
+    case Def.Finite(pub, x, cs) => Some(IR.Def.Finite(pub, x, cs.size))
+    case Def.D1(_, _, _, _)     => None
+    case Def.Primitive(_, _, _) => None
 
   private inline def unstage(tm: Tm0): IR.Expr =
     go(unstage0(tm))(using Nil, Env.Empty)
@@ -29,9 +33,21 @@ object Unstaging:
   private def go(tm: Tm0)(using env: List[IR.TypeDef], venv: Env): IR.Expr =
     inline def extEnv(td: IR.TypeDef) = td :: env
     inline def extVEnv = Env.E0(venv, Val0.Var(mkLvl(venv.size)))
+    def goCon(k: DataKind, m: Name, cx: Name, args: List[Tm0]): IR.Expr =
+      k match
+        case DataKind.Data =>
+          IR.Expr.Con(IR.MName(m, ???), cx, args.map(go))
+        case DataKind.Record =>
+          IR.Expr.RecordCon(IR.MName(m, ???), args.map(go))
+        case DataKind.Finite =>
+          State.getGlobal(m, cx) match
+            case Some(GlobalEntry.FiniteCon(_, _, dx, ix, _, _, _)) =>
+              IR.Expr.FiniteCon(IR.MName(m, dx), ix)
+            case _ => impossible()
     tm match
       case Tm0.IntLit(v)        => IR.Expr.IntLit(v)
       case Tm0.Global(m, x)     => IR.Expr.Global(IR.MName(m, x))
+      case Tm0.Con(k, m, cx)    => goCon(k, m, cx, Nil)
       case Tm0.Let(_, ty, v, b) =>
         val td = goTypeDef(ty)
         IR.Expr.Let(td, go(v), go(b)(using extEnv(td), extVEnv))
@@ -46,7 +62,11 @@ object Unstaging:
         val ta = goTy(ty)
         val td = IR.TypeDef(ta)
         IR.Expr.Lam(ta, go(b)(using extEnv(td), extVEnv))
-      case Tm0.App(f, a)               => IR.Expr.App(go(f), go(a))
+      case app @ Tm0.App(_, _) =>
+        val (hd, args) = app.flattenApps
+        hd match
+          case Tm0.Con(k, m, cx) => goCon(k, m, cx, args)
+          case _ => args.foldLeft(go(hd))((f, a) => IR.Expr.App(f, go(a)))
       case Tm0.Instr(op, ts, rt, args) =>
         IR.Expr.Instr(op, ts.map(t => goTy(t)), goTy(rt), args.map(go))
       case Tm0.Wk1(tm) => go(tm)
@@ -105,5 +125,9 @@ object Unstaging:
 
       case VPrimitive(Name("Primitives"), Name("Array"), List(ty)) =>
         IR.Type.Array(goVTy(ty))
+
+      case VTypeCon(DataKind.Data, m, x)   => IR.Type.Data(IR.MName(m, x))
+      case VTypeCon(DataKind.Record, m, x) => IR.Type.Record(IR.MName(m, x))
+      case VTypeCon(DataKind.Finite, m, x) => IR.Type.Finite(IR.MName(m, x))
 
       case _ => impossible()

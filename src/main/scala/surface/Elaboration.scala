@@ -11,6 +11,7 @@ import core.{Core, Unification}
 import Ctx.*
 import Surface.{ArgInfo, Tm}
 import State.GlobalEntry
+import surface.State.GlobalEntry.FiniteCon
 
 object Elaboration:
   class ElaborationError(val pos: PosInfo, val module: Name, val msg: String)
@@ -377,18 +378,32 @@ object Elaboration:
     debug(s"infer $tm")
     enter(tm.pos):
       tm match
-        case Tm.UTy(_, cv) => Infer1(Tm1.UTy(check1(cv, Val1.CV)), Val1.UMeta)
-        case Tm.UMeta(_)   => Infer1(Tm1.UMeta, Val1.UMeta)
         case Tm.Hole(_, _) => err("cannot infer hole")
 
         case Tm.IntLit(_, v) => Infer0(Tm0.IntLit(v), intType, Val1.Val)
 
-        case Tm.Var(_, None, Name("cv")) =>
-          Infer1(Tm1.CV, Val1.UMeta)
-        case Tm.Var(_, None, Name("val")) =>
-          Infer1(Tm1.Val, Val1.CV)
-        case Tm.Var(_, None, Name("comp")) =>
-          Infer1(Tm1.Comp, Val1.CV)
+        case Tm.Var(_, None, Name("meta")) => Infer1(Tm1.UMeta, Val1.UMeta)
+        case Tm.App(
+              _,
+              Tm.Var(_, None, Name("type")),
+              arg,
+              ArgInfo.Icit(Expl)
+            ) =>
+          Infer1(Tm1.UTy(check1(arg, Val1.CV)), Val1.UMeta)
+        case Tm.Var(_, None, Name("type")) =>
+          Infer1(
+            Tm1.Lam(
+              Bind.DoBind(Name("ty")),
+              Expl,
+              Tm1.CV,
+              Tm1.UTy(Tm1.Var(ix0))
+            ),
+            vfun1(Val1.CV, Val1.UMeta)
+          )
+
+        case Tm.Var(_, None, Name("cv"))   => Infer1(Tm1.CV, Val1.UMeta)
+        case Tm.Var(_, None, Name("val"))  => Infer1(Tm1.Val, Val1.CV)
+        case Tm.Var(_, None, Name("comp")) => Infer1(Tm1.Comp, Val1.CV)
 
         case Tm.Var(_, m, x) =>
           ctx.lookup(x) match
@@ -412,6 +427,10 @@ object Elaboration:
                   Infer1(Tm1.Global(m, x, v), ty)
                 case Right((m, GlobalEntry.Primitive(_, _, _, ty))) =>
                   Infer1(Tm1.Primitive(m, x), ty)
+                case Right((m, GlobalEntry.Finite(_, _))) =>
+                  Infer1(Tm1.TypeCon(DataKind.Finite, m, x), Val1.UTy(Val1.Val))
+                case Right((_, GlobalEntry.FiniteCon(_, _, _, _, tm, _, ty))) =>
+                  Infer0(tm, ty, Val1.Val)
 
         case Tm.LetRec(_, x, Some(ty), v, b) =>
           val ety = check1(ty, Val1.UTy(Val1.Comp))
@@ -561,8 +580,9 @@ object Elaboration:
         case Spine.App(sp, a, _) => goSp(sp); go1(a)
     def goHead(hd: Head): Unit =
       hd match
-        case Head.Var(_)          => ()
-        case Head.Primitive(m, x) => checkGlobal(m, x)
+        case Head.Var(_)           => ()
+        case Head.Primitive(m, x)  => checkGlobal(m, x)
+        case Head.TypeCon(_, m, x) => checkGlobal(m, x)
     def goUnfoldHead(hd: UnfoldHead)(using lvl: Lvl): Unit =
       hd match
         case UnfoldHead.Global(m, x, v) => checkGlobal(m, x); go1(v)
@@ -589,6 +609,7 @@ object Elaboration:
       inline def goClos(c: Clos0): Unit = go0(c(Val0.Var(lvl)))(using lvl + 1)
       tm match
         case Val0.Global(m, x) => checkGlobal(m, x)
+        case Val0.Con(_, m, x) => checkGlobal(m, x)
 
         case Val0.Var(_)    => ()
         case Val0.IntLit(_) => ()
@@ -652,6 +673,28 @@ object Elaboration:
       if pub then checkAccessibility(vty)
       State.addGlobal(GlobalEntry.Primitive(pub, x, ety, vty))
       Def.Primitive(pub, x, ety)
+    case Surface.Def.Data(pos, pub, x, k, cs) =>
+      given ctx: Ctx = Ctx.empty.enter(pos)
+      if State.currentModuleHasName(x) then err(s"duplicate name $x")
+      k match
+        case DataKind.Data   => ???
+        case DataKind.Record => ???
+        case DataKind.Finite =>
+          val xs = cs.zipWithIndex.map {
+            case (Surface.Constructor(pos, pub, cx, ps), ix) =>
+              given conctx: Ctx = ctx.enter(pos)
+              if ps.nonEmpty then
+                err(s"a finite datatype cannot have constructor parameters")
+              if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
+              val m = State.currentModule
+              val ty = Tm1.TypeCon(k, m, x)
+              val vty = ctx.eval1(ty)
+              val tm = Tm0.Con(k, m, cx)
+              State.addGlobal(FiniteCon(pub, cx, x, ix, tm, ty, vty))
+              cx
+          }
+          State.addGlobal(GlobalEntry.Finite(pub, x))
+          Def.Finite(pub, x, xs)
 
   private def elaborate(mod: Surface.Module): Module =
     State.enterModule(mod.name)

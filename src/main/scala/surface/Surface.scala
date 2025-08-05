@@ -19,6 +19,18 @@ object Surface:
     override def toString: String = defs.mkString("\n")
     def toList: List[Def] = defs
 
+  final case class Constructor(
+      pos: PosInfo,
+      public: Boolean,
+      name: Name,
+      params: List[(Option[Bind], Ty)]
+  ):
+    override def toString: String =
+      val ps = params
+        .map((ox, t) => ox.fold(t.toString)(x => s"($x : $t)"))
+        .mkString(" ")
+      s"$name $ps"
+
   enum Def:
     case D0(
         pos: PosInfo,
@@ -40,6 +52,13 @@ object Surface:
         name: Name,
         ty: Ty
     )
+    case Data(
+        pos: PosInfo,
+        public: Boolean,
+        name: Name,
+        kind: DataKind,
+        cons: List[Constructor]
+    )
     override def toString: String = this match
       case D0(_, p, x, t, v) =>
         s"${if p then "pub " else ""}def $x${t.map(t => s" : $t").getOrElse("")} := $v"
@@ -47,6 +66,9 @@ object Surface:
         s"${if p then "pub " else ""}def $x${t.map(t => s" : $t").getOrElse("")} = $v"
       case Primitive(_, p, x, t) =>
         s"${if p then "pub " else ""}primitive $x : $t"
+      case Data(_, p, x, k, cs) =>
+        val css = cs.mkString(" | ")
+        s"${if p then "pub " else ""}$k $x = $css"
 
   enum ArgInfo:
     case Named(name: Name)
@@ -66,9 +88,6 @@ object Surface:
         value: Tm,
         body: Tm
     )
-
-    case UTy(posInfo: PosInfo, cv: Ty)
-    case UMeta(posInfo: PosInfo)
 
     case Pi(posInfo: PosInfo, name: Bind, icit: Icit, ty: Ty, body: Ty)
     case Lam(
@@ -94,8 +113,6 @@ object Surface:
       case Tm.Let0(pos, _, _, _, _)   => pos
       case Tm.Let1(pos, _, _, _, _)   => pos
       case Tm.LetRec(pos, _, _, _, _) => pos
-      case Tm.UTy(pos, _)             => pos
-      case Tm.UMeta(pos)              => pos
       case Tm.Pi(pos, _, _, _, _)     => pos
       case Tm.Lam(pos, _, _, _, _)    => pos
       case Tm.App(pos, _, _, _)       => pos
@@ -115,8 +132,6 @@ object Surface:
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} = $v; $b)"
       case LetRec(_, x, ty, v, b) =>
         s"(let rec $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
-      case UTy(_, cv)                   => s"(type $cv)"
-      case UMeta(_)                     => "meta"
       case Pi(_, DontBind, Expl, ty, b) => s"($ty -> $b)"
       case Pi(_, x, i, ty, b)           => s"(${i.wrap(s"$x : $ty")} -> $b)"
       case Lam(_, x, ArgInfo.Icit(Expl), None, b) => s"(\\$x => $b)"

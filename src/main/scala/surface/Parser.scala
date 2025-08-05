@@ -34,14 +34,15 @@ object Parser:
       "pub",
       "def",
       "primitive",
+      "data",
+      "record",
+      "finite",
       "let",
       "rec",
-      "meta",
-      "type",
       "instr"
     )
   private val symbols1: Set[Char] =
-    Set(':', ';', '=', '\\', ',', '(', ')', '{', '}', '^', '`', '$')
+    Set(':', ';', '=', '\\', ',', '(', ')', '{', '}', '^', '`', '$', '|')
   private val symbols2: Map[Char, Set[Char]] =
     Map(':' -> Set('='), '-' -> Set('>'), '=' -> Set('>'))
 
@@ -121,6 +122,7 @@ object Parser:
     if ctx.tokens.nonEmpty then err(s"unparsed input at end of file")
     result
 
+  // modules and imports
   private def parseModule(mod: String)(using ctx: Ctx): Module =
     keyword("module")
     val x = name()
@@ -162,6 +164,7 @@ object Parser:
         symbol(")")
         List((pos, x, r))
 
+  // definitions
   private def parseDefs()(using ctx: Ctx): Defs =
     Defs(list(parseDef))
 
@@ -182,6 +185,9 @@ object Parser:
       val rty = parseExpr()
       val ty = createPi(ps, rty, true)
       Some(Def.Primitive(pos, pub, x, ty))
+    else if tryKeyword("data") then Some(parseDataDef(pub, DataKind.Data))
+    else if tryKeyword("record") then Some(parseDataDef(pub, DataKind.Record))
+    else if tryKeyword("finite") then Some(parseDataDef(pub, DataKind.Finite))
     else None
 
   private def createPi(ps: List[DefParam], rty: Ty, isMeta: Boolean)(using
@@ -251,6 +257,40 @@ object Parser:
       Some((pos, arginfo, xs, ty))
     else tryBind().map(x => (ctx.pos, ArgInfo.Icit(Expl), List(x), None))
 
+  private def parseDataDef(pub: Boolean, kind: DataKind)(using
+      ctx: Ctx
+  ): Def =
+    val pos = ctx.pos
+    val dx = name()
+    val continue = if trySymbol("=") then { trySymbol("|"); true }
+    else trySymbol("|")
+    val cons = if continue then
+      val hd = parseDataCon(pub)
+      val tl = mutable.ArrayBuffer.empty[Constructor]
+      while trySymbol("|") do tl += parseDataCon(pub)
+      hd :: tl.toList
+    else Nil
+    Def.Data(pos, pub, dx, kind, cons)
+
+  private def parseDataCon(pub: Boolean)(using ctx: Ctx): Constructor =
+    val cx = name()
+    val pos = ctx.pos
+    val ps = list(parseDataParam).flatten
+    Constructor(pos, pub, cx, ps)
+
+  private def parseDataParam()(using
+      ctx: Ctx
+  ): Option[List[(Option[Bind], Ty)]] =
+    if trySymbol("(") then
+      val x = bind()
+      val xs = list(tryBind)
+      symbol(":")
+      val ty = parseExpr()
+      symbol(")")
+      Some((x :: xs).map(x => (Some(x), ty)))
+    else tryParseAtom().map(t => List((None, t)))
+
+  // expressions
   private def tryParseAtom()(using ctx: Ctx): Option[Tm] =
     tryIdentifier() match
       case Some(x) if x.startsWith("_") =>
@@ -264,8 +304,7 @@ object Parser:
         Some(Tm.Var(ctx.pos, Some(Name(m)), Name(y)))
       case Some(x) => Some(Tm.Var(ctx.pos, None, Name(x)))
       case None    =>
-        if tryKeyword("meta") then Some(Tm.UMeta(ctx.pos))
-        else if trySymbol("(") then
+        if trySymbol("(") then
           val expr = parseExpr()
           symbol(")")
           Some(expr)
@@ -287,13 +326,6 @@ object Parser:
       val rec = tryKeyword("rec")
       parseLet(rec)
     else if trySymbol("\\") then parseLam()
-    else if tryKeyword("type") then
-      val pos = ctx.pos
-      val ty = Tm.UTy(pos, parseAtom())
-      if trySymbol("->") then
-        val rest = apps()
-        Tm.Pi(pos, Bind.DontBind, Expl, ty, rest)
-      else ty
     else if tryKeyword("instr") then
       val pos = ctx.pos
       val op = tryIdentifier() match
@@ -336,7 +368,7 @@ object Parser:
     else None
 
   private def apps()(using ctx: Ctx): Tm =
-    // println(s"apps: $ctx")
+    debug(s"apps: $ctx")
     val pos = ctx.pos
     val hd = parseAtom()
     val tl = list(parseArg)

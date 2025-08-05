@@ -93,3 +93,13 @@ object Common:
   extension (id: MetaId)
     @targetName("exposeMetaId")
     inline def expose: Int = id
+
+  // datatypes
+  enum DataKind:
+    case Data
+    case Record
+    case Finite
+    override def toString: String = this match
+      case DataKind.Data   => "data"
+      case DataKind.Record => "record"
+      case DataKind.Finite => "finite"

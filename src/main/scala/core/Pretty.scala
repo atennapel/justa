@@ -52,6 +52,7 @@ object Pretty:
       case Tm0.Var(_)           => pretty0(tm)
       case Tm0.IntLit(_)        => pretty0(tm)
       case Tm0.Global(_, _)     => pretty0(tm)
+      case Tm0.Con(_, _, _)     => pretty0(tm)
       case Tm0.Splice(_)        => pretty0(tm)
       case Tm0.App(_, _) if app => pretty0(tm)
       case Tm0.Wk1(tm)          => prettyParen0(tm, app)(using ns.tail)
@@ -65,6 +66,7 @@ object Pretty:
       case Tm1.Var(_)              => pretty1(tm)
       case Tm1.Primitive(_, _)     => pretty1(tm)
       case Tm1.Global(_, _, _)     => pretty1(tm)
+      case Tm1.TypeCon(_, _, _)    => pretty1(tm)
       case Tm1.Lift(_, _)          => pretty1(tm)
       case Tm1.Quote(_)            => pretty1(tm)
       case Tm1.App(_, _, _) if app => pretty1(tm)
@@ -90,6 +92,7 @@ object Pretty:
         case Bind.DoBind(x) => s"$x"
     case Tm0.IntLit(v)       => v.toString
     case Tm0.Global(m, x)    => s"$m.$x"
+    case Tm0.Con(_, m, x)    => s"$m.$x"
     case Tm0.Let(x, t, v, b) =>
       s"let $x : ${pretty1(t)} := ${pretty0(v)}; ${prettyLift0(x.toBind, b)}"
     case Tm0.LetRec(x, t, v, b) =>
@@ -112,9 +115,10 @@ object Pretty:
         case Bind.DoBind(x) if ns.take(ix.expose).contains(Bind.DoBind(x)) =>
           s"$x@${ns.size - ix.expose - 1}"
         case Bind.DoBind(x) => s"$x"
-    case Tm1.Primitive(m, x) => s"$m.$x"
-    case Tm1.Global(m, x, _) => s"$m.$x"
-    case Tm1.Let(x, t, v, b) =>
+    case Tm1.Primitive(m, x)  => s"$m.$x"
+    case Tm1.Global(m, x, _)  => s"$m.$x"
+    case Tm1.TypeCon(_, m, x) => s"$m.$x"
+    case Tm1.Let(x, t, v, b)  =>
       s"let $x : ${pretty1(t)} = ${pretty1(v)}; ${prettyLift1(x.toBind, b)}"
 
     case Tm1.UTy(s) => s"type ${prettyParen1(s)}"

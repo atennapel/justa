@@ -16,8 +16,12 @@ object Unification:
       val v = Val0.Var(lvl)
       unify0(a(v), b(v))(using lvl + 1)
     (a, b) match
-      case (Val0.Var(x), Val0.Var(y)) if x == y                 => ()
-      case (Val0.IntLit(x), Val0.IntLit(y)) if x == y           => ()
+      case (Val0.Var(x), Val0.Var(y)) if x == y                           => ()
+      case (Val0.IntLit(x), Val0.IntLit(y)) if x == y                     => ()
+      case (Val0.Global(m1, x), Val0.Global(m2, y)) if m1 == m2 && x == y => ()
+      case (Val0.Con(k1, m1, x), Val0.Con(k2, m2, y))
+          if k1 == k2 && m1 == m2 && x == y =>
+        ()
       case (Val0.Let(_, ty1, v1, b1), Val0.Let(_, ty2, v2, b2)) =>
         unify1(ty1, ty2); unify0(v1, v2); goClos(b1, b2)
       case (Val0.LetRec(_, ty1, v1, b1), Val0.LetRec(_, ty2, v2, b2)) =>

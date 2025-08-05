@@ -2,9 +2,11 @@
 Programming language targeting the JVM
 
 TODO:
+- Finite type elimination 
 - Class type
 - JVM descriptor type?
 - Datatypes
+- Records
 - If expressions
 - Unification with meta variables
 - Operators
@@ -12,4 +14,3 @@ TODO:
 - Consider A-normal form in IR, or at least combined let/letrec/bindIO
 - Avoid backtracking in parser
 - Correct positions in parser
-- Remove meta and type from surface language

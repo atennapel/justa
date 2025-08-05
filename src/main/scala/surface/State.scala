@@ -31,16 +31,33 @@ object State:
         ty: Ty,
         vty: VTy
     )
+    case Finite(
+        public: Boolean,
+        x: Name
+    )
+    case FiniteCon(
+        public: Boolean,
+        x: Name,
+        dx: Name,
+        ix: Int,
+        tm: Tm0,
+        ty: Ty,
+        vty: VTy
+    )
 
     def name: Name = this match
-      case Def0(_, x, _, _, _, _, _, _) => x
-      case Def1(_, x, _, _, _, _)       => x
-      case Primitive(_, x, _, _)        => x
+      case Def0(_, x, _, _, _, _, _, _)   => x
+      case Def1(_, x, _, _, _, _)         => x
+      case Primitive(_, x, _, _)          => x
+      case Finite(_, x)                   => x
+      case FiniteCon(_, x, _, _, _, _, _) => x
 
     def isPublic: Boolean = this match
-      case Def0(p, _, _, _, _, _, _, _) => p
-      case Def1(p, _, _, _, _, _)       => p
-      case Primitive(p, _, _, _)        => p
+      case Def0(p, _, _, _, _, _, _, _)   => p
+      case Def1(p, _, _, _, _, _)         => p
+      case Primitive(p, _, _, _)          => p
+      case Finite(p, _)                   => p
+      case FiniteCon(p, _, _, _, _, _, _) => p
 
   private final case class ModuleCtx(
       name: Name,
@@ -72,7 +89,7 @@ object State:
   def currentModuleHasName(x: Name): Boolean =
     moduleHasName(currentModule, x)
 
-  private def getGlobal(mod: Name, x: Name): Option[GlobalEntry] =
+  def getGlobal(mod: Name, x: Name): Option[GlobalEntry] =
     globals.get(mod) match
       case None    => None
       case Some(a) => a.findLast(e => e.name == x)
