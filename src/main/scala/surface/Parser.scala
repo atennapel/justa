@@ -40,7 +40,10 @@ object Parser:
       "let",
       "rec",
       "instr",
-      "match"
+      "match",
+      "if",
+      "then",
+      "else"
     )
   private val symbols1: Set[Char] =
     Set(':', ';', '=', '\\', ',', '(', ')', '{', '}', '^', '`', '$', '|')
@@ -331,6 +334,14 @@ object Parser:
       parseLet(rec)
     else if trySymbol("\\") then parseLam()
     else if tryKeyword("match") then parseMatch()
+    else if tryKeyword("if") then
+      val pos = ctx.pos
+      val c = parseExpr()
+      keyword("then")
+      val a = parseExpr()
+      keyword("else")
+      val b = parseExpr()
+      Tm.If(pos, c, a, b)
     else if tryKeyword("instr") then
       val pos = ctx.pos
       val op = tryIdentifier() match

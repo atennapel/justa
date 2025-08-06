@@ -593,6 +593,10 @@ object Elaboration:
           println(tm)
           ???
 
+        case Tm.If(_, c, a, b) =>
+          println(tm)
+          ???
+
   private def checkAccessibility(ty: VTy)(using ctx: Ctx): Unit =
     debug(s"checkAccessibility ${ctx.pretty1(ty)}")
     def checkGlobal(m: Name, x: Name): Unit =

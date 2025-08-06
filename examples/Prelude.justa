@@ -9,7 +9,8 @@ pub finite Void
 pub finite Unit = MkUnit
 pub finite Bool = False | True
 
-pub def not (b : Bool) = match b { True => False | False => True }
+pub def not (b : Bool) = if b then False else True
+pub def not2 (b : Bool) = match b { True => False | False => True }
 
 pub def iadd (a b : Int) : Int = instr 96 a b
 pub def imul (a b : Int) : Int = instr 104 a b

@@ -114,6 +114,7 @@ object Surface:
         cases: List[(PosInfo, Name, List[Bind], Tm)],
         otherwise: Option[(PosInfo, Tm)]
     )
+    case If(posInfo: PosInfo, cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
     def pos: PosInfo = this match
       case Tm.Var(pos, _, _)          => pos
@@ -131,6 +132,7 @@ object Surface:
       case Tm.Hole(pos, _)            => pos
       case Tm.Instr(pos, _, _)        => pos
       case Tm.Match(pos, _, _, _)     => pos
+      case Tm.If(pos, _, _, _)        => pos
 
     override def toString: String = this match
       case Var(_, None, x)      => s"$x"
@@ -164,3 +166,4 @@ object Surface:
         s"(match ${s.getOrElse("")} { ${cs.map((_, x, ps, b) => s"$x ${ps.mkString(" ")} => $b").mkString(" | ")} | _ => $o })"
       case Match(_, s, cs, None) =>
         s"(match ${s.getOrElse("")} { ${cs.map((_, x, ps, b) => s"$x ${ps.mkString(" ")} => $b").mkString(" | ")} })"
+      case If(_, c, a, b) => s"(if $c then $a else $b)"
