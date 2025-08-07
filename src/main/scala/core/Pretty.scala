@@ -90,10 +90,11 @@ object Pretty:
         case Bind.DoBind(x) if ns.take(ix.expose).contains(Bind.DoBind(x)) =>
           s"$x@${ns.size - ix.expose - 1}"
         case Bind.DoBind(x) => s"$x"
-    case Tm0.IntLit(v)       => v.toString
-    case Tm0.Global(m, x)    => s"$m.$x"
-    case Tm0.Con(_, m, x)    => s"$m.$x"
-    case Tm0.Let(x, t, v, b) =>
+    case Tm0.IntLit(v)             => v.toString
+    case Tm0.Global(m, x)          => s"$m.$x"
+    case Tm0.Con(_, m, x)          => s"$m.$x"
+    case Tm0.ConSelect(_, _, s, i) => s"consel $i $s"
+    case Tm0.Let(x, t, v, b)       =>
       s"let $x : ${pretty1(t)} := ${pretty0(v)}; ${prettyLift0(x.toBind, b)}"
     case Tm0.LetRec(x, t, v, b) =>
       s"let rec $x : ${pretty1(t)} := ${prettyLift0(x.toBind, v)}; ${prettyLift0(x.toBind, b)}"
@@ -104,6 +105,13 @@ object Pretty:
     case Tm0.Splice(t)            => s"$$${prettyParen1(t)}"
     case Tm0.Instr(x, _, _, args) =>
       s"instr $x${if args.isEmpty then "" else " "}${args.mkString(" ")}"
+
+    case Tm0.Match(_, _, _, s, Nil, None)    => s"match $s { }"
+    case Tm0.Match(_, _, _, s, Nil, Some(b)) => s"match $s { _ => $b }"
+    case Tm0.Match(_, _, _, s, cs, o)        =>
+      val scs = cs.map((x, b) => s"$x => $b")
+      val so = o.map(o => s" | _ => $o")
+      s"match $s { ${scs.mkString(" | ")}$o }"
 
     case Tm0.Wk1(tm) => pretty0(tm)(using ns.tail)
     case Tm0.Wk0(tm) => pretty0(tm)(using ns.tail)

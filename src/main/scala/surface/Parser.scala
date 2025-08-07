@@ -373,10 +373,11 @@ object Parser:
         val pos = ctx.pos
         val x = bind()
         val xs = list(tryBind)
-        symbol(":")
-        val ty = parseExpr()
-        symbol(")")
-        Some((pos, Expl, x :: xs, ty))
+        if trySymbol(":") then
+          val ty = parseExpr()
+          symbol(")")
+          Some((pos, Expl, x :: xs, ty))
+        else None
     else if trySymbol("{") then
       val pos = ctx.pos
       val (xs, prety) = parseGrouping()

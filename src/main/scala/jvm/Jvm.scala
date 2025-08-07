@@ -651,7 +651,8 @@ object Jvm:
         gen(scrut)
         val (x, t) = conctx.params(ix)
         mg.getField(conctx.ty, x.escape, t)
-      case Expr.Case(dx, scrut, cases, otherwise) =>
+      case c@Expr.Case(dx, scrut, cases, otherwise) =>
+        println(c)
         val datactx = ctx.datatype(dx)
         val lEnd = mg.newLabel()
         gen(scrut)

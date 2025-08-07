@@ -47,12 +47,21 @@ object Core:
     case IntLit(value: Int)
     case Global(mod: Name, name: Name)
     case Con(kind: DataKind, mod: Name, cx: Name)
+    case ConSelect(mod: Name, cx: Name, scrut: Tm0, ix: Int)
     case Let(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case LetRec(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case Lam(name: Bind, ty: Ty, body: Tm0)
     case App(fn: Tm0, arg: Tm0)
     case Splice(tm: Tm1)
     case Instr(instr: String, types: List[Ty], returntype: Ty, args: List[Tm0])
+    case Match(
+        rty: Ty,
+        mod: Name,
+        dx: Name,
+        scrut: Tm0,
+        cases: List[(Name, Tm0)],
+        otherwise: Option[Tm0]
+    )
     case Wk1(tm: Tm0)
     case Wk0(tm: Tm0)
 
@@ -72,18 +81,23 @@ object Core:
       case t => (t, Nil)
 
     override def toString: String = this match
-      case Var(ix)              => s"'$ix"
-      case IntLit(v)            => v.toString
-      case Con(_, m, x)         => s"$m.$x"
-      case Global(m, x)         => s"$m.$x"
-      case Let(x, ty, v, b)     => s"(let $x : $ty := $v; $b)"
-      case LetRec(x, ty, v, b)  => s"(let rec $x : $ty := $v; $b)"
-      case Lam(x, ty, b)        => s"(\\($x : $ty) => $b)"
-      case App(fn, arg)         => s"($fn $arg)"
-      case Splice(tm)           => s"$$$tm"
-      case Instr(x, _, _, args) => s"(instr $x ${args.mkString(" ")})"
-      case Wk1(tm)              => s"Wk10($tm)"
-      case Wk0(tm)              => s"Wk00($tm)"
+      case Var(ix)                        => s"'$ix"
+      case IntLit(v)                      => v.toString
+      case Con(_, m, x)                   => s"$m.$x"
+      case ConSelect(_, _, s, i)          => s"(consel $i $s)"
+      case Global(m, x)                   => s"$m.$x"
+      case Let(x, ty, v, b)               => s"(let $x : $ty := $v; $b)"
+      case LetRec(x, ty, v, b)            => s"(let rec $x : $ty := $v; $b)"
+      case Lam(x, ty, b)                  => s"(\\($x : $ty) => $b)"
+      case App(fn, arg)                   => s"($fn $arg)"
+      case Splice(tm)                     => s"$$$tm"
+      case Instr(x, _, _, args)           => s"(instr $x ${args.mkString(" ")})"
+      case Match(_, _, _, s, cs, Some(o)) =>
+        s"(match $s { ${cs.map((x, b) => s"$x => $b").mkString(" | ")} | _ => $o })"
+      case Match(_, _, _, s, cs, None) =>
+        s"(match $s { ${cs.map((x, b) => s"$x => $b").mkString(" | ")} })"
+      case Wk1(tm) => s"Wk10($tm)"
+      case Wk0(tm) => s"Wk00($tm)"
 
   type Ty = Tm1
   enum Tm1:
@@ -227,6 +241,7 @@ object Core:
     case IntLit(value: Int)
     case Global(mod: Name, name: Name)
     case Con(kind: DataKind, mod: Name, cx: Name)
+    case ConSelect(mod: Name, cx: Name, scrut: Val0, ix: Int)
     case Let(
         name: Name,
         ty: VTy,
@@ -247,6 +262,14 @@ object Core:
         types: List[VTy],
         returntype: VTy,
         args: List[Val0]
+    )
+    case Match(
+        rty: VTy,
+        mod: Name,
+        dx: Name,
+        scrut: Val0,
+        cases: List[(Name, Clos0)],
+        otherwise: Option[Val0]
     )
 
   enum Head:
@@ -305,8 +328,8 @@ object Core:
     def unapply(value: Val1): Option[(Name, Name, List[Val1])] = value match
       case Val1.Rigid(Head.Primitive(mod, name), spine) =>
         def args(s: Spine): List[Val1] = s match
-          case Spine.Empty           => Nil
           case Spine.App(sp, arg, _) => args(sp) ++ List(arg)
+          case Spine.Empty           => Nil
         Some((mod, name, args(spine)))
       case _ => None
 

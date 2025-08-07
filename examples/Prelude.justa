@@ -10,9 +10,10 @@ pub finite Unit = MkUnit
 pub finite Bool = False | True
 
 pub def not (b : Bool) = if b then False else True
-pub def not2 (b : Bool) = match b { True => False | False => True }
+-- pub def not2 (b : Bool) = match b { True => False | False => True }
 
 pub def iadd (a b : Int) : Int = instr 96 a b
 pub def imul (a b : Int) : Int = instr 104 a b
 pub def isub (a b : Int) : Int = instr 100 a b
-pub def izero (n : Int) : Bool = instr ifeq n True False
+pub def inonzero (n : Int) : Bool = instr 0 n
+pub def izero (n : Int) : Bool = not (inonzero n)

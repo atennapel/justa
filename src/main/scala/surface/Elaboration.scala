@@ -593,9 +593,33 @@ object Elaboration:
           println(tm)
           ???
 
-        case Tm.If(_, c, a, b) =>
-          println(tm)
-          ???
+        case Tm.If(p, c, a, b) =>
+          val tbool = check1(Tm.Var(p, None, Name("Bool")), Val1.UTy(Val1.Val))
+          val (m, dx) = forceAll1(ctx.eval1(tbool)) match
+            case Val1.Rigid(
+                  Head.TypeCon(DataKind.Finite, m, dx),
+                  Spine.Empty
+                ) =>
+              State.getGlobal(m, dx) match
+                case Some(GlobalEntry.Finite(_, _, cs, _))
+                    if cs.toSet == Set(Name("True"), Name("False")) =>
+                  ()
+                case _ =>
+                  err(
+                    s"expected a Bool type in if-expression but got ${ctx.pretty1(tbool)}"
+                  )
+              (m, dx)
+            case _ =>
+              err(
+                s"expected a Bool type in if-expression but got ${ctx.pretty1(tbool)}"
+              )
+          val ec = check0(c, ctx.eval1(tbool), Val1.Val)
+          val (ea, vrt, vcv) = infer0(a)
+          val rt = ctx.quote1(vrt)
+          val eb = check0(b, vrt, vcv)
+          val cs =
+            List((Name("True"), Tm0.Wk0(ea)), (Name("False"), Tm0.Wk0(eb)))
+          Infer0(Tm0.Match(rt, m, dx, ec, cs, None), vrt, vcv)
 
   private def checkAccessibility(ty: VTy)(using ctx: Ctx): Unit =
     debug(s"checkAccessibility ${ctx.pretty1(ty)}")
@@ -636,8 +660,9 @@ object Elaboration:
     def go0(tm: Val0)(using lvl: Lvl): Unit =
       inline def goClos(c: Clos0): Unit = go0(c(Val0.Var(lvl)))(using lvl + 1)
       tm match
-        case Val0.Global(m, x) => checkGlobal(m, x)
-        case Val0.Con(_, m, x) => checkGlobal(m, x)
+        case Val0.Global(m, x)          => checkGlobal(m, x)
+        case Val0.Con(_, m, x)          => checkGlobal(m, x)
+        case Val0.ConSelect(m, x, s, _) => checkGlobal(m, x); go0(s)
 
         case Val0.Var(_)    => ()
         case Val0.IntLit(_) => ()
@@ -647,9 +672,15 @@ object Elaboration:
         case Val0.App(f, a)  => go0(f); go0(a)
         case Val0.Splice(tm) => go1(tm)
 
-        case Val0.Let(_, ty, v, b)    => go1(ty); go0(v); goClos(b)
-        case Val0.LetRec(_, ty, v, b) => go1(ty); goClos(v); goClos(b)
-        case Val0.Lam(_, ty, b)       => go1(ty); goClos(b)
+        case Val0.Let(_, ty, v, b)           => go1(ty); go0(v); goClos(b)
+        case Val0.LetRec(_, ty, v, b)        => go1(ty); goClos(v); goClos(b)
+        case Val0.Lam(_, ty, b)              => go1(ty); goClos(b)
+        case Val0.Match(rt, m, dx, s, cs, o) =>
+          go1(rt)
+          checkGlobal(m, dx)
+          go0(s)
+          cs.foreach((_, b) => goClos(b))
+          o.foreach(go0)
     go1(ty)(using lvl0)
 
   // TODO: check that private types don't escape

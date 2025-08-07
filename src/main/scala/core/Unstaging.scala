@@ -20,7 +20,7 @@ object Unstaging:
 
   private def unstage(defn: Def): Option[IR.Def] = defn match
     case Def.D0(pub, x, ty, v) =>
-      val ety = goTypeDef(ty)
+      val ety = goTypeDef(ty)(using Env.Empty)
       val value = unstage(v)
       Some(IR.Def.Value(pub, x, ety, value))
     case Def.Finite(pub, x, cs) => Some(IR.Def.Finite(pub, x, cs.size))
@@ -45,9 +45,13 @@ object Unstaging:
               IR.Expr.FiniteCon(IR.MName(m, dx), ix)
             case _ => impossible()
     tm match
-      case Tm0.IntLit(v)        => IR.Expr.IntLit(v)
-      case Tm0.Global(m, x)     => IR.Expr.Global(IR.MName(m, x))
-      case Tm0.Con(k, m, cx)    => goCon(k, m, cx, Nil)
+      case Tm0.IntLit(v)              => IR.Expr.IntLit(v)
+      case Tm0.Global(m, x)           => IR.Expr.Global(IR.MName(m, x))
+      case Tm0.Con(k, m, cx)          => goCon(k, m, cx, Nil)
+      case Tm0.ConSelect(m, cx, s, i) =>
+        State.getGlobal(m, cx) match
+          case Some(_) => IR.Expr.DataField(???, ???, go(s), i)
+          case _       => impossible()
       case Tm0.Let(_, ty, v, b) =>
         val td = goTypeDef(ty)
         IR.Expr.Let(td, go(v), go(b)(using extEnv(td), extVEnv))
@@ -74,6 +78,21 @@ object Unstaging:
 
       case Tm0.Var(ix) => IR.Expr.Local(ix.expose, env(ix.expose))
 
+      case Tm0.Match(rt, m, dx, s, cs, o) =>
+        State.getGlobal(m, dx) match
+          case Some(GlobalEntry.Finite(_, _, xs, _)) =>
+            val td = IR.TypeDef(IR.Type.Finite(IR.MName(m, dx)))
+            IR.Expr.FiniteCase(
+              goTypeDef(rt),
+              IR.MName(m, dx),
+              go(s),
+              cs.map((x, b) =>
+                (xs.indexOf(x), go(b)(using extEnv(td), extVEnv).shift(0, -1))
+              ),
+              o.map(go)
+            )
+          case _ => ???
+
       case Tm0.Splice(tm) =>
         @tailrec
         def apps(tm: Tm1, args: List[Tm1] = Nil): (Name, Name, List[Tm1]) =
@@ -99,7 +118,7 @@ object Unstaging:
           case (m, x, _) => err(s"invalid primitive in unstaging: $m.$x")
 
   // types
-  private inline def goTypeDef(t: Ty, env: Env = Env.Empty): IR.TypeDef =
+  private inline def goTypeDef(t: Ty)(using env: Env): IR.TypeDef =
     goVTypeDef(eval1(t)(using env))
 
   private def goVTypeDef(t: VTy): IR.TypeDef =
@@ -110,7 +129,7 @@ object Unstaging:
         IR.TypeDef(Nil, true, goVTy(ty))
       case t => IR.TypeDef(goVTy(t))
 
-  private inline def goTy(t: Ty, env: Env = Env.Empty): IR.Type =
+  private inline def goTy(t: Ty)(using env: Env): IR.Type =
     goVTy(eval1(t)(using env))
 
   private def goVTy(t: VTy): IR.Type =
