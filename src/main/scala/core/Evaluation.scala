@@ -68,8 +68,8 @@ object Evaluation:
       case Tm0.Var(ix)                 => var0(ix)
       case Tm0.IntLit(v)               => Val0.IntLit(v)
       case Tm0.Global(m, x)            => Val0.Global(m, x)
-      case Tm0.Con(k, m, x)            => Val0.Con(k, m, x)
-      case Tm0.ConSelect(dx, cx, s, i) => Val0.ConSelect(dx, cx, eval0(s), i)
+      case Tm0.Con(m, dx, cx)          => Val0.Con(m, dx, cx)
+      case Tm0.Select(m, dx, cx, s, i) => Val0.Select(m, dx, cx, eval0(s), i)
       case Tm0.Let(x, ty, v, b)        =>
         Val0.Let(x, eval1(ty), eval0(v), Clos0(b))
       case Tm0.LetRec(x, ty, v, b) =>
@@ -187,8 +187,8 @@ object Evaluation:
       case Val0.Var(x)                  => Tm0.Var(x.toIx)
       case Val0.IntLit(v)               => Tm0.IntLit(v)
       case Val0.Global(m, x)            => Tm0.Global(m, x)
-      case Val0.Con(k, m, x)            => Tm0.Con(k, m, x)
-      case Val0.ConSelect(dx, cx, s, i) => Tm0.ConSelect(dx, cx, go0(s), i)
+      case Val0.Con(m, dx, cx)          => Tm0.Con(m, dx, cx)
+      case Val0.Select(m, dx, cx, s, i) => Tm0.Select(m, dx, cx, go0(s), i)
       case Val0.Let(x, ty, v, b)        =>
         Tm0.Let(x, go1(ty), go0(v), goClos(b))
       case Val0.LetRec(x, ty, v, b) =>

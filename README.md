@@ -2,7 +2,10 @@
 Programming language targeting the JVM
 
 TODO:
-- Finite type elimination 
+- Finite type elimination
+- Improve finite type bytecode generation
+- Datatypes
+- Records
 - Class type
 - JVM descriptor type?
 - Datatypes

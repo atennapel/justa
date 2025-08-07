@@ -19,11 +19,13 @@ object Unification:
       case (Val0.Var(x), Val0.Var(y)) if x == y                           => ()
       case (Val0.IntLit(x), Val0.IntLit(y)) if x == y                     => ()
       case (Val0.Global(m1, x), Val0.Global(m2, y)) if m1 == m2 && x == y => ()
-      case (Val0.Con(k1, m1, x), Val0.Con(k2, m2, y))
-          if k1 == k2 && m1 == m2 && x == y =>
+      case (Val0.Con(m1, dx1, cx1), Val0.Con(m2, dx2, cx2))
+          if m1 == m2 && dx1 == dx2 && cx1 == cx2 =>
         ()
-      case (Val0.ConSelect(_, _, s1, i1), Val0.ConSelect(_, _, s2, i2))
-          if i1 == i2 =>
+      case (
+            Val0.Select(m1, dx1, cx1, s1, i1),
+            Val0.Select(m2, dx2, cx2, s2, i2)
+          ) if m1 == m2 && dx1 == dx2 && cx1 == cx2 && i1 == i2 =>
         unify0(s1, s2)
       case (Val0.Let(_, ty1, v1, b1), Val0.Let(_, ty2, v2, b2)) =>
         unify1(ty1, ty2); unify0(v1, v2); goClos(b1, b2)
@@ -46,16 +48,13 @@ object Unification:
         unify1(rt1, rt2)
         unify0(s1, s2)
         o1.zip(o2).foreach(unify0)
-        cs1
-          .sortBy((x, _) => x.expose)
-          .zip(cs2.sortBy((x, _) => x.expose))
-          .foreach { case ((x1, b1), (x2, b2)) =>
-            if x1 != x2 then
-              err(
-                s"cannot unify ${quote0(a, UnfoldNone)} ~ ${quote0(b, UnfoldNone)}"
-              )
-            goClos(b1, b2)
-          }
+        cs1.zip(cs2).foreach { case ((x1, b1), (x2, b2)) =>
+          if x1 != x2 then
+            err(
+              s"cannot unify ${quote0(a, UnfoldNone)} ~ ${quote0(b, UnfoldNone)}"
+            )
+          goClos(b1, b2)
+        }
       case _ =>
         err(s"cannot unify ${quote0(a, UnfoldNone)} ~ ${quote0(b, UnfoldNone)}")
 

@@ -10,8 +10,9 @@ import core.Evaluation.QuoteOption.UnfoldNone
 import core.{Core, Unification}
 import Ctx.*
 import Surface.{ArgInfo, Tm}
-import State.GlobalEntry
-import surface.State.GlobalEntry.FiniteCon
+import common.State
+import common.State.GlobalEntry
+import common.State.GlobalEntry.FiniteCon
 
 object Elaboration:
   class ElaborationError(val pos: PosInfo, val module: Name, val msg: String)
@@ -660,9 +661,10 @@ object Elaboration:
     def go0(tm: Val0)(using lvl: Lvl): Unit =
       inline def goClos(c: Clos0): Unit = go0(c(Val0.Var(lvl)))(using lvl + 1)
       tm match
-        case Val0.Global(m, x)          => checkGlobal(m, x)
-        case Val0.Con(_, m, x)          => checkGlobal(m, x)
-        case Val0.ConSelect(m, x, s, _) => checkGlobal(m, x); go0(s)
+        case Val0.Global(m, x)   => checkGlobal(m, x)
+        case Val0.Con(m, dx, cx) => checkGlobal(m, dx); checkGlobal(m, cx)
+        case Val0.Select(m, dx, cx, s, _) =>
+          checkGlobal(m, dx); checkGlobal(m, cx); go0(s)
 
         case Val0.Var(_)    => ()
         case Val0.IntLit(_) => ()
@@ -748,7 +750,7 @@ object Elaboration:
               if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
               val ty = Tm1.TypeCon(k, m, x)
               val vty = ctx.eval1(ty)
-              val tm = Tm0.Con(k, m, cx)
+              val tm = Tm0.Con(m, x, cx)
               State.addGlobal(FiniteCon(pub, cx, x, ix, tm, ty, vty))
               cx
           }

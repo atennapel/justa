@@ -92,8 +92,8 @@ object Pretty:
         case Bind.DoBind(x) => s"$x"
     case Tm0.IntLit(v)             => v.toString
     case Tm0.Global(m, x)          => s"$m.$x"
-    case Tm0.Con(_, m, x)          => s"$m.$x"
-    case Tm0.ConSelect(_, _, s, i) => s"consel $i $s"
+    case Tm0.Con(m, _, cx)         => s"$m.$cx"
+    case Tm0.Select(_, _, _, s, i) => s"select $i $s"
     case Tm0.Let(x, t, v, b)       =>
       s"let $x : ${pretty1(t)} := ${pretty0(v)}; ${prettyLift0(x.toBind, b)}"
     case Tm0.LetRec(x, t, v, b) =>
