@@ -243,6 +243,14 @@ object Elaboration:
           val (eargs, vts) = args.map(inferValue).unzip
           Tm0.Instr(op, vts.map(t => ctx.quote1(t)), ctx.quote1(ty), eargs)
 
+        case Tm.If(p, c, a, b) =>
+          val (ec, m, dx) = checkIfCond(p, c)
+          val ea = check0(a, ty, cv)
+          val eb = check0(b, ty, cv)
+          val cs =
+            List((Name("True"), Tm0.Wk0(ea)), (Name("False"), Tm0.Wk0(eb)))
+          Tm0.Match(ctx.quote1(ty), m, dx, ec, cs, None)
+
         case tm =>
           infer(tm) match
             case Infer0(etm, vty, vcv) =>
@@ -595,32 +603,38 @@ object Elaboration:
           ???
 
         case Tm.If(p, c, a, b) =>
-          val tbool = check1(Tm.Var(p, None, Name("Bool")), Val1.UTy(Val1.Val))
-          val (m, dx) = forceAll1(ctx.eval1(tbool)) match
-            case Val1.Rigid(
-                  Head.TypeCon(DataKind.Finite, m, dx),
-                  Spine.Empty
-                ) =>
-              State.getGlobal(m, dx) match
-                case Some(GlobalEntry.Finite(_, _, cs, _))
-                    if cs.toSet == Set(Name("True"), Name("False")) =>
-                  ()
-                case _ =>
-                  err(
-                    s"expected a Bool type in if-expression but got ${ctx.pretty1(tbool)}"
-                  )
-              (m, dx)
-            case _ =>
-              err(
-                s"expected a Bool type in if-expression but got ${ctx.pretty1(tbool)}"
-              )
-          val ec = check0(c, ctx.eval1(tbool), Val1.Val)
+          val (ec, m, dx) = checkIfCond(p, c)
           val (ea, vrt, vcv) = infer0(a)
           val rt = ctx.quote1(vrt)
           val eb = check0(b, vrt, vcv)
           val cs =
             List((Name("True"), Tm0.Wk0(ea)), (Name("False"), Tm0.Wk0(eb)))
           Infer0(Tm0.Match(rt, m, dx, ec, cs, None), vrt, vcv)
+
+  private def checkIfCond(p: PosInfo, c: Tm)(using
+      ctx: Ctx
+  ): (Tm0, Name, Name) =
+    val tbool = check1(Tm.Var(p, None, Name("Bool")), Val1.UTy(Val1.Val))
+    val (m, dx) = forceAll1(ctx.eval1(tbool)) match
+      case Val1.Rigid(
+            Head.TypeCon(DataKind.Finite, m, dx),
+            Spine.Empty
+          ) =>
+        State.getGlobal(m, dx) match
+          case Some(GlobalEntry.Finite(_, _, cs, _))
+              if cs.toSet == Set(Name("True"), Name("False")) =>
+            ()
+          case _ =>
+            err(
+              s"expected a Bool type in if-expression but got ${ctx.pretty1(tbool)}"
+            )
+        (m, dx)
+      case _ =>
+        err(
+          s"expected a Bool type in if-expression but got ${ctx.pretty1(tbool)}"
+        )
+    val ec = check0(c, ctx.eval1(tbool), Val1.Val)
+    (ec, m, dx)
 
   private def checkAccessibility(ty: VTy)(using ctx: Ctx): Unit =
     debug(s"checkAccessibility ${ctx.pretty1(ty)}")
