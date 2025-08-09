@@ -598,9 +598,24 @@ object Elaboration:
 
         case Tm.Instr(_, _, _) => err(s"cannot infer JVM instruction")
 
-        case Tm.Match(_, scrut, cs, o) =>
-          println(tm)
+        case Tm.Match(_, Some(scrut), cs, o) =>
+          val (escrut, vdty, _) = infer0(scrut)
+          val (_, m, dx) = forceAll1(vdty) match
+            case VTypeCon(k, m, dx) => (k, m, dx)
+            case _                  =>
+              err(s"expected datatype in match but got ${ctx.pretty1(vdty)}")
+          val excs = dataCases(m, dx)
+          exhaustivenessCheck(
+            cs.map((_, x, _, _) => x),
+            excs.keySet,
+            o.isDefined
+          )
+          val ecs =
+            cs.map((p, cx, ps, b) => inferMatchCase(p, cx, ps, b, excs(cx)))
+          println(ecs)
           ???
+        case Tm.Match(_, None, _, _) =>
+          err(s"cannot infer match without scrutinee")
 
         case Tm.If(p, c, a, b) =>
           val (ec, m, dx) = checkIfCond(p, c)
@@ -610,6 +625,38 @@ object Elaboration:
           val cs =
             List((Name("True"), Tm0.Wk0(ea)), (Name("False"), Tm0.Wk0(eb)))
           Infer0(Tm0.Match(rt, m, dx, ec, cs, None), vrt, vcv)
+
+  private def inferMatchCase(
+      pos: PosInfo,
+      cx: Name,
+      ps: List[Bind],
+      body: Tm,
+      ts: List[VTy]
+  )(using
+      ctx: Ctx
+  ): (Name, Tm0) =
+    if ps.size != ts.size then
+      err(
+        s"invalid amount of parameters in match case $cx, expected ${ts.size} but got ${ps.size}"
+      )
+    val nctx = ps.zip(ts).foldLeft(ctx) { case (ctx, (x, ty)) => ??? }
+    ???
+
+  private def dataCases(m: Name, dx: Name): Map[Name, List[VTy]] =
+    State.getGlobal(m, dx) match
+      case Some(GlobalEntry.Finite(_, _, cs, _)) => cs.map(x => x -> Nil).toMap
+      case _                                     => impossible()
+
+  private def exhaustivenessCheck(
+      cs: List[Name],
+      excs: Set[Name],
+      hasOtherwise: Boolean
+  )(using ctx: Ctx): Unit =
+    if cs.toSet.size != cs.size then err(s"duplicate constructor in match")
+    else if cs.exists(x => !excs.contains(x)) then
+      err(s"invalid constructor in match, expected ${excs.mkString(", ")}")
+    else if !hasOtherwise && excs.exists(x => !cs.contains(x)) then
+      err(s"missing constructor in match, expected ${excs.mkString(", ")}")
 
   private def checkIfCond(p: PosInfo, c: Tm)(using
       ctx: Ctx
