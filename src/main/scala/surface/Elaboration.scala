@@ -222,8 +222,8 @@ object Elaboration:
               val uc = State.getGlobal(m, x) match
                 case Some(GlobalEntry.Data(_, _, _, _, uc))   => uc
                 case Some(GlobalEntry.Finite(_, _, _, _, uc)) => uc
-                // TODO: records
-                case _ => impossible()
+                case Some(GlobalEntry.Record(_, _, _, _, uc)) => uc
+                case _                                        => impossible()
               uc match
                 case None =>
                   err(
@@ -517,6 +517,12 @@ object Elaboration:
                       (_, GlobalEntry.DataCon(_, _, _, _, _, tm, _, ty))
                     ) =>
                   Infer0(tm, ty, Val1.Val)
+                case Right((_, GlobalEntry.Record(_, _, _, tm, _))) =>
+                  Infer1(tm, Val1.UTy(Val1.Val))
+                case Right(
+                      (_, GlobalEntry.RecordCon(_, _, _, _, tm, _, ty))
+                    ) =>
+                  Infer0(tm, ty, Val1.Val)
 
         case Tm.LetRec(_, x, Some(ty), v, b) =>
           val ety = check1(ty, Val1.UTy(Val1.Comp))
@@ -748,7 +754,9 @@ object Elaboration:
         .bind0(DontBind, dty, vdty, Tm1.Val, Val1.Val)
     val pst = ps.zip(ts)
     val nctx2 = pst.foldLeft(nctx1) { case (ctx, (x, (ty, vty))) =>
-      ctx.bind0(x, ty, vty, Tm1.Val, Val1.Val)
+      x match
+        case DoBind(_) => ctx.bind0(x, ty, vty, Tm1.Val, Val1.Val)
+        case DontBind  => ctx
     }
     val (eb, rty2) = rty match
       case Some(rt @ (ety, ecv)) => (check0(body, ety, ecv)(using nctx2), rt)
@@ -760,7 +768,7 @@ object Elaboration:
         x match
           case DoBind(x) =>
             Tm0.Let(x, ty, Tm0.Select(m, dx, cx, Tm0.Var(mkIx(i)), i), b)
-          case DontBind => Tm0.Wk0(b)
+          case DontBind => b
     }
     (wrapped, rty2)
 
@@ -768,12 +776,14 @@ object Elaboration:
     State.getGlobal(m, dx) match
       case Some(GlobalEntry.Finite(_, _, cs, _, _)) => cs
       case Some(GlobalEntry.Data(_, _, cs, _, _))   => cs
+      case Some(GlobalEntry.Record(_, _, c, _, _))  => List(c)
       case _                                        => impossible()
 
   private def conParameters(m: Name, cx: Name): List[(Ty, VTy)] =
     State.getGlobal(m, cx) match
       case Some(GlobalEntry.FiniteCon(_, _, _, _, _, _, _))   => Nil
       case Some(GlobalEntry.DataCon(_, _, ps, _, _, _, _, _)) => ps
+      case Some(GlobalEntry.RecordCon(_, _, ps, _, _, _, _))  => ps
       case _                                                  => impossible()
 
   private def exhaustivenessCheck(
@@ -934,7 +944,7 @@ object Elaboration:
         case DataKind.Data =>
           val ty = Tm1.TypeCon(k, m, x)
           State.addGlobal(GlobalEntry.Data(pub, x, cs.map(_.name), ty, unitCon))
-          val (ecs, qcs) = cs.zipWithIndex.map {
+          val ecs = cs.zipWithIndex.map {
             case (Surface.Constructor(pos, pub, cx, ps), ix) =>
               given conctx: Ctx = ctx.enter(pos)
               if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
@@ -960,13 +970,42 @@ object Elaboration:
                   vcty
                 )
               )
-              (
-                Constructor(cx, eps.map((x, t, _) => (x, t))),
-                cx -> epsWithoutName
-              )
-          }.unzip
+              Constructor(cx, eps.map((x, t, _) => (x, t)))
+          }
           Def.Data(pub, x, ecs)
-        case DataKind.Record => ???
+        case DataKind.Record =>
+          if cs.size != 1 then err(s"records can only have one constructor")
+          val ty = Tm1.TypeCon(k, m, x)
+          State.addGlobal(
+            GlobalEntry.Record(pub, x, cs.head.name, ty, unitCon)
+          )
+          val ec = cs.head match
+            case Surface.Constructor(pos, pub, cx, ps) =>
+              given conctx: Ctx = ctx.enter(pos)
+              if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
+              val tm = Tm0.Con(m, x, cx)
+              val eps = ps.map { (x, t) =>
+                val et = check1(t, Val1.UTy(Val1.Val))
+                (x, et, ctx.eval1(et))
+              }
+              val epsWithoutName = eps.map((_, t, vt) => (t, vt))
+              val cty = eps.foldRight(ty) { case ((_, pty, _), rty) =>
+                Tm1.Fun(pty, Tm1.Val, rty)
+              }
+              val vcty = ctx.eval1(cty)
+              State.addGlobal(
+                GlobalEntry.RecordCon(
+                  pub,
+                  cx,
+                  epsWithoutName,
+                  x,
+                  tm,
+                  cty,
+                  vcty
+                )
+              )
+              Constructor(cx, eps.map((x, t, _) => (x, t)))
+          Def.Record(pub, x, ec)
         case DataKind.Finite =>
           val ty = Tm1.TypeCon(k, m, x)
           val vty = ctx.eval1(ty)

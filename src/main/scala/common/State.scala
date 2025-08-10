@@ -64,6 +64,22 @@ object State:
         ty: Ty,
         vty: VTy
     )
+    case Record(
+        public: Boolean,
+        x: Name,
+        cx: Name,
+        tm: Tm1,
+        unitCon: Option[Name]
+    )
+    case RecordCon(
+        public: Boolean,
+        x: Name,
+        params: List[(Ty, VTy)],
+        dx: Name,
+        tm: Tm0,
+        ty: Ty,
+        vty: VTy
+    )
 
     def name: Name = this match
       case Def0(_, x, _, _, _, _, _, _)    => x
@@ -73,6 +89,8 @@ object State:
       case FiniteCon(_, x, _, _, _, _, _)  => x
       case Data(_, x, _, _, _)             => x
       case DataCon(_, x, _, _, _, _, _, _) => x
+      case Record(_, x, _, _, _)           => x
+      case RecordCon(_, x, _, _, _, _, _)  => x
 
     def isPublic: Boolean = this match
       case Def0(p, _, _, _, _, _, _, _)    => p
@@ -82,6 +100,8 @@ object State:
       case FiniteCon(p, _, _, _, _, _, _)  => p
       case Data(p, _, _, _, _)             => p
       case DataCon(p, _, _, _, _, _, _, _) => p
+      case Record(p, _, _, _, _)           => p
+      case RecordCon(p, _, _, _, _, _, _)  => p
 
   private final case class ModuleCtx(
       name: Name,

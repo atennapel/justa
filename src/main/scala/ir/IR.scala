@@ -631,7 +631,8 @@ object IR:
               JvmName(cx),
               args.map(lift(_, lvl, false, jumps))
             )
-          // TODO: can also be record con
+          case Some(GlobalEntry.Record(_, _, _, _, _)) =>
+            Jvm.Expr.RecordCon(mdx.toJvm, args.map(lift(_, lvl, false, jumps)))
           case _ => impossible()
 
       case Expr.Field(dx, cx, s, i) =>
@@ -643,7 +644,8 @@ object IR:
               lift(s, lvl, false, jumps),
               i
             )
-          // TODO: can also be a record field depending on dx, handle here or in JVM?
+          case Some(GlobalEntry.Record(_, _, _, _, _)) =>
+            Jvm.Expr.Field(dx.toJvm, lift(s, lvl, false, jumps), i)
           case _ => impossible()
 
       case Expr.Case(_, dx, s, cs, o) =>
@@ -666,7 +668,6 @@ object IR:
               ),
               o.map(lift(_, lvl, tail, jumps))
             )
-          // TODO: records
           case _ => impossible()
 
   @tailrec

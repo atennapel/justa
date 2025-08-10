@@ -379,7 +379,7 @@ object Jvm:
         )
 
         // private empty constructor
-        val con = datacw.visitMethod(ACC_PROTECTED, "<init>", "()V", null, null)
+        val con = datacw.visitMethod(ACC_PRIVATE, "<init>", "()V", null, null)
         con.visitVarInsn(ALOAD, 0)
         con.visitMethodInsn(
           INVOKESPECIAL,
@@ -446,7 +446,7 @@ object Jvm:
         val m = recordctx.constructor
         val mg: GeneratorAdapter =
           new GeneratorAdapter(
-            if params.isEmpty then ACC_PROTECTED else acc(pub),
+            if params.isEmpty then ACC_PRIVATE else acc(pub),
             m,
             null,
             null,

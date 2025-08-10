@@ -4,27 +4,31 @@ import Primitives (Int)
 import Prelude (iinc)
 
 -- testing datatypes
-pub data IntOption = None | Some Int
-pub def test := Some 42
-pub def incIntOption (o : IntOption) :=
+data IntOption = None | Some Int
+def test := Some 42
+def incIntOption (o : IntOption) :=
   match o {
   | Some n => Some (iinc n)
   | None => ()
   }
 
-pub data IntList = Nil | Cons (head : Int) (tail : IntList)
-pub def test2 := Cons 1 (Cons 2 (Cons 3 ()))
-pub def incIntList (l : IntList) :=
+data IntList = Nil | Cons (head : Int) (tail : IntList)
+def test2 := Cons 1 (Cons 2 (Cons 3 ()))
+def incIntList (l : IntList) :=
   let rec go (l : IntList) : IntList :=
     match l {
     | Cons hd tl => Cons (iinc hd) (go tl)
     | Nil => ()
     };
   go l
-pub def reverseIntList (l : IntList) :=
+def reverseIntList (l : IntList) :=
   let rec go (l acc : IntList) : IntList :=
     match l {
     | Nil => acc
     | Cons hd tl => go tl (Cons hd acc)
     };
   go l ()
+
+record Person = MkPerson (age : Int) (height : Int)
+def person := MkPerson 33 195
+def age (p : Person) := match p { MkPerson age _ => age }

@@ -22,21 +22,17 @@ object Unstaging:
       val value = unstage(v)
       Some(IR.Def.Value(pub, x, ety, value))
     case Def.Finite(pub, x, cs) => Some(IR.Def.Finite(pub, x, cs.size))
-    case Def.Data(pub, x, cs)   =>
-      Some(
-        IR.Def.Data(
-          pub,
-          x,
-          cs.map(c =>
-            IR.Constructor(
-              c.name,
-              c.parameters.map((x, t) => (x.toOption, goTy(t)(using Env.Empty)))
-            )
-          )
-        )
-      )
+    case Def.Data(pub, x, cs)   => Some(IR.Def.Data(pub, x, cs.map(unstage)))
+    case Def.Record(pub, x, c)  =>
+      Some(IR.Def.Record(pub, x, unstage(c).parameters))
     case Def.D1(_, _, _, _)     => None
     case Def.Primitive(_, _, _) => None
+
+  private def unstage(c: Constructor): IR.Constructor =
+    IR.Constructor(
+      c.name,
+      c.parameters.map((x, t) => (x.toOption, goTy(t)(using Env.Empty)))
+    )
 
   private inline def unstage(tm: Tm0): IR.Expr =
     go(unstage0(tm))(using Nil, Env.Empty)

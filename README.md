@@ -2,7 +2,7 @@
 Programming language targeting the JVM
 
 TODO:
-- Records
+- Nicer syntax for record field selection
 - Is distinction between different datatypes in State really worth it?
 - Improve finite type bytecode generation
 - Improve let rec bytecode generation if the let rec is immediately called
@@ -14,7 +14,6 @@ TODO:
 - Datatypes
 - Records
 - If expressions
-- Unification with meta variables
 - Operators
 - Reduce duplication in JVM bytecode generation code
 - Consider A-normal form in IR, or at least combined let/letrec/bindIO
@@ -23,3 +22,4 @@ TODO:
 - Pattern matching
 - Operator like $ in Haskell
 - Block comments
+- Unification with meta variables

@@ -35,6 +35,7 @@ object Core:
     )
     case Finite(public: Boolean, name: Name, cons: List[Name])
     case Data(public: Boolean, name: Name, cons: List[Constructor])
+    case Record(public: Boolean, name: Name, cons: Constructor)
 
     override def toString: String = this match
       case D0(p, x, t, v) =>
@@ -47,6 +48,8 @@ object Core:
         s"${if p then "pub " else ""}finite $x = ${cs.mkString(" | ")}"
       case Data(p, x, cs) =>
         s"${if p then "pub " else ""}data $x = ${cs.map(c => s"$c ${c.parameters.map((x, t) => s"($x : $t)").mkString(" ")}").mkString(" | ")}"
+      case Record(p, x, c) =>
+        s"${if p then "pub " else ""}data $x = $c ${c.parameters.map((x, t) => s"($x : $t)").mkString(" ")}"
 
   enum Tm0:
     case Var(ix: Ix)
