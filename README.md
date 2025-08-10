@@ -2,7 +2,6 @@
 Programming language targeting the JVM
 
 TODO:
-- Fix bug with tail-recursive data match
 - Records
 - Is distinction between different datatypes in State really worth it?
 - Improve finite type bytecode generation

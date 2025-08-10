@@ -651,36 +651,40 @@ object Jvm:
         gen(scrut)
         val (x, t) = conctx.params(ix)
         mg.getField(conctx.ty, x.escape, t)
-      case c @ Expr.Case(dx, scrut, cases, otherwise) =>
-        // println(c)
+      case Expr.Case(dx, scrut, cases0, otherwise) =>
         val datactx = ctx.datatype(dx)
-        val lEnd = mg.newLabel()
+        val scrutLocal = mg.newLocal(datactx.ty)
         gen(scrut)
-        cases.zipWithIndex.foreach { case ((cx, isUsed, body), i) =>
-          val isLast = i == cases.size - 1 && otherwise.isEmpty
-          val conctx = datactx.constructors(cx)
-          val nilary = conctx.params.isEmpty
-          val lNext = mg.newLabel()
-          if isUsed || !isLast then mg.dup()
-          if !isLast then
-            if nilary then
-              mg.getStatic(conctx.ty, "INSTANCE", conctx.ty)
-              mg.visitJumpInsn(IF_ACMPNE, lNext)
-            else
-              mg.instanceOf(conctx.ty)
-              mg.visitJumpInsn(IFEQ, lNext)
-          val local = mg.newLocal(conctx.ty)
-          if isUsed then
-            mg.checkCast(conctx.ty)
-            mg.storeLocal(local)
-          else if isLast then mg.pop()
-          gen(body)(using locals = locals :+ Local.Local(local))
-          if !isLast then mg.visitJumpInsn(GOTO, lEnd)
-          mg.visitLabel(lNext)
-        }
-        otherwise.foreach { o =>
-          mg.pop()
-          gen(o)
+        mg.storeLocal(scrutLocal)
+        val cases =
+          cases0.map((x, used, b) => (Some(x), used, b)) ++
+            otherwise.map(b => (None, false, b))
+        val labels = cases.map(_ => mg.newLabel()).toArray
+        val lEnd = mg.newLabel()
+        cases.zipWithIndex.foreach { case ((ocx, isUsed, body), i) =>
+          val isLast = i == cases.size - 1
+          mg.visitLabel(labels(i))
+          ocx match
+            case Some(cx) =>
+              val conctx = datactx.constructors(cx)
+              val nilary = conctx.params.isEmpty
+              if !isLast then
+                val lNext = labels(i + 1)
+                mg.loadLocal(scrutLocal)
+                if nilary then
+                  mg.getStatic(conctx.ty, "INSTANCE", conctx.ty)
+                  mg.visitJumpInsn(IF_ACMPNE, lNext)
+                else
+                  mg.instanceOf(conctx.ty)
+                  mg.visitJumpInsn(IFEQ, lNext)
+              val local = mg.newLocal(conctx.ty)
+              if isUsed then
+                mg.loadLocal(scrutLocal)
+                mg.checkCast(conctx.ty)
+                mg.storeLocal(local)
+              gen(body)(using locals = locals :+ Local.Local(local))
+              if !isLast then mg.visitJumpInsn(GOTO, lEnd)
+            case None => gen(body)
         }
         mg.visitLabel(lEnd)
 

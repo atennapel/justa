@@ -18,28 +18,3 @@ pub def isub (a b : Int) : Int = instr 100 a b
 pub def idec (n : Int) = isub n 1
 pub def inonzero (n : Int) : Bool = instr 0 n
 pub def izero (n : Int) : Bool = not (inonzero n)
-
-pub data IntOption = None | Some Int
-pub def test := Some 42
-pub def incIntOption (o : IntOption) :=
-  match o {
-  | Some n => Some (iinc n)
-  | None => ()
-  }
-
-pub data IntList = Nil | Cons (head : Int) (tail : IntList)
-pub def test2 := Cons 1 (Cons 2 (Cons 3 ()))
-pub def incIntList (l : IntList) :=
-  let rec go (l : IntList) : IntList :=
-    match l {
-    | Cons hd tl => Cons (iinc hd) (go tl)
-    | Nil => ()
-    };
-  go l
---pub def reverseIntList (l : IntList) :=
---  let rec go (l acc : IntList) : IntList :=
---    match l {
---    | Nil => acc
---    | Cons hd tl => go tl (Cons hd acc)
---    };
---  go l ()
