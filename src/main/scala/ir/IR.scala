@@ -262,7 +262,8 @@ object IR:
       }
       // println(simplified)
       // println(s"===lift $name===")
-      val lifted = lift(removeLams(simplified), ty.params.size, true, Set.empty)
+      val lifted =
+        lift(removeLams(simplified), ty.params.size, true, Set.empty, true)
       // println(lifted)
       val defn =
         if ty.params.isEmpty && !ty.io then
@@ -503,7 +504,8 @@ object IR:
       expr: Expr,
       lvl: Int,
       tail: Boolean,
-      jumps: Set[Int]
+      jumps: Set[Int],
+      toplevel: Boolean = false
   )(using emitDef: EmitDef): Jvm.Expr =
     expr match
       case Expr.Local(ix, _) =>
@@ -557,6 +559,7 @@ object IR:
         )
       case Expr.ReturnIO(v) => lift(v, lvl, tail, jumps)
 
+      // case Expr.Let(ty, value, body) if shouldNotBeLifted(toplevel, body) => ???
       case Expr.Let(ty, value, body) =>
         val newparams = value.free.toList
         val x = emitDef { x =>
@@ -593,6 +596,8 @@ object IR:
           lift(body, lvl + 1, tail, jumps + lvl)
         )
 
+      // case Expr.LetRec(ty, value, body) if shouldNotBeLifted(toplevel, body) =>
+      //  ???
       case Expr.LetRec(ty, value, body) =>
         val newparams = value.free.removed(0).toList.map((k, v) => (k - 1, v))
         inline def call(x: MName): Expr =
@@ -680,6 +685,23 @@ object IR:
       val (hd, args) = flattenApp(fn)
       (hd, args :+ arg)
     case expr => (expr, Nil)
+
+  private def shouldNotBeLifted(toplevel: Boolean, body: Expr): Boolean =
+    if toplevel then
+      body match
+        case Expr.Local(0, _)   => true
+        case a @ Expr.App(_, _) =>
+          val (hd, args) = flattenApp(a)
+          hd match
+            case Expr.Local(0, _) =>
+              val l = args.size
+              args.zipWithIndex.forall {
+                case (Expr.Local(i, _), j) => i == l - j
+                case _                     => false
+              }
+            case _ => false
+        case _ => false
+    else false
 
   private def isUsedInTailOnly(ix: Int, expr: Expr, tail: Boolean): Boolean =
     expr match

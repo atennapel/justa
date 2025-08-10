@@ -2,10 +2,10 @@
 Programming language targeting the JVM
 
 TODO:
-- Nicer syntax for record field selection
+- Improve let rec bytecode generation if the let rec is immediately called
 - Is distinction between different datatypes in State really worth it?
 - Improve finite type bytecode generation
-- Improve let rec bytecode generation if the let rec is immediately called
+- Nicer syntax for record field selection
 - Clean up elaboration, reduce duplication
 - Parametrized datatypes
 - Sigma types (or meta-level record types?)
