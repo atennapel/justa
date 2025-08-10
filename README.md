@@ -2,7 +2,6 @@
 Programming language targeting the JVM
 
 TODO:
-- Match without scrutinee checking
 - Datatypes
 - Records
 - Improve finite type bytecode generation

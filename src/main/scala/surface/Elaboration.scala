@@ -163,6 +163,11 @@ object Elaboration:
   private def coeQuote(t: Tm1, a1: VTy, a2: VTy, cv: VTy)(using ctx: Ctx): Tm0 =
     coe(t, a1, Val1.Lift(cv, a2)).splice
 
+  private def splitLift(ty: VTy)(using ctx: Ctx): (VTy, VTy) =
+    forceAll1(ty) match
+      case Val1.Lift(cv, rty) => (rty, cv)
+      case _ => err(s"expected quoted type but got ${ctx.pretty1(ty)}")
+
   // checking
   private def check0(tm: Tm, ty: VTy, cv: VTy)(using ctx: Ctx): Tm0 =
     debug(s"check0 $tm : ${ctx.pretty1(ty)} : ${ctx.pretty1(cv)}")
@@ -361,15 +366,19 @@ object Elaboration:
           err(s"checking _${x.getOrElse("")} against ${ctx.pretty1(ty)}")
 
         case (Tm.Match(pos, None, cs, o), Val1.Pi(x, Expl, pty, rty)) =>
+          val (vdty, _) = splitLift(pty)
+          val (m, dx) = forceAll1(vdty) match
+            case VTypeCon(_, m, dx) => (m, dx)
+            case _ => err(s"expected datatype but got ${ctx.pretty1(vdty)}")
           val v = Var1(ctx.lvl)
+          val (vrty, vrcv) = splitLift(rty(v))
           val qpty = ctx.quote1(pty)
-          val nctx = ctx.bind1(x, qpty, pty)
-          // TODO: fix this hack, use inferMatch
-          val eb = check1(
-            Tm.Match(pos, Some(Tm.Var(pos, None, x.toName)), cs, o),
-            rty(v)
-          )(using nctx)
-          Tm1.Lam(x, Expl, qpty, eb)
+          val nctx = ctx.bind1(DontBind, qpty, pty)
+          val (etm, _, _) =
+            inferMatch(Tm1.Var(ix0).splice, vdty, cs, o, Some((vrty, vrcv)))(
+              using nctx
+            )
+          Tm1.Lam(x, Expl, qpty, etm.quote)
 
         case (tm, _) =>
           val (etm, vty) = infer1(tm)
@@ -837,7 +846,6 @@ object Elaboration:
           o.foreach(go0)
     go1(ty)(using lvl0)
 
-  // TODO: check that private types don't escape
   private def elaborate(defn: Surface.Def): Def = defn match
     case Surface.Def.D0(pos, pub, x, mty, v) =>
       given ctx: Ctx = Ctx.empty.enter(pos)
