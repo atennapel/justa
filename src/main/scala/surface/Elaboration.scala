@@ -255,7 +255,26 @@ object Elaboration:
           val (escrut, vdty, _) = infer0(scrut)
           val (etm, _, _) = inferMatch(escrut, vdty, cs, o, Some((ty, cv)))
           etm
-        case Tm.Match(_, None, _, _) => ???
+        case Tm.Match(_, None, cs, o) =>
+          val (pty, m, dx, rcv, rty) = forceAll1(ty) match
+            case Val1.Fun(pty, rcv, rty) =>
+              val (m, dx) = forceAll1(pty) match
+                case VTypeCon(_, m, dx) => (m, dx)
+                case _                  =>
+                  err(
+                    s"match without scrutinee can only be matched against a function type with a data type parameter, but got ${ctx.pretty1(ty)}"
+                  )
+              (pty, m, dx, rcv, rty)
+            case _ =>
+              err(
+                s"match without scrutinee can only be matched against a function type, but got ${ctx.pretty1(ty)}"
+              )
+          val qpty = ctx.quote1(pty)
+          val nctx =
+            ctx.bind0(DontBind, qpty, pty, Tm1.UTy(Tm1.Val), Val1.UTy(Val1.Val))
+          val (etm, _, _) =
+            inferMatch(Tm0.Var(ix0), pty, cs, o, Some((rty, rcv)))(using nctx)
+          Tm0.Lam(DoBind(Name("x")), qpty, etm)
 
         case tm =>
           infer(tm) match
@@ -340,6 +359,17 @@ object Elaboration:
 
         case (Tm.Hole(_, x), _) =>
           err(s"checking _${x.getOrElse("")} against ${ctx.pretty1(ty)}")
+
+        case (Tm.Match(pos, None, cs, o), Val1.Pi(x, Expl, pty, rty)) =>
+          val v = Var1(ctx.lvl)
+          val qpty = ctx.quote1(pty)
+          val nctx = ctx.bind1(x, qpty, pty)
+          // TODO: fix this hack, use inferMatch
+          val eb = check1(
+            Tm.Match(pos, Some(Tm.Var(pos, None, x.toName)), cs, o),
+            rty(v)
+          )(using nctx)
+          Tm1.Lam(x, Expl, qpty, eb)
 
         case (tm, _) =>
           val (etm, vty) = infer1(tm)

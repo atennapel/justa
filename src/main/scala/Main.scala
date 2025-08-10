@@ -15,7 +15,7 @@ import java.io.File
 
 object Main:
   @main def run(): Unit =
-    setDebug(false)
+    setDebug(true)
     val root = FileSystems.getDefault.getPath("examples")
     val files = allSourceFiles(root).map(p => (p, moduleName(root, p)))
     val modules = files.map((p, m) => parse(m, Files.readString(p)))
