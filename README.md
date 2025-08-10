@@ -2,10 +2,12 @@
 Programming language targeting the JVM
 
 TODO:
-- Finite type elimination
-- Improve finite type bytecode generation
+- Match without scrutinee checking
 - Datatypes
 - Records
+- Improve finite type bytecode generation
+- Parametrized datatypes
+- Sigma types (or meta-level record types?)
 - Class type
 - JVM descriptor type?
 - Datatypes
@@ -17,3 +19,4 @@ TODO:
 - Consider A-normal form in IR, or at least combined let/letrec/bindIO
 - Avoid backtracking in parser
 - Correct positions in parser
+- Pattern matching

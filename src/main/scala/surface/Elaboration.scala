@@ -251,6 +251,12 @@ object Elaboration:
             List((Name("True"), Tm0.Wk0(ea)), (Name("False"), Tm0.Wk0(eb)))
           Tm0.Match(ctx.quote1(ty), m, dx, ec, cs, None)
 
+        case Tm.Match(_, Some(scrut), cs, o) =>
+          val (escrut, vdty, _) = infer0(scrut)
+          val (etm, _, _) = inferMatch(escrut, vdty, cs, o, Some((ty, cv)))
+          etm
+        case Tm.Match(_, None, _, _) => ???
+
         case tm =>
           infer(tm) match
             case Infer0(etm, vty, vcv) =>
@@ -598,22 +604,12 @@ object Elaboration:
 
         case Tm.Instr(_, _, _) => err(s"cannot infer JVM instruction")
 
+        case Tm.Match(_, Some(scrut), Nil, None) =>
+          err(s"cannot infer empty match")
         case Tm.Match(_, Some(scrut), cs, o) =>
           val (escrut, vdty, _) = infer0(scrut)
-          val (_, m, dx) = forceAll1(vdty) match
-            case VTypeCon(k, m, dx) => (k, m, dx)
-            case _                  =>
-              err(s"expected datatype in match but got ${ctx.pretty1(vdty)}")
-          val excs = dataCases(m, dx)
-          exhaustivenessCheck(
-            cs.map((_, x, _, _) => x),
-            excs.keySet,
-            o.isDefined
-          )
-          val ecs =
-            cs.map((p, cx, ps, b) => inferMatchCase(p, cx, ps, b, excs(cx)))
-          println(ecs)
-          ???
+          val (etm, vrty, vrcv) = inferMatch(escrut, vdty, cs, o, None)
+          Infer0(etm, vrty, vrcv)
         case Tm.Match(_, None, _, _) =>
           err(s"cannot infer match without scrutinee")
 
@@ -626,23 +622,88 @@ object Elaboration:
             List((Name("True"), Tm0.Wk0(ea)), (Name("False"), Tm0.Wk0(eb)))
           Infer0(Tm0.Match(rt, m, dx, ec, cs, None), vrt, vcv)
 
+  private def inferMatch(
+      escrut: Tm0,
+      vdty: VTy,
+      cs: List[(PosInfo, Name, List[Bind], Tm)],
+      o: Option[(PosInfo, Tm)],
+      erty: Option[(VTy, VTy)]
+  )(using ctx: Ctx): (Tm0, VTy, VTy) =
+    val (_, m, dx) = forceAll1(vdty) match
+      case VTypeCon(k, m, dx) => (k, m, dx)
+      case _                  =>
+        err(s"expected datatype in match but got ${ctx.pretty1(vdty)}")
+    val excs = dataCases(m, dx)
+    exhaustivenessCheck(
+      cs.map((_, x, _, _) => x),
+      excs.keySet,
+      o.isDefined
+    )
+    val dty = ctx.quote1(vdty)
+    var rty: Option[(VTy, VTy)] = erty
+    val ecs =
+      cs.map((p, cx, ps, b) =>
+        val (eb, rt) =
+          inferMatchCase(p, m, dx, cx, ps, b, excs(cx), dty, vdty, rty)
+        rty = Some(rt)
+        (cx, eb)
+      )
+    val eo = o.map { (pos, tm) =>
+      rty match
+        case None =>
+          val (eo, rt, rc) = infer0(tm)(using ctx.enter(pos))
+          rty = Some((rt, rc))
+          eo
+        case Some((rt, rc)) => check0(tm, rt, rc)(using ctx.enter(pos))
+    }
+    val (vrty, vrcv) = rty.get
+    (
+      Tm0.Match(ctx.quote1(vrty), m, dx, escrut, ecs, eo),
+      vrty,
+      vrcv
+    )
+
   private def inferMatchCase(
       pos: PosInfo,
+      m: Name,
+      dx: Name,
       cx: Name,
       ps: List[Bind],
       body: Tm,
-      ts: List[VTy]
+      ts: List[(Ty, VTy)],
+      dty: Ty,
+      vdty: VTy,
+      rty: Option[(VTy, VTy)]
   )(using
       ctx: Ctx
-  ): (Name, Tm0) =
+  ): (Tm0, (VTy, VTy)) =
     if ps.size != ts.size then
       err(
         s"invalid amount of parameters in match case $cx, expected ${ts.size} but got ${ps.size}"
       )
-    val nctx = ps.zip(ts).foldLeft(ctx) { case (ctx, (x, ty)) => ??? }
-    ???
+    val nctx1 =
+      ctx
+        .enter(pos)
+        .bind0(DontBind, dty, vdty, Tm1.UTy(Tm1.Val), Val1.UTy(Val1.Val))
+    val pst = ps.zip(ts)
+    val nctx2 = pst.foldLeft(nctx1) { case (ctx, (x, (ty, vty))) =>
+      ctx.bind0(x, ty, vty, Tm1.UTy(Tm1.Val), Val1.UTy(Val1.Val))
+    }
+    val (eb, rty2) = rty match
+      case Some(rt @ (ety, ecv)) => (check0(body, ety, ecv)(using nctx2), rt)
+      case None                  =>
+        val (eb, t, c) = infer0(body)(using nctx2)
+        (eb, (t, c))
+    val wrapped = pst.zipWithIndex.foldRight(eb) {
+      case (((x, (ty, _)), i), b) =>
+        x match
+          case DoBind(x) =>
+            Tm0.Let(x, ty, Tm0.Select(m, dx, cx, Tm0.Var(mkIx(i)), i), b)
+          case DontBind => Tm0.Wk0(b)
+    }
+    (wrapped, rty2)
 
-  private def dataCases(m: Name, dx: Name): Map[Name, List[VTy]] =
+  private def dataCases(m: Name, dx: Name): Map[Name, List[(Ty, VTy)]] =
     State.getGlobal(m, dx) match
       case Some(GlobalEntry.Finite(_, _, cs, _)) => cs.map(x => x -> Nil).toMap
       case _                                     => impossible()
