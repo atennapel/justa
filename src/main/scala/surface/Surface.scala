@@ -23,11 +23,11 @@ object Surface:
       pos: PosInfo,
       public: Boolean,
       name: Name,
-      params: List[(Option[Bind], Ty)]
+      params: List[(Bind, Ty)]
   ):
     override def toString: String =
       val ps = params
-        .map((ox, t) => ox.fold(t.toString)(x => s"($x : $t)"))
+        .map((x, t) => s"($x : $t)")
         .mkString(" ")
       s"$name $ps"
 

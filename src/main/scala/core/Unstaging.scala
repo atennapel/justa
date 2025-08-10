@@ -22,6 +22,19 @@ object Unstaging:
       val value = unstage(v)
       Some(IR.Def.Value(pub, x, ety, value))
     case Def.Finite(pub, x, cs) => Some(IR.Def.Finite(pub, x, cs.size))
+    case Def.Data(pub, x, cs)   =>
+      Some(
+        IR.Def.Data(
+          pub,
+          x,
+          cs.map(c =>
+            IR.Constructor(
+              c.name,
+              c.parameters.map((x, t) => (x.toOption, goTy(t)(using Env.Empty)))
+            )
+          )
+        )
+      )
     case Def.D1(_, _, _, _)     => None
     case Def.Primitive(_, _, _) => None
 

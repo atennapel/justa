@@ -13,6 +13,8 @@ object Core:
     override def toString: String = defs.mkString("\n")
     def toList: List[Def] = defs
 
+  final case class Constructor(name: Name, parameters: List[(Bind, Ty)])
+
   enum Def:
     case D0(
         public: Boolean,
@@ -32,6 +34,8 @@ object Core:
         ty: Ty
     )
     case Finite(public: Boolean, name: Name, cons: List[Name])
+    case Data(public: Boolean, name: Name, cons: List[Constructor])
+
     override def toString: String = this match
       case D0(p, x, t, v) =>
         s"${if p then "pub " else ""}def $x : $t := $v"
@@ -41,6 +45,8 @@ object Core:
         s"${if p then "pub " else ""}primitive $x : $t"
       case Finite(p, x, cs) =>
         s"${if p then "pub " else ""}finite $x = ${cs.mkString(" | ")}"
+      case Data(p, x, cs) =>
+        s"${if p then "pub " else ""}data $x = ${cs.map(c => s"$c ${c.parameters.map((x, t) => s"($x : $t)").mkString(" ")}").mkString(" | ")}"
 
   enum Tm0:
     case Var(ix: Ix)

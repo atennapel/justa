@@ -2,6 +2,7 @@ package surface
 
 import common.Common.*
 import common.Common.Icit.*
+import common.Common.Bind.*
 import common.Debug.debug
 import Surface.*
 
@@ -206,7 +207,7 @@ object Parser:
         case ArgInfo.Icit(i) => i
       val pty = opty.getOrElse(hole)
       xs.foldRight(rty) { (x, rty) =>
-        val px = if isMeta then x else Bind.DontBind
+        val px = if isMeta then x else DontBind
         Tm.Pi(p, px, i, pty, rty)
       }
     }
@@ -284,15 +285,15 @@ object Parser:
 
   private def parseDataParam()(using
       ctx: Ctx
-  ): Option[List[(Option[Bind], Ty)]] =
+  ): Option[List[(Bind, Ty)]] =
     if trySymbol("(") then
       val x = bind()
       val xs = list(tryBind)
       symbol(":")
       val ty = parseExpr()
       symbol(")")
-      Some((x :: xs).map(x => (Some(x), ty)))
-    else tryParseAtom().map(t => List((None, t)))
+      Some((x :: xs).map(x => (x, ty)))
+    else tryParseAtom().map(t => List((DontBind, t)))
 
   // expressions
   private def tryParseAtom()(using ctx: Ctx): Option[Tm] =
@@ -351,7 +352,7 @@ object Parser:
       val instr = Tm.Instr(pos, op, args)
       if trySymbol("->") then
         val rest = apps()
-        Tm.Pi(pos, Bind.DontBind, Expl, instr, rest)
+        Tm.Pi(pos, DontBind, Expl, instr, rest)
       else instr
     else
       backtrack(piParam()) match
@@ -400,7 +401,7 @@ object Parser:
     }
     if trySymbol("->") then
       val rt = parseExpr()
-      Tm.Pi(pos, Bind.DontBind, Expl, expr, rt)
+      Tm.Pi(pos, DontBind, Expl, expr, rt)
     else expr
 
   private def parseLet(rec: Boolean)(using ctx: Ctx): Tm =
@@ -520,9 +521,9 @@ object Parser:
   private def name()(using ctx: Ctx): Name = Name(identifier())
   private def tryName()(using ctx: Ctx): Option[Name] =
     tryIdentifier().map(Name.apply)
-  private def bind()(using ctx: Ctx): Bind = Bind.fromString(identifier())
+  private def bind()(using ctx: Ctx): Bind = fromString(identifier())
   private def tryBind()(using ctx: Ctx): Option[Bind] =
-    tryIdentifier().map(Bind.fromString)
+    tryIdentifier().map(fromString)
 
   // util
   private def consume()(using ctx: Ctx): Option[Token] =

@@ -622,33 +622,33 @@ object IR:
 
       case Expr.Con(mdx, cx, args) =>
         State.getGlobal(mdx.module, mdx.name) match
-          case Some(GlobalEntry.Finite(_, _, xs, _)) =>
+          case Some(GlobalEntry.Finite(_, _, xs, _, _)) =>
             if args.nonEmpty then impossible() // sanity check
             Jvm.Expr.FiniteCon(mdx.toJvm, xs.indexOf(cx))
+          case Some(GlobalEntry.Data(_, _, _, _, _)) =>
+            Jvm.Expr.Con(
+              mdx.toJvm,
+              JvmName(cx),
+              args.map(lift(_, lvl, false, jumps))
+            )
+          // TODO: can also be record con
           case _ => impossible()
-        // TODO: can also be record/finite con
-        /*
-        Jvm.Expr.Con(
-          dx.toJvm,
-          JvmName(cx),
-          args.map(lift(_, lvl, false, jumps))
-        )*/
 
       case Expr.Field(dx, cx, s, i) =>
-        impossible()
-        // TODO: can also be a record field depending on dx, handle here or in JVM?
-        /*
-        Jvm.Expr.DataField(
-          dx.toJvm,
-          JvmName(cx),
-          lift(s, lvl, false, jumps),
-          i
-        )*/
+        State.getGlobal(dx.module, dx.name) match
+          case Some(GlobalEntry.Data(_, _, _, _, _)) =>
+            Jvm.Expr.DataField(
+              dx.toJvm,
+              JvmName(cx),
+              lift(s, lvl, false, jumps),
+              i
+            )
+          // TODO: can also be a record field depending on dx, handle here or in JVM?
+          case _ => impossible()
 
       case Expr.Case(_, dx, s, cs, o) =>
         State.getGlobal(dx.module, dx.name) match
-          // TODO: data
-          case Some(GlobalEntry.Finite(_, _, xs, _)) =>
+          case Some(GlobalEntry.Finite(_, _, xs, _, _)) =>
             Jvm.Expr.FiniteCase(
               dx.toJvm,
               lift(s, lvl, false, jumps),
@@ -657,16 +657,17 @@ object IR:
               ),
               o.map(lift(_, lvl, tail, jumps))
             )
+          case Some(GlobalEntry.Data(_, _, _, _, _)) =>
+            Jvm.Expr.Case(
+              dx.toJvm,
+              lift(s, lvl, false, jumps),
+              cs.map((cx, b) =>
+                (JvmName(cx), b.free.contains(0), lift(b, lvl + 1, tail, jumps))
+              ),
+              o.map(lift(_, lvl, tail, jumps))
+            )
+          // TODO: records
           case _ => impossible()
-          /*
-        Jvm.Expr.Case(
-          dx.toJvm,
-          lift(s, lvl, false, jumps),
-          cs.map((cx, b) =>
-            (JvmName(cx), b.free.contains(0), lift(b, lvl + 1, tail, jumps))
-          ),
-          o.map(lift(_, lvl, tail, jumps))
-        )*/
 
   @tailrec
   private def removeLams(expr: Expr): Expr = expr match
