@@ -220,10 +220,8 @@ object Elaboration:
           forceAll1(ty) match
             case Val1.Rigid(Head.TypeCon(_, m, x), _) =>
               val uc = State.getGlobal(m, x) match
-                case Some(GlobalEntry.Data(_, _, _, _, uc))   => uc
-                case Some(GlobalEntry.Finite(_, _, _, _, uc)) => uc
-                case Some(GlobalEntry.Record(_, _, _, _, uc)) => uc
-                case _                                        => impossible()
+                case Some(GlobalEntry.Data(_, _, _, _, _, uc)) => uc
+                case _                                         => impossible()
               uc match
                 case None =>
                   err(
@@ -231,13 +229,13 @@ object Elaboration:
                   )
                 case Some(cx) =>
                   State.getGlobal(m, cx) match
-                    case Some(GlobalEntry.FiniteCon(_, _, _, _, tm, _, _)) => tm
-                    case Some(GlobalEntry.DataCon(_, _, ps, _, _, _, _, _))
-                        if ps.nonEmpty =>
-                      err(
-                        s"cannot check () against ${ctx.pretty1(ty)}: too many parameters for only constructor $cx"
-                      )
-                    case Some(GlobalEntry.DataCon(_, _, _, _, _, tm, _, _)) =>
+                    case Some(
+                          GlobalEntry.DataCon(_, _, _, ps, _, _, tm, _, _)
+                        ) =>
+                      if ps.nonEmpty then
+                        err(
+                          s"cannot check () against ${ctx.pretty1(ty)}: too many parameters for only constructor $cx"
+                        )
                       tm
                     case _ => impossible()
             case _ => err(s"cannot check () against ${ctx.pretty1(ty)}")
@@ -507,20 +505,10 @@ object Elaboration:
                   Infer1(Tm1.Global(m, x, v), ty)
                 case Right((m, GlobalEntry.Primitive(_, _, _, ty))) =>
                   Infer1(Tm1.Primitive(m, x), ty)
-                case Right((_, GlobalEntry.Finite(_, _, _, tm, _))) =>
-                  Infer1(tm, Val1.UTy(Val1.Val))
-                case Right((_, GlobalEntry.FiniteCon(_, _, _, _, tm, _, ty))) =>
-                  Infer0(tm, ty, Val1.Val)
-                case Right((_, GlobalEntry.Data(_, _, _, tm, _))) =>
+                case Right((_, GlobalEntry.Data(_, _, _, _, tm, _))) =>
                   Infer1(tm, Val1.UTy(Val1.Val))
                 case Right(
-                      (_, GlobalEntry.DataCon(_, _, _, _, _, tm, _, ty))
-                    ) =>
-                  Infer0(tm, ty, Val1.Val)
-                case Right((_, GlobalEntry.Record(_, _, _, tm, _))) =>
-                  Infer1(tm, Val1.UTy(Val1.Val))
-                case Right(
-                      (_, GlobalEntry.RecordCon(_, _, _, _, tm, _, ty))
+                      (_, GlobalEntry.DataCon(_, _, _, _, _, _, tm, _, ty))
                     ) =>
                   Infer0(tm, ty, Val1.Val)
 
@@ -774,17 +762,13 @@ object Elaboration:
 
   private def dataCons(m: Name, dx: Name): List[Name] =
     State.getGlobal(m, dx) match
-      case Some(GlobalEntry.Finite(_, _, cs, _, _)) => cs
-      case Some(GlobalEntry.Data(_, _, cs, _, _))   => cs
-      case Some(GlobalEntry.Record(_, _, c, _, _))  => List(c)
-      case _                                        => impossible()
+      case Some(GlobalEntry.Data(_, _, _, cs, _, _)) => cs
+      case _                                         => impossible()
 
   private def conParameters(m: Name, cx: Name): List[(Ty, VTy)] =
     State.getGlobal(m, cx) match
-      case Some(GlobalEntry.FiniteCon(_, _, _, _, _, _, _))   => Nil
-      case Some(GlobalEntry.DataCon(_, _, ps, _, _, _, _, _)) => ps
-      case Some(GlobalEntry.RecordCon(_, _, ps, _, _, _, _))  => ps
-      case _                                                  => impossible()
+      case Some(GlobalEntry.DataCon(_, _, _, ps, _, _, _, _, _)) => ps
+      case _                                                     => impossible()
 
   private def exhaustivenessCheck(
       cs: List[Name],
@@ -807,7 +791,7 @@ object Elaboration:
             Spine.Empty
           ) =>
         State.getGlobal(m, dx) match
-          case Some(GlobalEntry.Finite(_, _, cs, _, _))
+          case Some(GlobalEntry.Data(DataKind.Finite, _, _, cs, _, _))
               if cs.toSet == Set(Name("True"), Name("False")) =>
             ()
           case _ =>
@@ -940,89 +924,44 @@ object Elaboration:
       val unitCons = cs.filter(c => c.params.isEmpty)
       val unitCon =
         if unitCons.size == 1 then Some(unitCons.head.name) else None
-      k match
-        case DataKind.Data =>
-          val ty = Tm1.TypeCon(k, m, x)
-          State.addGlobal(GlobalEntry.Data(pub, x, cs.map(_.name), ty, unitCon))
-          val ecs = cs.zipWithIndex.map {
-            case (Surface.Constructor(pos, pub, cx, ps), ix) =>
-              given conctx: Ctx = ctx.enter(pos)
-              if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
-              val tm = Tm0.Con(m, x, cx)
-              val eps = ps.map { (x, t) =>
-                val et = check1(t, Val1.UTy(Val1.Val))
-                (x, et, ctx.eval1(et))
-              }
-              val epsWithoutName = eps.map((_, t, vt) => (t, vt))
-              val cty = eps.foldRight(ty) { case ((_, pty, _), rty) =>
-                Tm1.Fun(pty, Tm1.Val, rty)
-              }
-              val vcty = ctx.eval1(cty)
-              State.addGlobal(
-                GlobalEntry.DataCon(
-                  pub,
-                  cx,
-                  epsWithoutName,
-                  x,
-                  ix,
-                  tm,
-                  cty,
-                  vcty
-                )
-              )
-              Constructor(cx, eps.map((x, t, _) => (x, t)))
+      if k == DataKind.Record && cs.size != 1 then
+        err(s"records can only have one constructor")
+      val ty = Tm1.TypeCon(k, m, x)
+      State.addGlobal(
+        GlobalEntry.Data(k, pub, x, cs.map(_.name), ty, unitCon)
+      )
+      val ecs = cs.zipWithIndex.map {
+        case (Surface.Constructor(pos, pub, cx, ps), ix) =>
+          given conctx: Ctx = ctx.enter(pos)
+          if k == DataKind.Finite && ps.nonEmpty then
+            err(s"a finite datatype cannot have constructor parameters")
+          if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
+          val tm = Tm0.Con(m, x, cx)
+          val eps = ps.map { (x, t) =>
+            val et = check1(t, Val1.UTy(Val1.Val))
+            (x, et, ctx.eval1(et))
           }
-          Def.Data(pub, x, ecs)
-        case DataKind.Record =>
-          if cs.size != 1 then err(s"records can only have one constructor")
-          val ty = Tm1.TypeCon(k, m, x)
+          val epsWithoutName = eps.map((_, t, vt) => (t, vt))
+          val cty = eps.foldRight(ty) { case ((_, pty, _), rty) =>
+            Tm1.Fun(pty, Tm1.Val, rty)
+          }
+          val vcty = ctx.eval1(cty)
           State.addGlobal(
-            GlobalEntry.Record(pub, x, cs.head.name, ty, unitCon)
+            GlobalEntry.DataCon(
+              k,
+              pub,
+              cx,
+              epsWithoutName,
+              x,
+              ix,
+              tm,
+              cty,
+              vcty
+            )
           )
-          val ec = cs.head match
-            case Surface.Constructor(pos, pub, cx, ps) =>
-              given conctx: Ctx = ctx.enter(pos)
-              if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
-              val tm = Tm0.Con(m, x, cx)
-              val eps = ps.map { (x, t) =>
-                val et = check1(t, Val1.UTy(Val1.Val))
-                (x, et, ctx.eval1(et))
-              }
-              val epsWithoutName = eps.map((_, t, vt) => (t, vt))
-              val cty = eps.foldRight(ty) { case ((_, pty, _), rty) =>
-                Tm1.Fun(pty, Tm1.Val, rty)
-              }
-              val vcty = ctx.eval1(cty)
-              State.addGlobal(
-                GlobalEntry.RecordCon(
-                  pub,
-                  cx,
-                  epsWithoutName,
-                  x,
-                  tm,
-                  cty,
-                  vcty
-                )
-              )
-              Constructor(cx, eps.map((x, t, _) => (x, t)))
-          Def.Record(pub, x, ec)
-        case DataKind.Finite =>
-          val ty = Tm1.TypeCon(k, m, x)
-          val vty = ctx.eval1(ty)
-          val xs = cs.zipWithIndex.map {
-            case (Surface.Constructor(pos, pub, cx, ps), ix) =>
-              given conctx: Ctx = ctx.enter(pos)
-              if ps.nonEmpty then
-                err(s"a finite datatype cannot have constructor parameters")
-              if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
-              val tm = Tm0.Con(m, x, cx)
-              State.addGlobal(
-                GlobalEntry.FiniteCon(pub, cx, x, ix, tm, ty, vty)
-              )
-              cx
-          }
-          State.addGlobal(GlobalEntry.Finite(pub, x, xs, ty, unitCon))
-          Def.Finite(pub, x, xs)
+          Constructor(cx, eps.map((x, t, _) => (x, t)))
+      }
+      Def.Data(k, pub, x, ecs)
 
   private def elaborate(mod: Surface.Module): Module =
     State.enterModule(mod.name)

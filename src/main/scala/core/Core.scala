@@ -1,5 +1,6 @@
 package core
 
+import common.Common
 import common.Common.*
 
 import scala.annotation.tailrec
@@ -33,9 +34,12 @@ object Core:
         name: Name,
         ty: Ty
     )
-    case Finite(public: Boolean, name: Name, cons: List[Name])
-    case Data(public: Boolean, name: Name, cons: List[Constructor])
-    case Record(public: Boolean, name: Name, cons: Constructor)
+    case Data(
+        kind: DataKind,
+        public: Boolean,
+        name: Name,
+        cons: List[Constructor]
+    )
 
     override def toString: String = this match
       case D0(p, x, t, v) =>
@@ -44,12 +48,8 @@ object Core:
         s"${if p then "pub " else ""}def $x : $t = $v"
       case Primitive(p, x, t) =>
         s"${if p then "pub " else ""}primitive $x : $t"
-      case Finite(p, x, cs) =>
-        s"${if p then "pub " else ""}finite $x = ${cs.mkString(" | ")}"
-      case Data(p, x, cs) =>
-        s"${if p then "pub " else ""}data $x = ${cs.map(c => s"$c ${c.parameters.map((x, t) => s"($x : $t)").mkString(" ")}").mkString(" | ")}"
-      case Record(p, x, c) =>
-        s"${if p then "pub " else ""}data $x = $c ${c.parameters.map((x, t) => s"($x : $t)").mkString(" ")}"
+      case Data(k, p, x, cs) =>
+        s"${if p then "pub " else ""}$k $x = ${cs.map(c => s"$c ${c.parameters.map((x, t) => s"($x : $t)").mkString(" ")}").mkString(" | ")}"
 
   enum Tm0:
     case Var(ix: Ix)

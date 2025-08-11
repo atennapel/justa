@@ -2,7 +2,6 @@
 Programming language targeting the JVM
 
 TODO:
-- Is distinction between different datatypes in State really worth it?
 - Nicer syntax for record field selection
 - Clean up elaboration, reduce duplication
 - Parametrized datatypes

@@ -1,6 +1,8 @@
 package core
 
 import common.Common.*
+import common.State
+import common.State.GlobalEntry
 import Core.*
 import ir.IR
 import Evaluation.*
@@ -21,10 +23,8 @@ object Unstaging:
       val ety = goTypeDef(ty)(using Env.Empty)
       val value = unstage(v)
       Some(IR.Def.Value(pub, x, ety, value))
-    case Def.Finite(pub, x, cs) => Some(IR.Def.Finite(pub, x, cs.size))
-    case Def.Data(pub, x, cs)   => Some(IR.Def.Data(pub, x, cs.map(unstage)))
-    case Def.Record(pub, x, c)  =>
-      Some(IR.Def.Record(pub, x, unstage(c).parameters))
+    case Def.Data(k, pub, x, cs) =>
+      Some(IR.Def.Data(k, pub, x, cs.map(unstage)))
     case Def.D1(_, _, _, _)     => None
     case Def.Primitive(_, _, _) => None
 
@@ -37,17 +37,22 @@ object Unstaging:
   private inline def unstage(tm: Tm0): IR.Expr =
     go(unstage0(tm))(using Nil, Env.Empty)
 
+  private def getDataKind(m: Name, dx: Name): DataKind =
+    State.getGlobal(m, dx) match
+      case Some(GlobalEntry.Data(k, _, _, _, _, _)) => k
+      case _                                        => impossible()
+
   private def go(tm: Tm0)(using env: List[IR.TypeDef], venv: Env): IR.Expr =
     inline def extEnv(td: IR.TypeDef) = td :: env
     inline def extVEnv = Env.E0(venv, Val0.Var(mkLvl(venv.size)))
     inline def goCon(m: Name, dx: Name, cx: Name, args: List[Tm0]): IR.Expr =
-      IR.Expr.Con(IR.MName(m, dx), cx, args.map(go))
+      IR.Expr.Con(getDataKind(m, dx), IR.MName(m, dx), cx, args.map(go))
     tm match
       case Tm0.IntLit(v)               => IR.Expr.IntLit(v)
       case Tm0.Global(m, x)            => IR.Expr.Global(IR.MName(m, x))
       case Tm0.Con(m, dx, cx)          => goCon(m, dx, cx, Nil)
       case Tm0.Select(m, dx, cx, s, i) =>
-        IR.Expr.Field(IR.MName(m, dx), cx, go(s), i)
+        IR.Expr.Field(getDataKind(m, dx), IR.MName(m, dx), cx, go(s), i)
       case Tm0.Let(_, ty, v, b) =>
         val td = goTypeDef(ty)
         IR.Expr.Let(td, go(v), go(b)(using extEnv(td), extVEnv))
@@ -77,6 +82,7 @@ object Unstaging:
       case Tm0.Match(rt, m, dx, s, cs, o) =>
         val td = IR.TypeDef(IR.Type.Finite(IR.MName(m, dx)))
         IR.Expr.Case(
+          getDataKind(m, dx),
           goTypeDef(rt),
           IR.MName(m, dx),
           go(s),
