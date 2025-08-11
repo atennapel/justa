@@ -2,7 +2,6 @@
 Programming language targeting the JVM
 
 TODO:
-- Improve let rec bytecode generation if the let rec is immediately called
 - Is distinction between different datatypes in State really worth it?
 - Improve finite type bytecode generation
 - Nicer syntax for record field selection

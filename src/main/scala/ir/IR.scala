@@ -262,16 +262,20 @@ object IR:
       }
       // println(simplified)
       // println(s"===lift $name===")
+      val jx = JvmName(name)
+      val mx = MName(mod, name)
       val lifted =
-        lift(removeLams(simplified), ty.params.size, true, Set.empty, true)
+        lift(removeLams(simplified), ty.params.size, true, Set.empty, true)(
+          using mx
+        )
       // println(lifted)
       val defn =
         if ty.params.isEmpty && !ty.io then
-          Jvm.Def.Value(pub, JvmName(name), toJvm(ty.returnty), lifted)
+          Jvm.Def.Value(pub, jx, toJvm(ty.returnty), lifted)
         else
           Jvm.Def.Function(
             pub,
-            JvmName(name),
+            jx,
             ty.params.map(toJvm),
             toJvm(ty.returnty),
             lifted
@@ -506,7 +510,7 @@ object IR:
       tail: Boolean,
       jumps: Set[Int],
       toplevel: Boolean = false
-  )(using emitDef: EmitDef): Jvm.Expr =
+  )(using defName: MName, emitDef: EmitDef): Jvm.Expr =
     expr match
       case Expr.Local(ix, _) =>
         val l = lvl - ix - 1
@@ -559,7 +563,9 @@ object IR:
         )
       case Expr.ReturnIO(v) => lift(v, lvl, tail, jumps)
 
-      // case Expr.Let(ty, value, body) if shouldNotBeLifted(toplevel, body) => ???
+      case Expr.Let(_, value, body) if shouldNotBeLifted(toplevel, body) =>
+        val newBody = removeLams(value)
+        lift(newBody, lvl, tail, jumps)
       case Expr.Let(ty, value, body) =>
         val newparams = value.free.toList
         val x = emitDef { x =>
@@ -596,8 +602,9 @@ object IR:
           lift(body, lvl + 1, tail, jumps + lvl)
         )
 
-      // case Expr.LetRec(ty, value, body) if shouldNotBeLifted(toplevel, body) =>
-      //  ???
+      case Expr.LetRec(_, value, body) if shouldNotBeLifted(toplevel, body) =>
+        val newBody = removeLams(value.beta(Expr.Global(defName)))
+        lift(newBody, lvl, tail, jumps)
       case Expr.LetRec(ty, value, body) =>
         val newparams = value.free.removed(0).toList.map((k, v) => (k - 1, v))
         inline def call(x: MName): Expr =
