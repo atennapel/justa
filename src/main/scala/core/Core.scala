@@ -56,7 +56,6 @@ object Core:
     case Var(ix: Ix)
     case IntLit(value: Int)
     case Global(mod: Name, name: Name)
-    case Con(mod: Name, dx: Name, cx: Name)
     case Select(mod: Name, dx: Name, cx: Name, scrut: Tm0, ix: Int)
     case Let(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case LetRec(name: Name, ty: Ty, value: Tm0, body: Tm0)
@@ -93,7 +92,6 @@ object Core:
     override def toString: String = this match
       case Var(ix)                        => s"'$ix"
       case IntLit(v)                      => v.toString
-      case Con(m, _, cx)                  => s"$m.$cx"
       case Select(_, _, _, s, i)          => s"(select $i $s)"
       case Global(m, x)                   => s"$m.$x"
       case Let(x, ty, v, b)               => s"(let $x : $ty := $v; $b)"
@@ -113,6 +111,7 @@ object Core:
   enum Tm1:
     case Var(ix: Ix)
     case Primitive(mod: Name, name: Name)
+    case Con(mod: Name, dx: Name, cx: Name)
     case TypeCon(kind: DataKind, mod: Name, name: Name)
     case Global(mod: Name, name: Name, value: Val1)
     case Let(name: Name, ty: Ty, value: Tm1, body: Tm1)
@@ -154,6 +153,7 @@ object Core:
       case Var(ix)                 => s"'$ix"
       case Primitive(m, x)         => s"$m.$x"
       case Global(m, x, _)         => s"$m.$x"
+      case Con(m, _, cx)           => s"$m.$cx"
       case TypeCon(_, m, x)        => s"$m.$x"
       case Let(x, ty, v, b)        => s"(let $x : $ty = $v; $b)"
       case UTy(cv)                 => s"(type $cv)"
@@ -258,7 +258,6 @@ object Core:
     case Var(lvl: Lvl)
     case IntLit(value: Int)
     case Global(mod: Name, name: Name)
-    case Con(mod: Name, dx: Name, cx: Name)
     case Select(mod: Name, dx: Name, cx: Name, scrut: Val0, ix: Int)
     case Let(
         name: Name,
@@ -293,6 +292,7 @@ object Core:
   enum Head:
     case Var(lvl: Lvl)
     case Primitive(mod: Name, name: Name)
+    case Con(mod: Name, dx: Name, cx: Name)
     case TypeCon(kind: DataKind, mod: Name, name: Name)
 
   enum UnfoldHead:
@@ -348,6 +348,15 @@ object Core:
       case Val1.Rigid(Head.Primitive(mod, name), spine) =>
         Some((mod, name, spine.toList))
       case _ => None
+
+  object VCon:
+    def apply(mod: Name, name: Name, cx: Name, params: List[VTy]): Val1 =
+      Val1.Rigid(Head.Con(mod, name, cx), Spine.apps(params))
+    def unapply(value: Val1): Option[(Name, Name, Name, List[VTy])] =
+      value match
+        case Val1.Rigid(Head.Con(mod, name, cx), spine) =>
+          Some((mod, name, cx, spine.toList))
+        case _ => None
 
   object VTypeCon:
     def apply(kind: DataKind, mod: Name, name: Name, params: List[VTy]): Val1 =

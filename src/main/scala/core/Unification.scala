@@ -19,9 +19,6 @@ object Unification:
       case (Val0.Var(x), Val0.Var(y)) if x == y                           => ()
       case (Val0.IntLit(x), Val0.IntLit(y)) if x == y                     => ()
       case (Val0.Global(m1, x), Val0.Global(m2, y)) if m1 == m2 && x == y => ()
-      case (Val0.Con(m1, dx1, cx1), Val0.Con(m2, dx2, cx2))
-          if m1 == m2 && dx1 == dx2 && cx1 == cx2 =>
-        ()
       case (
             Val0.Select(m1, dx1, cx1, s1, i1),
             Val0.Select(m2, dx2, cx2, s2, i2)

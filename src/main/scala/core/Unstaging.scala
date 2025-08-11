@@ -42,18 +42,15 @@ object Unstaging:
 
   private def getDataKind(m: Name, dx: Name): DataKind =
     State.getGlobal(m, dx) match
-      case Some(GlobalEntry.Data(k, _, _, _, _, _)) => k
-      case _                                        => impossible()
+      case Some(GlobalEntry.Data(k, _, _, _, _, _, _)) => k
+      case _                                           => impossible()
 
   private def go(tm: Tm0)(using env: List[IR.TypeDef], venv: Env): IR.Expr =
     inline def extEnv(td: IR.TypeDef) = td :: env
     inline def extVEnv = Env.E0(venv, Val0.Var(mkLvl(venv.size)))
-    inline def goCon(m: Name, dx: Name, cx: Name, args: List[Tm0]): IR.Expr =
-      IR.Expr.Con(getDataKind(m, dx), IR.MName(m, dx), cx, args.map(go))
     tm match
       case Tm0.IntLit(v)               => IR.Expr.IntLit(v)
       case Tm0.Global(m, x)            => IR.Expr.Global(IR.MName(m, x))
-      case Tm0.Con(m, dx, cx)          => goCon(m, dx, cx, Nil)
       case Tm0.Select(m, dx, cx, s, i) =>
         IR.Expr.Field(getDataKind(m, dx), IR.MName(m, dx), cx, go(s), i)
       case Tm0.Let(_, ty, v, b) =>
@@ -72,9 +69,7 @@ object Unstaging:
         IR.Expr.Lam(ta, go(b)(using extEnv(td), extVEnv))
       case app @ Tm0.App(_, _) =>
         val (hd, args) = app.flattenApps
-        hd match
-          case Tm0.Con(m, dx, cx) => goCon(m, dx, cx, args)
-          case _ => args.foldLeft(go(hd))((f, a) => IR.Expr.App(f, go(a)))
+        args.foldLeft(go(hd))((f, a) => IR.Expr.App(f, go(a)))
       case Tm0.Instr(op, ts, rt, args) =>
         IR.Expr.Instr(op, ts.map(t => goTy(t)), goTy(rt), args.map(go))
       case Tm0.Wk1(tm) => go(tm)
@@ -166,7 +161,7 @@ object Unstaging:
     val (nx, alreadyDone) = monomorphize(mx, eps)
     if !alreadyDone then
       val cons = State.getGlobal(m, x) match
-        case Some(GlobalEntry.Data(_, _, _, xs, _, _)) =>
+        case Some(GlobalEntry.Data(_, _, _, xs, _, _, _)) =>
           xs.map { cx =>
             State.getGlobal(m, cx) match
               case Some(GlobalEntry.DataCon(_, _, _, ps, _, _, _, _, _)) =>

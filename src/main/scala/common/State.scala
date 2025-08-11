@@ -37,6 +37,7 @@ object State:
         x: Name,
         cons: List[Name],
         tm: Tm1,
+        ty: Val1,
         unitCon: Option[Name]
     )
     case DataCon(
@@ -46,7 +47,7 @@ object State:
         params: List[(Bind, Ty, VTy)],
         dx: Name,
         ix: Int,
-        tm: Tm0,
+        tm: Tm1,
         ty: Ty,
         vty: VTy
     )
@@ -55,14 +56,14 @@ object State:
       case Def0(_, x, _, _, _, _, _, _)       => x
       case Def1(_, x, _, _, _, _)             => x
       case Primitive(_, x, _, _)              => x
-      case Data(_, _, x, _, _, _)             => x
+      case Data(_, _, x, _, _, _, _)          => x
       case DataCon(_, _, x, _, _, _, _, _, _) => x
 
     def isPublic: Boolean = this match
       case Def0(p, _, _, _, _, _, _, _)       => p
       case Def1(p, _, _, _, _, _)             => p
       case Primitive(p, _, _, _)              => p
-      case Data(_, p, _, _, _, _)             => p
+      case Data(_, p, _, _, _, _, _)          => p
       case DataCon(_, p, _, _, _, _, _, _, _) => p
 
   private final case class ModuleCtx(

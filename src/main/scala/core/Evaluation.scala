@@ -68,7 +68,6 @@ object Evaluation:
       case Tm0.Var(ix)                 => var0(ix)
       case Tm0.IntLit(v)               => Val0.IntLit(v)
       case Tm0.Global(m, x)            => Val0.Global(m, x)
-      case Tm0.Con(m, dx, cx)          => Val0.Con(m, dx, cx)
       case Tm0.Select(m, dx, cx, s, i) => Val0.Select(m, dx, cx, eval0(s), i)
       case Tm0.Let(x, ty, v, b)        =>
         Val0.Let(x, eval1(ty), eval0(v), Clos0(b))
@@ -95,6 +94,7 @@ object Evaluation:
     t match
       case Tm1.Var(ix)          => var1(ix)
       case Tm1.Primitive(m, x)  => VPrimitive(m, x)
+      case Tm1.Con(m, dx, cx)   => VCon(m, dx, cx, Nil)
       case Tm1.TypeCon(k, m, x) => VTypeCon(k, m, x, Nil)
       case Tm1.Global(m, x, v)  =>
         Val1.Unfold(UnfoldHead.Global(m, x, v), Spine.Empty, () => v)
@@ -160,6 +160,7 @@ object Evaluation:
         hd match
           case Head.Var(lvl)         => goSp(Tm1.Var(lvl.toIx), sp)
           case Head.Primitive(m, x)  => goSp(Tm1.Primitive(m, x), sp)
+          case Head.Con(m, x, cx)    => goSp(Tm1.Con(m, x, cx), sp)
           case Head.TypeCon(k, m, x) => goSp(Tm1.TypeCon(k, m, x), sp)
       case Val1.Unfold(UnfoldHead.Global(m, x, v), sp, _) =>
         goSp(Tm1.Global(m, x, v), sp)
@@ -187,7 +188,6 @@ object Evaluation:
       case Val0.Var(x)                  => Tm0.Var(x.toIx)
       case Val0.IntLit(v)               => Tm0.IntLit(v)
       case Val0.Global(m, x)            => Tm0.Global(m, x)
-      case Val0.Con(m, dx, cx)          => Tm0.Con(m, dx, cx)
       case Val0.Select(m, dx, cx, s, i) => Tm0.Select(m, dx, cx, go0(s), i)
       case Val0.Let(x, ty, v, b)        =>
         Tm0.Let(x, go1(ty), go0(v), goClos(b))

@@ -220,8 +220,8 @@ object Elaboration:
           forceAll1(ty) match
             case Val1.Rigid(Head.TypeCon(_, m, x), _) =>
               val uc = State.getGlobal(m, x) match
-                case Some(GlobalEntry.Data(_, _, _, _, _, uc)) => uc
-                case _                                         => impossible()
+                case Some(GlobalEntry.Data(_, _, _, _, _, _, uc)) => uc
+                case _ => impossible()
               uc match
                 case None =>
                   err(
@@ -236,7 +236,7 @@ object Elaboration:
                         err(
                           s"cannot check () against ${ctx.pretty1(ty)}: too many parameters for only constructor $cx"
                         )
-                      tm
+                      tm.splice
                     case _ => impossible()
             case _ => err(s"cannot check () against ${ctx.pretty1(ty)}")
 
@@ -505,12 +505,12 @@ object Elaboration:
                   Infer1(Tm1.Global(m, x, v), ty)
                 case Right((m, GlobalEntry.Primitive(_, _, _, ty))) =>
                   Infer1(Tm1.Primitive(m, x), ty)
-                case Right((_, GlobalEntry.Data(_, _, _, _, tm, _))) =>
-                  Infer1(tm, VTyVal)
+                case Right((_, GlobalEntry.Data(_, _, _, _, tm, ty, _))) =>
+                  Infer1(tm, ty)
                 case Right(
                       (_, GlobalEntry.DataCon(_, _, _, _, _, _, tm, _, ty))
                     ) =>
-                  Infer0(tm, ty, Val1.Val)
+                  Infer1(tm, ty)
 
         case Tm.LetRec(_, x, Some(ty), v, b) =>
           val ety = check1(ty, VTyComp)
@@ -762,8 +762,8 @@ object Elaboration:
 
   private def dataCons(m: Name, dx: Name): List[Name] =
     State.getGlobal(m, dx) match
-      case Some(GlobalEntry.Data(_, _, _, cs, _, _)) => cs
-      case _                                         => impossible()
+      case Some(GlobalEntry.Data(_, _, _, cs, _, _, _)) => cs
+      case _                                            => impossible()
 
   private def conParameters(m: Name, cx: Name): List[(Ty, VTy)] =
     State.getGlobal(m, cx) match
@@ -792,7 +792,7 @@ object Elaboration:
             Spine.Empty
           ) =>
         State.getGlobal(m, dx) match
-          case Some(GlobalEntry.Data(DataKind.Finite, _, _, cs, _, _))
+          case Some(GlobalEntry.Data(DataKind.Finite, _, _, cs, _, _, _))
               if cs.toSet == Set(Name("True"), Name("False")) =>
             ()
           case _ =>
@@ -821,6 +821,7 @@ object Elaboration:
         case Head.Var(_)           => ()
         case Head.Primitive(m, x)  => checkGlobal(m, x)
         case Head.TypeCon(_, m, x) => checkGlobal(m, x)
+        case Head.Con(m, x, cx)    => checkGlobal(m, x); checkGlobal(m, cx)
     def goUnfoldHead(hd: UnfoldHead)(using lvl: Lvl): Unit =
       hd match
         case UnfoldHead.Global(m, x, v) => checkGlobal(m, x); go1(v)
@@ -846,8 +847,7 @@ object Elaboration:
     def go0(tm: Val0)(using lvl: Lvl): Unit =
       inline def goClos(c: Clos0): Unit = go0(c(Val0.Var(lvl)))(using lvl + 1)
       tm match
-        case Val0.Global(m, x)   => checkGlobal(m, x)
-        case Val0.Con(m, dx, cx) => checkGlobal(m, dx); checkGlobal(m, cx)
+        case Val0.Global(m, x)            => checkGlobal(m, x)
         case Val0.Select(m, dx, cx, s, _) =>
           checkGlobal(m, dx); checkGlobal(m, cx); go0(s)
 
@@ -927,9 +927,10 @@ object Elaboration:
         if unitCons.size == 1 then Some(unitCons.head.name) else None
       if k == DataKind.Record && cs.size != 1 then
         err(s"records can only have one constructor")
-      val ty = Tm1.TypeCon(k, m, x) // TODO: parameters
+      val ty = Tm1.TypeCon(k, m, x)
+      val vty = ps.foldRight(VTyVal)((_, rt) => vfun1(VTyVal, rt))
       State.addGlobal(
-        GlobalEntry.Data(k, pub, x, cs.map(_.name), ty, unitCon)
+        GlobalEntry.Data(k, pub, x, cs.map(_.name), ty, vty, unitCon)
       )
       val datactx = ps.foldLeft(ctx)((ctx, x) =>
         ctx.bind1(DoBind(x), Tm1.UTy(Tm1.Val), VTyVal)
@@ -940,7 +941,7 @@ object Elaboration:
           if k == DataKind.Finite && ps.nonEmpty then
             err(s"a finite datatype cannot have constructor parameters")
           if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
-          val tm = Tm0.Con(m, x, cx)
+          val tm = Tm1.Con(m, x, cx)
           val eps = ps.map { (x, t) =>
             val et = check1(t, VTyVal)
             (x, et, conctx.eval1(et))
