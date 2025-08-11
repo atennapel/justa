@@ -747,6 +747,8 @@ object Jvm:
                 val method = new Method(name, gen(rt), ts.tail.map(gen).toArray)
                 mg.invokeVirtual(owner, method)
 
+              case _ if instr == "id" => args.foreach(gen)
+
               case _ if instr == "ifeq"      => branch(IFEQ, 1)
               case _ if instr == "ifge"      => branch(IFGE, 1)
               case _ if instr == "ifgt"      => branch(IFGT, 1)
@@ -770,14 +772,42 @@ object Jvm:
       case Expr.FiniteCase(dx, scrut, cases, otherwise) =>
         val datactx = ctx.finite(dx)
         datactx.amount match
-          case 0 => () // is this correct?
+          case 0 =>
+            () // is this correct? what about the scrut? TODO: throw exception
           case 1 =>
             (cases, otherwise) match
-              case (List((_, b)), None) => gen(b) // is this correct?
-              case (Nil, Some(b))       => gen(b) // is this correct?
+              case (List((_, b)), None) => gen(b) // what about the scrut?
+              case (Nil, Some(b))       => gen(b) // what about the scrut?
               case _                    => impossible()
+          case 2 =>
+            def genIf(t: Expr, f: Expr, falseFirst: Boolean = false): Unit =
+              val lEnd = mg.newLabel()
+              gen(scrut)
+              if falseFirst then
+                val lTrue = mg.newLabel()
+                mg.visitJumpInsn(IFNE, lTrue)
+                gen(f)
+                mg.visitJumpInsn(GOTO, lEnd)
+                mg.visitLabel(lTrue)
+                gen(t)
+                mg.visitLabel(lEnd)
+              else
+                val lFalse = mg.newLabel()
+                mg.visitJumpInsn(IFEQ, lFalse)
+                gen(t)
+                mg.visitJumpInsn(GOTO, lEnd)
+                mg.visitLabel(lFalse)
+                gen(f)
+                mg.visitLabel(lEnd)
+            (cases, otherwise) match
+              case (Nil, Some(b))          => gen(b) // what about the scrut?
+              case (List((0, f)), Some(t)) => genIf(t, f, true)
+              case (List((1, t)), Some(f)) => genIf(t, f)
+              case (List((0, f), (1, t)), None) => genIf(t, f, true)
+              case (List((1, t), (0, f)), None) => genIf(t, f)
+              case _                            => impossible()
           case _ =>
-            if cases.isEmpty then gen(otherwise.get) // is this correct?
+            if cases.isEmpty then gen(otherwise.get) // what about the scrut?
             else
               val s = cases.map(_._1).sorted
               gen(scrut)

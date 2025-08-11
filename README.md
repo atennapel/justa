@@ -3,7 +3,6 @@ Programming language targeting the JVM
 
 TODO:
 - Is distinction between different datatypes in State really worth it?
-- Improve finite type bytecode generation
 - Nicer syntax for record field selection
 - Clean up elaboration, reduce duplication
 - Parametrized datatypes
