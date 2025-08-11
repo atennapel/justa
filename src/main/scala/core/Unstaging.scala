@@ -6,32 +6,35 @@ import common.State.GlobalEntry
 import Core.*
 import ir.IR
 import Evaluation.*
+import ir.IR.Type
 
 import scala.annotation.tailrec
+import scala.collection.mutable
 
 // convert from Core to IR
 object Unstaging:
   def unstage(mods: List[Module]): List[IR.Module] = mods.flatMap(unstage)
 
   private def unstage(mod: Module): Option[IR.Module] =
+    newDefs.clear()
     val defs = mod.defs.toList.flatMap(unstage)
+    val extraDefs = newDefs.toList
     if defs.isEmpty then None
-    else Some(IR.Module(mod.name, defs))
+    else Some(IR.Module(mod.name, extraDefs ++ defs))
 
   private def unstage(defn: Def): Option[IR.Def] = defn match
     case Def.D0(pub, x, ty, v) =>
       val ety = goTypeDef(ty)(using Env.Empty)
       val value = unstage(v)
       Some(IR.Def.Value(pub, x, ety, value))
-    case Def.Data(k, pub, x, cs) =>
-      Some(IR.Def.Data(k, pub, x, cs.map(unstage)))
-    case Def.D1(_, _, _, _)     => None
-    case Def.Primitive(_, _, _) => None
+    case Def.Data(k, pub, x, ps, cs) => None
+    case Def.D1(_, _, _, _)          => None
+    case Def.Primitive(_, _, _)      => None
 
-  private def unstage(c: Constructor): IR.Constructor =
+  private def unstage(c: Constructor, env: Env = Env.Empty): IR.Constructor =
     IR.Constructor(
       c.name,
-      c.parameters.map((x, t) => (x.toOption, goTy(t)(using Env.Empty)))
+      c.parameters.map((x, t) => (x.toOption, goTy(t)(using env)))
     )
 
   private inline def unstage(tm: Tm0): IR.Expr =
@@ -80,9 +83,10 @@ object Unstaging:
       case Tm0.Var(ix) => IR.Expr.Local(ix.expose, env(ix.expose))
 
       case Tm0.Match(rt, m, dx, s, cs, o) =>
-        val td = IR.TypeDef(IR.Type.Finite(IR.MName(m, dx)))
+        val k = getDataKind(m, dx)
+        val td = IR.TypeDef(IR.Type.Data(k, IR.MName(m, dx)))
         IR.Expr.Case(
-          getDataKind(m, dx),
+          k,
           goTypeDef(rt),
           IR.MName(m, dx),
           go(s),
@@ -142,8 +146,63 @@ object Unstaging:
       case VPrimitive(Name("Primitives"), Name("Array"), List(ty)) =>
         IR.Type.Array(goVTy(ty))
 
-      case VTypeCon(DataKind.Data, m, x)   => IR.Type.Data(IR.MName(m, x))
-      case VTypeCon(DataKind.Record, m, x) => IR.Type.Record(IR.MName(m, x))
-      case VTypeCon(DataKind.Finite, m, x) => IR.Type.Finite(IR.MName(m, x))
+      case VTypeCon(k, m, x, ps) => monomorphize(k, m, x, ps)
 
       case _ => impossible()
+
+  // monomorphization
+  private type MonoKey = (IR.MName, List[IR.Type])
+  private val monoStore = mutable.Map.empty[MonoKey, Name]
+  private val newDefs = mutable.ArrayBuffer.empty[IR.Def]
+
+  private def monomorphize(
+      k: DataKind,
+      m: Name,
+      x: Name,
+      ps: List[VTy]
+  ): IR.Type =
+    val mx = IR.MName(m, x)
+    val eps = ps.map(goVTy)
+    val (nx, alreadyDone) = monomorphize(mx, eps)
+    if !alreadyDone then
+      val cons = State.getGlobal(m, x) match
+        case Some(GlobalEntry.Data(_, _, _, xs, _, _)) =>
+          xs.map { cx =>
+            State.getGlobal(m, cx) match
+              case Some(GlobalEntry.DataCon(_, _, _, ps, _, _, _, _, _)) =>
+                cx -> ps.map((x, t, _) => (x, t))
+              case _ => impossible()
+          }
+        case _ => impossible()
+      val env = Env(ps)
+      val ecs = cons.map { (cx, ts) =>
+        val ets = ts.map((x, t) => (x.toOption, goTy(t)(using env)))
+        IR.Constructor(cx, ets)
+      }
+      newDefs += IR.Def.Data(k, false, x, ecs)
+    IR.Type.Data(k, IR.MName(State.currentModule, nx))
+
+  private def monomorphize(name: IR.MName, ps: List[IR.Type]): (Name, Boolean) =
+    val k = (name, ps)
+    monoStore.get(k) match
+      case Some(x) => (x, true)
+      case None    =>
+        val x = createName(name, ps)
+        monoStore += k -> x
+        (x, false)
+
+  private def createName(name: IR.MName, ps: List[IR.Type]): Name =
+    def paramStr(p: IR.Type): String = p match
+      case Type.Byte               => "Byte"
+      case Type.Char               => "Char"
+      case Type.Short              => "Short"
+      case Type.Int                => "Int"
+      case Type.Long               => "Long"
+      case Type.Float              => "Float"
+      case Type.Double             => "Double"
+      case Type.Array(ty)          => s"Array_${paramStr(ty)}"
+      case Type.Jvm(qualifiedName) => qualifiedName.replace('.', '$')
+      case Type.Data(_, x)         =>
+        s"${name.module.expose.replace('.', '$')}$$${name.name}"
+    if ps.isEmpty then name.name
+    else Name(s"${name.name}_${ps.map(paramStr).mkString("_")}")

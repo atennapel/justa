@@ -39,25 +39,21 @@ object IR:
     case Long
     case Float
     case Double
-    case Data(name: MName)
-    case Record(name: MName)
-    case Finite(name: MName)
+    case Data(kind: DataKind, name: MName)
     case Jvm(qualifiedName: String)
     case Array(ty: Type)
 
     override def toString: String = this match
-      case Type.Byte      => "Byte"
-      case Type.Char      => "Char"
-      case Type.Short     => "Short"
-      case Type.Int       => "Int"
-      case Type.Long      => "Long"
-      case Type.Float     => "Float"
-      case Type.Double    => "Double"
-      case Type.Data(x)   => x.toString
-      case Type.Record(x) => x.toString
-      case Type.Finite(x) => x.toString
-      case Type.Jvm(q)    => s"&$q"
-      case Type.Array(ty) => s"[$ty]"
+      case Type.Byte       => "Byte"
+      case Type.Char       => "Char"
+      case Type.Short      => "Short"
+      case Type.Int        => "Int"
+      case Type.Long       => "Long"
+      case Type.Float      => "Float"
+      case Type.Double     => "Double"
+      case Type.Data(_, x) => x.toString
+      case Type.Jvm(q)     => s"&$q"
+      case Type.Array(ty)  => s"[$ty]"
 
   final case class TypeDef(params: List[Type], io: Boolean, returnty: Type):
     def head: Type = params.head
@@ -292,18 +288,18 @@ object IR:
       defn :: liftedDefs.toList
 
   private def toJvm(ty: Type): Jvm.Type = ty match
-    case Type.Byte      => Jvm.Type.Byte
-    case Type.Char      => Jvm.Type.Char
-    case Type.Short     => Jvm.Type.Short
-    case Type.Int       => Jvm.Type.Int
-    case Type.Long      => Jvm.Type.Long
-    case Type.Float     => Jvm.Type.Float
-    case Type.Double    => Jvm.Type.Double
-    case Type.Data(x)   => Jvm.Type.Data(x.toJvm)
-    case Type.Record(x) => Jvm.Type.Record(x.toJvm)
-    case Type.Finite(x) => Jvm.Type.Finite(x.toJvm)
-    case Type.Jvm(x)    => Jvm.Type.Jvm(x)
-    case Type.Array(ty) => Jvm.Type.Array(toJvm(ty))
+    case Type.Byte                     => Jvm.Type.Byte
+    case Type.Char                     => Jvm.Type.Char
+    case Type.Short                    => Jvm.Type.Short
+    case Type.Int                      => Jvm.Type.Int
+    case Type.Long                     => Jvm.Type.Long
+    case Type.Float                    => Jvm.Type.Float
+    case Type.Double                   => Jvm.Type.Double
+    case Type.Data(DataKind.Data, x)   => Jvm.Type.Data(x.toJvm)
+    case Type.Data(DataKind.Record, x) => Jvm.Type.Record(x.toJvm)
+    case Type.Data(DataKind.Finite, x) => Jvm.Type.Finite(x.toJvm)
+    case Type.Jvm(x)                   => Jvm.Type.Jvm(x)
+    case Type.Array(ty)                => Jvm.Type.Array(toJvm(ty))
 
   // simplification:
   // - remove dead lets
@@ -416,13 +412,13 @@ object IR:
           case Some(s) => Some(Expr.Field(k, dx, cx, s, i))
 
       // if the scrut is a constructor we can reduce
-      case Expr.Case(_, _, dx, s @ Expr.Con(_, _, cx2, _), cs, o) =>
+      case Expr.Case(k, _, dx, s @ Expr.Con(_, _, cx2, _), cs, o) =>
         cs.find((cx, _) => cx == cx2) match
           case None         => Some(o.get)
-          case Some((_, b)) => Some(Expr.Let(TypeDef(Type.Data(dx)), s, b))
+          case Some((_, b)) => Some(Expr.Let(TypeDef(Type.Data(k, dx)), s, b))
       // only 1 case so remove the case
-      case Expr.Case(_, _, dx, s, List((x, b)), None) =>
-        Some(Expr.Let(TypeDef(Type.Data(dx)), s, b))
+      case Expr.Case(k, _, dx, s, List((x, b)), None) =>
+        Some(Expr.Let(TypeDef(Type.Data(k, dx)), s, b))
       case Expr.Case(k, ty, dx, s, c, o) =>
         inline def go(
             c: List[(Name, Expr)],

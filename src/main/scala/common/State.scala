@@ -43,7 +43,7 @@ object State:
         kind: DataKind,
         public: Boolean,
         x: Name,
-        params: List[(Ty, VTy)],
+        params: List[(Bind, Ty, VTy)],
         dx: Name,
         ix: Int,
         tm: Tm0,

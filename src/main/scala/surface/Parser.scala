@@ -267,6 +267,7 @@ object Parser:
   ): Def =
     val pos = ctx.pos
     val dx = name()
+    val ps = list(tryName)
     val continue = if trySymbol("=") then { trySymbol("|"); true }
     else trySymbol("|")
     val cons = if continue then
@@ -275,7 +276,7 @@ object Parser:
       while trySymbol("|") do tl += parseDataCon(pub)
       hd :: tl.toList
     else Nil
-    Def.Data(pos, pub, dx, kind, cons)
+    Def.Data(pos, pub, dx, kind, ps, cons)
 
   private def parseDataCon(pub: Boolean)(using ctx: Ctx): Constructor =
     val cx = name()

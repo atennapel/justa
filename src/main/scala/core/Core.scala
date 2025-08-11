@@ -38,6 +38,7 @@ object Core:
         kind: DataKind,
         public: Boolean,
         name: Name,
+        params: List[Name],
         cons: List[Constructor]
     )
 
@@ -48,8 +49,8 @@ object Core:
         s"${if p then "pub " else ""}def $x : $t = $v"
       case Primitive(p, x, t) =>
         s"${if p then "pub " else ""}primitive $x : $t"
-      case Data(k, p, x, cs) =>
-        s"${if p then "pub " else ""}$k $x = ${cs.map(c => s"$c ${c.parameters.map((x, t) => s"($x : $t)").mkString(" ")}").mkString(" | ")}"
+      case Data(k, p, x, ps, cs) =>
+        s"${if p then "pub " else ""}$k $x ${ps.mkString(" ")} = ${cs.map(c => s"$c ${c.parameters.map((x, t) => s"($x : $t)").mkString(" ")}").mkString(" | ")}"
 
   enum Tm0:
     case Var(ix: Ix)
@@ -202,8 +203,9 @@ object Core:
         case Empty    => acc
         case E1(e, _) => go(acc + 1, e)
         case E0(e, _) => go(acc + 1, e)
-
       go(0, this)
+
+    inline def lvl: Lvl = mkLvl(size)
 
     inline def wk1: Env = this match
       case E1(env, _) => env
@@ -244,6 +246,13 @@ object Core:
     def isEmpty: Boolean = this match
       case Empty => true
       case _     => false
+
+    def toList: List[Val1] = this match
+      case Spine.App(sp, arg, _) => sp.toList ++ List(arg)
+      case Spine.Empty           => Nil
+  object Spine:
+    def apps(args: List[Val1]): Spine =
+      args.foldLeft(Spine.Empty)((s, a) => Spine.App(s, a, Icit.Expl))
 
   enum Val0:
     case Var(lvl: Lvl)
@@ -323,6 +332,9 @@ object Core:
   def vpiI(x: String, ty: VTy, b: Val1 => Val1): Val1 =
     Val1.Pi(bind(x), Icit.Impl, ty, Clos1.Fun(b))
 
+  val VTyVal: VTy = Val1.UTy(Val1.Val)
+  val VTyComp: VTy = Val1.UTy(Val1.Comp)
+
   object Var1:
     def apply(lvl: Lvl): Val1 = Val1.Rigid(Head.Var(lvl), Spine.Empty)
     def unapply(value: Val1): Option[Lvl] = value match
@@ -331,21 +343,17 @@ object Core:
 
   object VPrimitive:
     def apply(mod: Name, name: Name, args: List[Val1] = Nil): Val1 =
-      val spine =
-        args.foldLeft(Spine.Empty)((s, a) => Spine.App(s, a, Icit.Expl))
-      Val1.Rigid(Head.Primitive(mod, name), spine)
+      Val1.Rigid(Head.Primitive(mod, name), Spine.apps(args))
     def unapply(value: Val1): Option[(Name, Name, List[Val1])] = value match
       case Val1.Rigid(Head.Primitive(mod, name), spine) =>
-        def args(s: Spine): List[Val1] = s match
-          case Spine.App(sp, arg, _) => args(sp) ++ List(arg)
-          case Spine.Empty           => Nil
-        Some((mod, name, args(spine)))
+        Some((mod, name, spine.toList))
       case _ => None
 
   object VTypeCon:
-    def apply(kind: DataKind, mod: Name, name: Name): Val1 =
-      Val1.Rigid(Head.TypeCon(kind, mod, name), Spine.Empty)
-    def unapply(value: Val1): Option[(DataKind, Name, Name)] = value match
-      case Val1.Rigid(Head.TypeCon(kind, mod, name), Spine.Empty) =>
-        Some((kind, mod, name))
-      case _ => None
+    def apply(kind: DataKind, mod: Name, name: Name, params: List[VTy]): Val1 =
+      Val1.Rigid(Head.TypeCon(kind, mod, name), Spine.apps(params))
+    def unapply(value: Val1): Option[(DataKind, Name, Name, List[VTy])] =
+      value match
+        case Val1.Rigid(Head.TypeCon(kind, mod, name), spine) =>
+          Some((kind, mod, name, spine.toList))
+        case _ => None

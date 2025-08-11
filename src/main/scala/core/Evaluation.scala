@@ -95,7 +95,7 @@ object Evaluation:
     t match
       case Tm1.Var(ix)          => var1(ix)
       case Tm1.Primitive(m, x)  => VPrimitive(m, x)
-      case Tm1.TypeCon(k, m, x) => VTypeCon(k, m, x)
+      case Tm1.TypeCon(k, m, x) => VTypeCon(k, m, x, Nil)
       case Tm1.Global(m, x, v)  =>
         Val1.Unfold(UnfoldHead.Global(m, x, v), Spine.Empty, () => v)
       case Tm1.Let(_, _, v, b)  => eval1(b)(using Env.E1(env, eval1(v)))
@@ -210,7 +210,13 @@ object Evaluation:
 
   def nf(tm: Tm1, q: QuoteOption = QuoteOption.UnfoldAll): Tm1 =
     quote1(eval1(tm)(using Env.Empty), q)(using lvl0)
+  def nfWithEnv(
+      tm: Tm1,
+      env: Env,
+      q: QuoteOption = QuoteOption.UnfoldAll
+  ): Tm1 =
+    quote1(eval1(tm)(using env), q)(using env.lvl)
   def unstage0(tm: Tm0): Tm0 =
     quote0(eval0(tm)(using Env.Empty), QuoteOption.UnfoldStage)(using lvl0)
   def unstage0Under(tm: Tm0, env: Env): Tm0 =
-    quote0(eval0(tm)(using env), QuoteOption.UnfoldStage)(using mkLvl(env.size))
+    quote0(eval0(tm)(using env), QuoteOption.UnfoldStage)(using env.lvl)

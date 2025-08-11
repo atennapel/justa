@@ -57,6 +57,7 @@ object Surface:
         public: Boolean,
         name: Name,
         kind: DataKind,
+        params: List[Name],
         cons: List[Constructor]
     )
     override def toString: String = this match
@@ -66,9 +67,9 @@ object Surface:
         s"${if p then "pub " else ""}def $x${t.map(t => s" : $t").getOrElse("")} = $v"
       case Primitive(_, p, x, t) =>
         s"${if p then "pub " else ""}primitive $x : $t"
-      case Data(_, p, x, k, cs) =>
+      case Data(_, p, x, k, ps, cs) =>
         val css = cs.mkString(" | ")
-        s"${if p then "pub " else ""}$k $x = $css"
+        s"${if p then "pub " else ""}$k $x ${ps.mkString(" ")} = $css"
 
   enum ArgInfo:
     case Named(name: Name)

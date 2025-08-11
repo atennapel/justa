@@ -18,3 +18,5 @@ pub def isub (a b : Int) : Int = instr 100 a b
 pub def idec (n : Int) = isub n 1
 pub def inonzero (n : Int) : Bool = instr id n
 pub def izero (n : Int) : Bool = not (inonzero n)
+
+pub data Maybe A = Nothing | Just A
