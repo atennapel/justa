@@ -932,23 +932,27 @@ object Elaboration:
       State.addGlobal(
         GlobalEntry.Data(k, pub, x, cs.map(_.name), ty, vty, unitCon)
       )
-      val datactx = ps.foldLeft(ctx)((ctx, x) =>
-        ctx.bind1(DoBind(x), Tm1.UTy(Tm1.Val), VTyVal)
-      )
+      val datactx =
+        ps.foldLeft(ctx)((ctx, x) => ctx.bind1(DoBind(x), TyVal, VTyVal))
       val ecs = cs.zipWithIndex.map {
-        case (Surface.Constructor(pos, pub, cx, ps), ix) =>
+        case (Surface.Constructor(pos, pub, cx, cps), ix) =>
           given conctx: Ctx = datactx.enter(pos)
-          if k == DataKind.Finite && ps.nonEmpty then
+          if k == DataKind.Finite && cps.nonEmpty then
             err(s"a finite datatype cannot have constructor parameters")
           if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
-          val tm = Tm1.Con(m, x, cx)
-          val eps = ps.map { (x, t) =>
+          val tyapp = ps.indices.foldRight(ty)((i, ty) =>
+            Tm1.App(ty, Tm1.Var(mkIx(i)), Expl)
+          )
+          val eps = cps.map { (x, t) =>
             val et = check1(t, VTyVal)
             (x, et, conctx.eval1(et))
           }
-          val cty = eps.foldRight(ty) { case ((_, pty, _), rty) =>
-            Tm1.Fun(pty, Tm1.Val, rty)
+          val cty0 = eps.foldRight(Tm1.Lift(Tm1.Val, tyapp)) {
+            case ((x, pty, _), rty) =>
+              Tm1.Pi(x, Expl, Tm1.Lift(Tm1.Val, pty), Tm1.Wk1(rty))
           }
+          val cty =
+            ps.foldRight(cty0)((x, rty) => Tm1.Pi(DoBind(x), Impl, TyVal, rty))
           val vcty = conctx.eval1(cty)
           State.addGlobal(
             GlobalEntry.DataCon(
@@ -958,7 +962,7 @@ object Elaboration:
               eps,
               x,
               ix,
-              tm,
+              Tm1.Con(m, x, cx),
               cty,
               vcty
             )

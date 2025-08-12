@@ -332,6 +332,8 @@ object Core:
   def vpiI(x: String, ty: VTy, b: Val1 => Val1): Val1 =
     Val1.Pi(bind(x), Icit.Impl, ty, Clos1.Fun(b))
 
+  val TyVal: Ty = Tm1.UTy(Tm1.Val)
+  val TyComp: Ty = Tm1.UTy(Tm1.Comp)
   val VTyVal: VTy = Val1.UTy(Val1.Val)
   val VTyComp: VTy = Val1.UTy(Val1.Comp)
 

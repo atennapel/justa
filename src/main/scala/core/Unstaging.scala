@@ -16,6 +16,7 @@ object Unstaging:
   def unstage(mods: List[Module]): List[IR.Module] = mods.flatMap(unstage)
 
   private def unstage(mod: Module): Option[IR.Module] =
+    currentModule = Some(mod.name)
     newDefs.clear()
     val defs = mod.defs.toList.flatMap(unstage)
     val extraDefs = newDefs.toList
@@ -85,24 +86,48 @@ object Unstaging:
           goTypeDef(rt),
           IR.MName(m, dx),
           go(s),
-          cs.map((cx, b) => (cx, go(b)(using extEnv(td), extVEnv))),
+          cs.map((cx, b) =>
+            (cx, conIndex(m, dx, cx), go(b)(using extEnv(td), extVEnv))
+          ),
           o.map(go)
         )
 
       case Tm0.Splice(tm) =>
         @tailrec
-        def apps(tm: Tm1, args: List[Tm1] = Nil): (Name, Name, List[Tm1]) =
+        def apps(
+            tm: Tm1,
+            args: List[(Tm1, Icit)] = Nil
+        ): (Tm1, List[(Tm1, Icit)]) =
           tm match
-            case Tm1.App(f, a, _)    => apps(f, a :: args)
-            case Tm1.Primitive(m, x) => (m, x, args)
+            case Tm1.App(f, a, i)    => apps(f, (a, i) :: args)
+            case Tm1.Primitive(m, x) => (tm, args)
+            case Tm1.Con(_, _, _)    => (tm, args)
             case _                   => impossible()
         def stWithEnv(t: Tm1, e: Env) = unstage0Under(t.splice, e)
         inline def st(t: Tm1) = stWithEnv(t, venv)
         inline def stgo(t: Tm1) = go(st(t))
+        def takeImpl(args: List[(Tm1, Icit)]): List[Tm1] =
+          args match
+            case (a, Icit.Impl) :: tl => a :: takeImpl(tl)
+            case _                    => Nil
         apps(tm) match
-          case (Name("Primitives"), Name("returnIO"), List(_, v)) =>
+          case (Tm1.Con(m, dx, cx), args) =>
+            val ps = takeImpl(args).map(eval1)
+            val as = args.drop(ps.size).map((t, _) => stgo(t))
+            monomorphize(m, dx, ps) match
+              case IR.Type.Data(k, mx) =>
+                IR.Expr.Con(k, mx, cx, conIndex(m, dx, cx), as)
+              case _ => impossible()
+
+          case (
+                Tm1.Primitive(Name("Primitives"), Name("returnIO")),
+                List(_, (v, _))
+              ) =>
             IR.Expr.ReturnIO(stgo(v))
-          case (Name("Primitives"), Name("bindIO"), List(ty, _, v, k)) =>
+          case (
+                Tm1.Primitive(Name("Primitives"), Name("bindIO")),
+                List((ty, _), _, (v, _), (k, _))
+              ) =>
             val ety = goTy(ty)
             val ev = stgo(v)
             val ek = stgo(k)
@@ -111,7 +136,8 @@ object Unstaging:
               ev,
               IR.Expr.App(ek, IR.Expr.Local(0, IR.TypeDef(ety)))
             )
-          case (m, x, _) => err(s"invalid primitive in unstaging: $m.$x")
+
+          case (hd, _) => err(s"invalid spliced function in unstaging: $hd")
 
   // types
   private inline def goTypeDef(t: Ty)(using env: Env): IR.TypeDef =
@@ -141,41 +167,46 @@ object Unstaging:
       case VPrimitive(Name("Primitives"), Name("Array"), List(ty)) =>
         IR.Type.Array(goVTy(ty))
 
-      case VTypeCon(k, m, x, ps) => monomorphize(k, m, x, ps)
+      case VTypeCon(_, m, x, ps) => monomorphize(m, x, ps)
 
       case _ => impossible()
 
   // monomorphization
   private type MonoKey = (IR.MName, List[IR.Type])
+  private var currentModule: Option[Name] = None
   private val monoStore = mutable.Map.empty[MonoKey, Name]
   private val newDefs = mutable.ArrayBuffer.empty[IR.Def]
 
+  private def conIndex(m: Name, dx: Name, cx: Name): Int =
+    State.getGlobal(m, dx) match
+      case Some(GlobalEntry.Data(_, _, _, xs, _, _, _)) => xs.indexOf(cx)
+      case _                                            => impossible()
+
   private def monomorphize(
-      k: DataKind,
       m: Name,
       x: Name,
       ps: List[VTy]
   ): IR.Type =
+    val (k, xs) = State.getGlobal(m, x) match
+      case Some(GlobalEntry.Data(k, _, _, xs, _, _, _)) => (k, xs)
+      case _                                            => impossible()
     val mx = IR.MName(m, x)
     val eps = ps.map(goVTy)
     val (nx, alreadyDone) = monomorphize(mx, eps)
     if !alreadyDone then
-      val cons = State.getGlobal(m, x) match
-        case Some(GlobalEntry.Data(_, _, _, xs, _, _, _)) =>
-          xs.map { cx =>
-            State.getGlobal(m, cx) match
-              case Some(GlobalEntry.DataCon(_, _, _, ps, _, _, _, _, _)) =>
-                cx -> ps.map((x, t, _) => (x, t))
-              case _ => impossible()
-          }
-        case _ => impossible()
+      val cons = xs.map { cx =>
+        State.getGlobal(m, cx) match
+          case Some(GlobalEntry.DataCon(_, _, _, ps, _, _, _, _, _)) =>
+            cx -> ps.map((x, t, _) => (x, t))
+          case _ => impossible()
+      }
       val env = Env(ps)
       val ecs = cons.map { (cx, ts) =>
         val ets = ts.map((x, t) => (x.toOption, goTy(t)(using env)))
         IR.Constructor(cx, ets)
       }
       newDefs += IR.Def.Data(k, false, x, ecs)
-    IR.Type.Data(k, IR.MName(State.currentModule, nx))
+    IR.Type.Data(k, IR.MName(currentModule.get, nx))
 
   private def monomorphize(name: IR.MName, ps: List[IR.Type]): (Name, Boolean) =
     val k = (name, ps)
