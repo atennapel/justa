@@ -65,11 +65,11 @@ object Evaluation:
 
   def eval0(t: Tm0)(using env: Env): Val0 =
     t match
-      case Tm0.Var(ix)                 => var0(ix)
-      case Tm0.IntLit(v)               => Val0.IntLit(v)
-      case Tm0.Global(m, x)            => Val0.Global(m, x)
-      case Tm0.Select(m, dx, cx, s, i) => Val0.Select(m, dx, cx, eval0(s), i)
-      case Tm0.Let(x, ty, v, b)        =>
+      case Tm0.Var(ix)              => var0(ix)
+      case Tm0.IntLit(v)            => Val0.IntLit(v)
+      case Tm0.Global(m, x)         => Val0.Global(m, x)
+      case Tm0.Select(dt, cx, s, i) => Val0.Select(eval1(dt), cx, eval0(s), i)
+      case Tm0.Let(x, ty, v, b)     =>
         Val0.Let(x, eval1(ty), eval0(v), Clos0(b))
       case Tm0.LetRec(x, ty, v, b) =>
         Val0.LetRec(x, eval1(ty), Clos0(v), Clos0(b))
@@ -78,11 +78,10 @@ object Evaluation:
       case Tm0.Splice(t)               => splice(eval1(t))
       case Tm0.Instr(op, ts, rt, args) =>
         Val0.Instr(op, ts.map(eval1), eval1(rt), args.map(eval0))
-      case Tm0.Match(rt, m, dx, s, cs, o) =>
+      case Tm0.Match(rt, dt, s, cs, o) =>
         Val0.Match(
           eval1(rt),
-          m,
-          dx,
+          eval1(dt),
           eval0(s),
           cs.map((x, b) => (x, Clos0(b))),
           o.map(eval0)
@@ -185,11 +184,11 @@ object Evaluation:
       case QuoteOption.UnfoldNone  => v
       case QuoteOption.UnfoldStage => forceStage0(v)
     force(v) match
-      case Val0.Var(x)                  => Tm0.Var(x.toIx)
-      case Val0.IntLit(v)               => Tm0.IntLit(v)
-      case Val0.Global(m, x)            => Tm0.Global(m, x)
-      case Val0.Select(m, dx, cx, s, i) => Tm0.Select(m, dx, cx, go0(s), i)
-      case Val0.Let(x, ty, v, b)        =>
+      case Val0.Var(x)               => Tm0.Var(x.toIx)
+      case Val0.IntLit(v)            => Tm0.IntLit(v)
+      case Val0.Global(m, x)         => Tm0.Global(m, x)
+      case Val0.Select(dt, cx, s, i) => Tm0.Select(go1(dt), cx, go0(s), i)
+      case Val0.Let(x, ty, v, b)     =>
         Tm0.Let(x, go1(ty), go0(v), goClos(b))
       case Val0.LetRec(x, ty, v, b) =>
         Tm0.LetRec(x, go1(ty), goClos(v), goClos(b))
@@ -198,11 +197,10 @@ object Evaluation:
       case Val0.Splice(tm)              => go1(tm).splice
       case Val0.Instr(op, ts, rt, args) =>
         Tm0.Instr(op, ts.map(go1), go1(rt), args.map(go0))
-      case Val0.Match(rt, m, dx, s, cs, o) =>
+      case Val0.Match(rt, dt, s, cs, o) =>
         Tm0.Match(
           go1(rt),
-          m,
-          dx,
+          go1(dt),
           go0(s),
           cs.map((x, b) => (x, goClos(b))),
           o.map(go0)

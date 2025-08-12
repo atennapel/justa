@@ -253,28 +253,21 @@ object Elaboration:
           Tm0.Instr(op, vts.map(t => ctx.quote1(t)), ctx.quote1(ty), eargs)
 
         case Tm.If(p, c, a, b) =>
-          val (ec, m, dx) = checkIfCond(p, c)
+          val (ec, dt) = checkIfCond(p, c)
           val ea = check0(a, ty, cv)
           val eb = check0(b, ty, cv)
           val cs =
             List((Name("True"), Tm0.Wk0(ea)), (Name("False"), Tm0.Wk0(eb)))
-          Tm0.Match(ctx.quote1(ty), m, dx, ec, cs, None)
+          Tm0.Match(ctx.quote1(ty), dt, ec, cs, None)
 
         case Tm.Match(_, Some(scrut), cs, o) =>
           val (escrut, vdty, _) = infer0(scrut)
           val (etm, _, _) = inferMatch(escrut, vdty, cs, o, Some((ty, cv)))
           etm
         case Tm.Match(_, None, cs, o) =>
-          val (pty, m, dx, rcv, rty) = forceAll1(ty) match
-            case Val1.Fun(pty, rcv, rty) =>
-              val (m, dx) = forceAll1(pty) match
-                case VTypeCon(_, m, dx, ps) => (m, dx) // TODO: params
-                case _                      =>
-                  err(
-                    s"match without scrutinee can only be matched against a function type with a data type parameter, but got ${ctx.pretty1(ty)}"
-                  )
-              (pty, m, dx, rcv, rty)
-            case _ =>
+          val (pty, rcv, rty) = forceAll1(ty) match
+            case Val1.Fun(pty, rcv, rty) => (pty, rcv, rty)
+            case _                       =>
               err(
                 s"match without scrutinee can only be matched against a function type, but got ${ctx.pretty1(ty)}"
               )
@@ -282,7 +275,9 @@ object Elaboration:
           val nctx =
             ctx.bind0(DontBind, qpty, pty, Tm1.Val, Val1.Val)
           val (etm, _, _) =
-            inferMatch(Tm0.Var(ix0), pty, cs, o, Some((rty, rcv)))(using nctx)
+            inferMatch(Tm0.Var(ix0), pty, cs, o, Some((rty, rcv)))(using
+              nctx
+            )
           Tm0.Lam(DoBind(Name("x")), qpty, etm)
 
         case tm =>
@@ -371,9 +366,6 @@ object Elaboration:
 
         case (Tm.Match(pos, None, cs, o), Val1.Pi(x, Expl, pty, rty)) =>
           val (vdty, _) = splitLift(pty)
-          val (m, dx) = forceAll1(vdty) match
-            case VTypeCon(_, m, dx, ps) => (m, dx) // TODO: params
-            case _ => err(s"expected datatype but got ${ctx.pretty1(vdty)}")
           val v = Var1(ctx.lvl)
           val (vrty, vrcv) = splitLift(rty(v))
           val qpty = ctx.quote1(pty)
@@ -659,13 +651,13 @@ object Elaboration:
           err(s"cannot infer match without scrutinee")
 
         case Tm.If(p, c, a, b) =>
-          val (ec, m, dx) = checkIfCond(p, c)
+          val (ec, dt) = checkIfCond(p, c)
           val (ea, vrt, vcv) = infer0(a)
           val rt = ctx.quote1(vrt)
           val eb = check0(b, vrt, vcv)
           val cs =
             List((Name("True"), Tm0.Wk0(ea)), (Name("False"), Tm0.Wk0(eb)))
-          Infer0(Tm0.Match(rt, m, dx, ec, cs, None), vrt, vcv)
+          Infer0(Tm0.Match(rt, dt, ec, cs, None), vrt, vcv)
 
   private def inferMatch(
       escrut: Tm0,
@@ -674,8 +666,8 @@ object Elaboration:
       o: Option[(PosInfo, Tm)],
       erty: Option[(VTy, VTy)]
   )(using ctx: Ctx): (Tm0, VTy, VTy) =
-    val (_, m, dx) = forceAll1(vdty) match
-      case VTypeCon(k, m, dx, ps) => (k, m, dx) // TODO: params
+    val (_, m, dx, dps) = forceAll1(vdty) match
+      case VTypeCon(k, m, dx, ps) => (k, m, dx, ps.map(_._1))
       case _                      =>
         err(s"expected datatype in match but got ${ctx.pretty1(vdty)}")
     exhaustivenessCheck(
@@ -685,6 +677,7 @@ object Elaboration:
     )
     val dty = ctx.quote1(vdty)
     var rty: Option[(VTy, VTy)] = erty
+    given Env = Env(dps)
     val ecs =
       cs.map((p, cx, ps, b) =>
         val (eb, rt) =
@@ -713,7 +706,7 @@ object Elaboration:
     }
     val (vrty, vrcv) = rty.get
     (
-      Tm0.Match(ctx.quote1(vrty), m, dx, escrut, ecs, eo),
+      Tm0.Match(ctx.quote1(vrty), dty, escrut, ecs, eo),
       vrty,
       vrcv
     )
@@ -755,7 +748,7 @@ object Elaboration:
       case (((x, (ty, _)), i), b) =>
         x match
           case DoBind(x) =>
-            Tm0.Let(x, ty, Tm0.Select(m, dx, cx, Tm0.Var(mkIx(i)), i), b)
+            Tm0.Let(x, ty, Tm0.Select(dty, cx, Tm0.Var(mkIx(i)), i), b)
           case DontBind => b
     }
     (wrapped, rty2)
@@ -765,10 +758,15 @@ object Elaboration:
       case Some(GlobalEntry.Data(_, _, _, cs, _, _, _)) => cs
       case _                                            => impossible()
 
-  private def conParameters(m: Name, cx: Name): List[(Ty, VTy)] =
+  private def conParameters(m: Name, cx: Name)(using
+      env: Env
+  ): List[(Ty, VTy)] =
     State.getGlobal(m, cx) match
       case Some(GlobalEntry.DataCon(_, _, _, ps, _, _, _, _, _)) =>
-        ps.map((_, t, vt) => (t, vt))
+        ps.map { (_, t, _) =>
+          val vt = eval1(t)
+          (quote1(vt, UnfoldNone)(using env.lvl), vt)
+        }
       case _ => impossible()
 
   private def exhaustivenessCheck(
@@ -784,9 +782,9 @@ object Elaboration:
 
   private def checkIfCond(p: PosInfo, c: Tm)(using
       ctx: Ctx
-  ): (Tm0, Name, Name) =
+  ): (Tm0, Tm1) =
     val tbool = check1(Tm.Var(p, None, Name("Bool")), VTyVal)
-    val (m, dx) = forceAll1(ctx.eval1(tbool)) match
+    forceAll1(ctx.eval1(tbool)) match
       case Val1.Rigid(
             Head.TypeCon(DataKind.Finite, m, dx),
             Spine.Empty
@@ -799,13 +797,12 @@ object Elaboration:
             err(
               s"expected a Bool type in if-expression but got ${ctx.pretty1(tbool)}"
             )
-        (m, dx)
       case _ =>
         err(
           s"expected a Bool type in if-expression but got ${ctx.pretty1(tbool)}"
         )
     val ec = check0(c, ctx.eval1(tbool), Val1.Val)
-    (ec, m, dx)
+    (ec, tbool)
 
   private def checkAccessibility(ty: VTy)(using ctx: Ctx): Unit =
     debug(s"checkAccessibility ${ctx.pretty1(ty)}")
@@ -847,9 +844,9 @@ object Elaboration:
     def go0(tm: Val0)(using lvl: Lvl): Unit =
       inline def goClos(c: Clos0): Unit = go0(c(Val0.Var(lvl)))(using lvl + 1)
       tm match
-        case Val0.Global(m, x)            => checkGlobal(m, x)
-        case Val0.Select(m, dx, cx, s, _) =>
-          checkGlobal(m, dx); checkGlobal(m, cx); go0(s)
+        case Val0.Global(m, x)        => checkGlobal(m, x)
+        case Val0.Select(dt, _, s, _) =>
+          go1(dt); go0(s) // TODO: need to check cx?
 
         case Val0.Var(_)    => ()
         case Val0.IntLit(_) => ()
@@ -859,12 +856,12 @@ object Elaboration:
         case Val0.App(f, a)  => go0(f); go0(a)
         case Val0.Splice(tm) => go1(tm)
 
-        case Val0.Let(_, ty, v, b)           => go1(ty); go0(v); goClos(b)
-        case Val0.LetRec(_, ty, v, b)        => go1(ty); goClos(v); goClos(b)
-        case Val0.Lam(_, ty, b)              => go1(ty); goClos(b)
-        case Val0.Match(rt, m, dx, s, cs, o) =>
+        case Val0.Let(_, ty, v, b)        => go1(ty); go0(v); goClos(b)
+        case Val0.LetRec(_, ty, v, b)     => go1(ty); goClos(v); goClos(b)
+        case Val0.Lam(_, ty, b)           => go1(ty); goClos(b)
+        case Val0.Match(rt, dt, s, cs, o) =>
           go1(rt)
-          checkGlobal(m, dx)
+          go1(dt)
           go0(s)
           cs.foreach((_, b) => goClos(b))
           o.foreach(go0)

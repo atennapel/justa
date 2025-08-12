@@ -20,9 +20,10 @@ object Unification:
       case (Val0.IntLit(x), Val0.IntLit(y)) if x == y                     => ()
       case (Val0.Global(m1, x), Val0.Global(m2, y)) if m1 == m2 && x == y => ()
       case (
-            Val0.Select(m1, dx1, cx1, s1, i1),
-            Val0.Select(m2, dx2, cx2, s2, i2)
-          ) if m1 == m2 && dx1 == dx2 && cx1 == cx2 && i1 == i2 =>
+            Val0.Select(dt1, cx1, s1, i1),
+            Val0.Select(dt2, cx2, s2, i2)
+          ) if cx1 == cx2 && i1 == i2 =>
+        unify1(dt1, dt2)
         unify0(s1, s2)
       case (Val0.Let(_, ty1, v1, b1), Val0.Let(_, ty2, v2, b2)) =>
         unify1(ty1, ty2); unify0(v1, v2); goClos(b1, b2)
@@ -38,10 +39,10 @@ object Unification:
       case (Val0.App(f1, a1), Val0.App(f2, a2))     =>
         unify0(f1, f2); unify0(a1, a2)
       case (
-            Val0.Match(rt1, m1, dx1, s1, cs1, o1),
-            Val0.Match(rt2, m2, dx2, s2, cs2, o2)
-          )
-          if m1 == m2 && dx1 == dx2 && cs1.size == cs2.size && o1.isDefined == o2.isDefined =>
+            Val0.Match(rt1, dt1, s1, cs1, o1),
+            Val0.Match(rt2, dt2, s2, cs2, o2)
+          ) if cs1.size == cs2.size && o1.isDefined == o2.isDefined =>
+        unify1(dt1, dt2)
         unify1(rt1, rt2)
         unify0(s1, s2)
         o1.zip(o2).foreach(unify0)

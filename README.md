@@ -2,10 +2,10 @@
 Programming language targeting the JVM
 
 TODO:
+- Fix unstaging bug
+- Generate non-parametrized in the defining module
 - Nicer syntax for record field selection
 - Clean up elaboration, reduce duplication
-- Parametrized datatypes
-- Generate non-parametrized in the defining module
 - Sigma types (or meta-level record types?)
 - Class type
 - JVM descriptor type?

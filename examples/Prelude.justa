@@ -20,3 +20,13 @@ pub def inonzero (n : Int) : Bool = instr id n
 pub def izero (n : Int) : Bool = not (inonzero n)
 
 pub data Maybe A = Nothing | Just A
+
+def test := Just {Int} 42
+
+def mapMaybe {A B : vtype} (f : A -> B) (m : Maybe A) : Maybe B =
+  match m {
+  | Just n => Just {B} (f n)
+  | Nothing => Nothing {B}
+  }
+
+-- def idMaybeInt (m : Maybe Int) := mapMaybe {Int} {Int} (\x => x) m

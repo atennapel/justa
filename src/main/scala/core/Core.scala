@@ -56,7 +56,7 @@ object Core:
     case Var(ix: Ix)
     case IntLit(value: Int)
     case Global(mod: Name, name: Name)
-    case Select(mod: Name, dx: Name, cx: Name, scrut: Tm0, ix: Int)
+    case Select(dty: Tm1, cx: Name, scrut: Tm0, ix: Int)
     case Let(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case LetRec(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case Lam(name: Bind, ty: Ty, body: Tm0)
@@ -65,8 +65,7 @@ object Core:
     case Instr(instr: String, types: List[Ty], returntype: Ty, args: List[Tm0])
     case Match(
         rty: Ty,
-        mod: Name,
-        dx: Name,
+        dty: Ty,
         scrut: Tm0,
         cases: List[(Name, Tm0)],
         otherwise: Option[Tm0]
@@ -90,19 +89,19 @@ object Core:
       case t => (t, Nil)
 
     override def toString: String = this match
-      case Var(ix)                        => s"'$ix"
-      case IntLit(v)                      => v.toString
-      case Select(_, _, _, s, i)          => s"(select $i $s)"
-      case Global(m, x)                   => s"$m.$x"
-      case Let(x, ty, v, b)               => s"(let $x : $ty := $v; $b)"
-      case LetRec(x, ty, v, b)            => s"(let rec $x : $ty := $v; $b)"
-      case Lam(x, ty, b)                  => s"(\\($x : $ty) => $b)"
-      case App(fn, arg)                   => s"($fn $arg)"
-      case Splice(tm)                     => s"$$$tm"
-      case Instr(x, _, _, args)           => s"(instr $x ${args.mkString(" ")})"
-      case Match(_, _, _, s, cs, Some(o)) =>
+      case Var(ix)                     => s"'$ix"
+      case IntLit(v)                   => v.toString
+      case Select(_, _, s, i)          => s"(select $i $s)"
+      case Global(m, x)                => s"$m.$x"
+      case Let(x, ty, v, b)            => s"(let $x : $ty := $v; $b)"
+      case LetRec(x, ty, v, b)         => s"(let rec $x : $ty := $v; $b)"
+      case Lam(x, ty, b)               => s"(\\($x : $ty) => $b)"
+      case App(fn, arg)                => s"($fn $arg)"
+      case Splice(tm)                  => s"$$$tm"
+      case Instr(x, _, _, args)        => s"(instr $x ${args.mkString(" ")})"
+      case Match(_, _, s, cs, Some(o)) =>
         s"(match $s { ${cs.map((x, b) => s"$x => $b").mkString(" | ")} | _ => $o })"
-      case Match(_, _, _, s, cs, None) =>
+      case Match(_, _, s, cs, None) =>
         s"(match $s { ${cs.map((x, b) => s"$x => $b").mkString(" | ")} })"
       case Wk1(tm) => s"Wk10($tm)"
       case Wk0(tm) => s"Wk00($tm)"
@@ -247,18 +246,18 @@ object Core:
       case Empty => true
       case _     => false
 
-    def toList: List[Val1] = this match
-      case Spine.App(sp, arg, _) => sp.toList ++ List(arg)
+    def toList: List[(Val1, Icit)] = this match
+      case Spine.App(sp, arg, i) => sp.toList ++ List((arg, i))
       case Spine.Empty           => Nil
   object Spine:
-    def apps(args: List[Val1]): Spine =
-      args.foldLeft(Spine.Empty)((s, a) => Spine.App(s, a, Icit.Expl))
+    def apps(args: List[(Val1, Icit)]): Spine =
+      args.foldLeft(Spine.Empty) { case (s, (a, i)) => Spine.App(s, a, i) }
 
   enum Val0:
     case Var(lvl: Lvl)
     case IntLit(value: Int)
     case Global(mod: Name, name: Name)
-    case Select(mod: Name, dx: Name, cx: Name, scrut: Val0, ix: Int)
+    case Select(dty: VTy, cx: Name, scrut: Val0, ix: Int)
     case Let(
         name: Name,
         ty: VTy,
@@ -282,8 +281,7 @@ object Core:
     )
     case Match(
         rty: VTy,
-        mod: Name,
-        dx: Name,
+        dty: VTy,
         scrut: Val0,
         cases: List[(Name, Clos0)],
         otherwise: Option[Val0]
@@ -344,26 +342,39 @@ object Core:
       case _                                     => None
 
   object VPrimitive:
-    def apply(mod: Name, name: Name, args: List[Val1] = Nil): Val1 =
+    def apply(mod: Name, name: Name, args: List[(Val1, Icit)] = Nil): Val1 =
       Val1.Rigid(Head.Primitive(mod, name), Spine.apps(args))
-    def unapply(value: Val1): Option[(Name, Name, List[Val1])] = value match
-      case Val1.Rigid(Head.Primitive(mod, name), spine) =>
-        Some((mod, name, spine.toList))
-      case _ => None
+    def unapply(value: Val1): Option[(Name, Name, List[(Val1, Icit)])] =
+      value match
+        case Val1.Rigid(Head.Primitive(mod, name), spine) =>
+          Some((mod, name, spine.toList))
+        case _ => None
 
   object VCon:
-    def apply(mod: Name, name: Name, cx: Name, params: List[VTy]): Val1 =
+    def apply(
+        mod: Name,
+        name: Name,
+        cx: Name,
+        params: List[(VTy, Icit)] = Nil
+    ): Val1 =
       Val1.Rigid(Head.Con(mod, name, cx), Spine.apps(params))
-    def unapply(value: Val1): Option[(Name, Name, Name, List[VTy])] =
+    def unapply(value: Val1): Option[(Name, Name, Name, List[(VTy, Icit)])] =
       value match
         case Val1.Rigid(Head.Con(mod, name, cx), spine) =>
           Some((mod, name, cx, spine.toList))
         case _ => None
 
   object VTypeCon:
-    def apply(kind: DataKind, mod: Name, name: Name, params: List[VTy]): Val1 =
+    def apply(
+        kind: DataKind,
+        mod: Name,
+        name: Name,
+        params: List[(VTy, Icit)] = Nil
+    ): Val1 =
       Val1.Rigid(Head.TypeCon(kind, mod, name), Spine.apps(params))
-    def unapply(value: Val1): Option[(DataKind, Name, Name, List[VTy])] =
+    def unapply(
+        value: Val1
+    ): Option[(DataKind, Name, Name, List[(VTy, Icit)])] =
       value match
         case Val1.Rigid(Head.TypeCon(kind, mod, name), spine) =>
           Some((kind, mod, name, spine.toList))

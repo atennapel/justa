@@ -17,6 +17,7 @@ object Unstaging:
 
   private def unstage(mod: Module): Option[IR.Module] =
     currentModule = Some(mod.name)
+    monoStore.clear()
     newDefs.clear()
     val defs = mod.defs.toList.flatMap(unstage)
     val extraDefs = newDefs.toList
@@ -50,10 +51,18 @@ object Unstaging:
     inline def extEnv(td: IR.TypeDef) = td :: env
     inline def extVEnv = Env.E0(venv, Val0.Var(mkLvl(venv.size)))
     tm match
-      case Tm0.IntLit(v)               => IR.Expr.IntLit(v)
-      case Tm0.Global(m, x)            => IR.Expr.Global(IR.MName(m, x))
-      case Tm0.Select(m, dx, cx, s, i) =>
-        IR.Expr.Field(getDataKind(m, dx), IR.MName(m, dx), cx, go(s), i)
+      case Tm0.IntLit(v)            => IR.Expr.IntLit(v)
+      case Tm0.Global(m, x)         => IR.Expr.Global(IR.MName(m, x))
+      case Tm0.Select(dt, cx, s, i) =>
+        val (k, em, edx) = forceAll1(eval1(dt)) match
+          case VTypeCon(k, m, dx, ps) =>
+            val ty = monomorphize(m, dx, ps.map(_._1))
+            val (em, edx) = ty match
+              case IR.Type.Data(_, mx) => (mx.module, mx.name)
+              case _                   => impossible()
+            (k, em, edx)
+          case _ => impossible()
+        IR.Expr.Field(k, IR.MName(em, edx), cx, go(s), i)
       case Tm0.Let(_, ty, v, b) =>
         val td = goTypeDef(ty)
         IR.Expr.Let(td, go(v), go(b)(using extEnv(td), extVEnv))
@@ -78,13 +87,20 @@ object Unstaging:
 
       case Tm0.Var(ix) => IR.Expr.Local(ix.expose, env(ix.expose))
 
-      case Tm0.Match(rt, m, dx, s, cs, o) =>
-        val k = getDataKind(m, dx)
-        val td = IR.TypeDef(IR.Type.Data(k, IR.MName(m, dx)))
+      case Tm0.Match(rt, dt, s, cs, o) =>
+        val (k, edt, m, dx, em, edx) = forceAll1(eval1(dt)) match
+          case VTypeCon(k, m, dx, ps) =>
+            val ty = monomorphize(m, dx, ps.map(_._1))
+            val (em, edx) = ty match
+              case IR.Type.Data(_, mx) => (mx.module, mx.name)
+              case _                   => impossible()
+            (k, ty, m, dx, em, edx)
+          case _ => impossible()
+        val td = IR.TypeDef(edt)
         IR.Expr.Case(
           k,
           goTypeDef(rt),
-          IR.MName(m, dx),
+          IR.MName(em, edx),
           go(s),
           cs.map((cx, b) =>
             (cx, conIndex(m, dx, cx), go(b)(using extEnv(td), extVEnv))
@@ -147,7 +163,7 @@ object Unstaging:
     forceAll1(t) match
       case Val1.Fun(pty, _, rty) =>
         IR.TypeDef(goVTy(pty), goVTypeDef(rty))
-      case VPrimitive(Name("Primitives"), Name("IO"), List(ty)) =>
+      case VPrimitive(Name("Primitives"), Name("IO"), List((ty, _))) =>
         IR.TypeDef(Nil, true, goVTy(ty))
       case t => IR.TypeDef(goVTy(t))
 
@@ -164,10 +180,10 @@ object Unstaging:
       case VPrimitive(Name("Primitives"), Name("Float"), _)  => IR.Type.Float
       case VPrimitive(Name("Primitives"), Name("Double"), _) => IR.Type.Double
 
-      case VPrimitive(Name("Primitives"), Name("Array"), List(ty)) =>
+      case VPrimitive(Name("Primitives"), Name("Array"), List((ty, _))) =>
         IR.Type.Array(goVTy(ty))
 
-      case VTypeCon(_, m, x, ps) => monomorphize(m, x, ps)
+      case VTypeCon(_, m, x, ps) => monomorphize(m, x, ps.map(_._1))
 
       case _ => impossible()
 
@@ -205,7 +221,7 @@ object Unstaging:
         val ets = ts.map((x, t) => (x.toOption, goTy(t)(using env)))
         IR.Constructor(cx, ets)
       }
-      newDefs += IR.Def.Data(k, false, x, ecs)
+      newDefs += IR.Def.Data(k, false, nx, ecs)
     IR.Type.Data(k, IR.MName(currentModule.get, nx))
 
   private def monomorphize(name: IR.MName, ps: List[IR.Type]): (Name, Boolean) =
