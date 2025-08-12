@@ -69,8 +69,7 @@ object Evaluation:
       case Tm0.IntLit(v)            => Val0.IntLit(v)
       case Tm0.Global(m, x)         => Val0.Global(m, x)
       case Tm0.Select(dt, cx, s, i) => Val0.Select(eval1(dt), cx, eval0(s), i)
-      case Tm0.Let(x, ty, v, b)     =>
-        Val0.Let(x, eval1(ty), eval0(v), Clos0(b))
+      case Tm0.Let(x, ty, v, b)    => Val0.Let(x, eval1(ty), eval0(v), Clos0(b))
       case Tm0.LetRec(x, ty, v, b) =>
         Val0.LetRec(x, eval1(ty), Clos0(v), Clos0(b))
       case Tm0.Lam(x, ty, b)           => Val0.Lam(x, eval1(ty), Clos0(b))

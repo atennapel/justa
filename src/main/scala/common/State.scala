@@ -44,7 +44,7 @@ object State:
         kind: DataKind,
         public: Boolean,
         x: Name,
-        params: List[(Bind, Ty, VTy)],
+        params: List[(Bind, Ty)],
         dx: Name,
         ix: Int,
         tm: Tm1,

@@ -1,33 +1,43 @@
 module Datatypes
 
 import Primitives (Int)
-import Prelude (iinc)
+import Prelude (vtype, iinc)
 
 -- testing datatypes
-data IntOption = None | Some Int
-def test := Some 42
-def incIntOption (o : IntOption) :=
+data Option A = None | Some A
+def test := Some {Int} 42
+
+def mapOption {A B : vtype} (f : A -> B) (o : Option A) : Option B =
   match o {
-  | Some n => Some (iinc n)
-  | None => ()
+  | Some x => Some {B} (f x)
+  | None => None {B}
   }
 
-data IntList = Nil | Cons (head : Int) (tail : IntList)
-def test2 := Cons 1 (Cons 2 (Cons 3 ()))
-def incIntList (l : IntList) :=
-  let rec go (l : IntList) : IntList :=
+def incIntOption (o : Option Int) := mapOption {Int} {Int} iinc o
+
+data List A = Nil | Cons (head : A) (tail : List A)
+
+def test2 := Cons {Int} 1 (Cons {Int} 2 (Cons {Int} 3 ()))
+
+def mapList {A B : vtype} (f : A -> B) (l : List A) : List B =
+  let rec go (l : List A) : List B :=
     match l {
-    | Cons hd tl => Cons (iinc hd) (go tl)
-    | Nil => ()
+    | Cons hd tl => Cons {B} (f hd) (go tl)
+    | Nil => Nil {B}
     };
   go l
-def reverseIntList (l : IntList) :=
-  let rec go (l acc : IntList) : IntList :=
+
+def incIntList (l : List Int) := mapList {Int} {Int} iinc l
+
+def reverseList {A : vtype} (l : List A) : List A =
+  let rec go (l acc : List A) : List A :=
     match l {
+    | Cons hd tl => go tl (Cons {A} hd acc)
     | Nil => acc
-    | Cons hd tl => go tl (Cons hd acc)
     };
-  go l ()
+  go l (Nil {A})
+
+def reverseIntList (l : List Int) := reverseList {Int} l
 
 record Person = MkPerson (age : Int) (height : Int)
 def person := MkPerson 33 195

@@ -212,8 +212,7 @@ object Unstaging:
     if !alreadyDone then
       val cons = xs.map { cx =>
         State.getGlobal(m, cx) match
-          case Some(GlobalEntry.DataCon(_, _, _, ps, _, _, _, _, _)) =>
-            cx -> ps.map((x, t, _) => (x, t))
+          case Some(GlobalEntry.DataCon(_, _, _, ps, _, _, _, _, _)) => cx -> ps
           case _ => impossible()
       }
       val env = Env(ps)

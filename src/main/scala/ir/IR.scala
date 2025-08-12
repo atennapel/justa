@@ -630,7 +630,6 @@ object IR:
           val newbody = ren.foldLeft(body) { case (v, ((ix, (ty, _)), newix)) =>
             v.subst(ix, Expr.Local(newix, ty))
           }
-          println(s"newbody: $newbody")
           Jvm.Def.Function(
             false,
             JvmName(x.name),

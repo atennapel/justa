@@ -218,7 +218,7 @@ object Elaboration:
 
         case Tm.Unit(_) =>
           forceAll1(ty) match
-            case Val1.Rigid(Head.TypeCon(_, m, x), _) =>
+            case VTypeCon(_, m, x, dps) =>
               val uc = State.getGlobal(m, x) match
                 case Some(GlobalEntry.Data(_, _, _, _, _, _, uc)) => uc
                 case _ => impossible()
@@ -234,9 +234,13 @@ object Elaboration:
                         ) =>
                       if ps.nonEmpty then
                         err(
-                          s"cannot check () against ${ctx.pretty1(ty)}: too many parameters for only constructor $cx"
+                          s"cannot check () against ${ctx.pretty1(ty)}: too many parameters for suitable constructor $cx"
                         )
-                      tm.splice
+                      dps
+                        .foldLeft(tm) { case (tm, (ty, _)) =>
+                          Tm1.App(tm, ctx.quote1(ty), Impl)
+                        }
+                        .splice
                     case _ => impossible()
             case _ => err(s"cannot check () against ${ctx.pretty1(ty)}")
 
@@ -705,11 +709,8 @@ object Elaboration:
         case Some((rt, rc)) => check0(tm, rt, rc)(using ctx.enter(pos))
     }
     val (vrty, vrcv) = rty.get
-    (
-      Tm0.Match(ctx.quote1(vrty), dty, escrut, ecs, eo),
-      vrty,
-      vrcv
-    )
+    val em = Tm0.Match(ctx.quote1(vrty), dty, escrut, ecs, eo)
+    (em, vrty, vrcv)
 
   private def inferMatchCase(
       pos: PosInfo,
@@ -718,7 +719,7 @@ object Elaboration:
       cx: Name,
       ps: List[Bind],
       body: Tm,
-      ts: List[(Ty, VTy)],
+      ts: List[VTy],
       dty: Ty,
       vdty: VTy,
       rty: Option[(VTy, VTy)]
@@ -734,21 +735,25 @@ object Elaboration:
         .enter(pos)
         .bind0(DontBind, dty, vdty, Tm1.Val, Val1.Val)
     val pst = ps.zip(ts)
-    val nctx2 = pst.foldLeft(nctx1) { case (ctx, (x, (ty, vty))) =>
-      x match
-        case DoBind(_) => ctx.bind0(x, ty, vty, Tm1.Val, Val1.Val)
-        case DontBind  => ctx
+    val (nctx2, qts) = pst.foldLeft((nctx1, List.empty[(Ty, Ty)])) {
+      case ((ctx, qts), (x, vty)) =>
+        x match
+          case DoBind(_) =>
+            val dty = ctx.quote1(vdty)
+            val ty = ctx.quote1(vty)
+            (ctx.bind0(x, ty, vty, Tm1.Val, Val1.Val), (dty, ty) :: qts)
+          case DontBind => (ctx, qts)
     }
     val (eb, rty2) = rty match
       case Some(rt @ (ety, ecv)) => (check0(body, ety, ecv)(using nctx2), rt)
       case None                  =>
         val (eb, t, c) = infer0(body)(using nctx2)
         (eb, (t, c))
-    val wrapped = pst.zipWithIndex.foldRight(eb) {
-      case (((x, (ty, _)), i), b) =>
+    val wrapped = pst.zipWithIndex.zip(qts.reverse).foldRight(eb) {
+      case ((((x, vty), i), (dty, qty)), b) =>
         x match
           case DoBind(x) =>
-            Tm0.Let(x, ty, Tm0.Select(dty, cx, Tm0.Var(mkIx(i)), i), b)
+            Tm0.Let(x, qty, Tm0.Select(dty, cx, Tm0.Var(mkIx(i)), i), b)
           case DontBind => b
     }
     (wrapped, rty2)
@@ -760,13 +765,10 @@ object Elaboration:
 
   private def conParameters(m: Name, cx: Name)(using
       env: Env
-  ): List[(Ty, VTy)] =
+  ): List[VTy] =
     State.getGlobal(m, cx) match
       case Some(GlobalEntry.DataCon(_, _, _, ps, _, _, _, _, _)) =>
-        ps.map { (_, t, _) =>
-          val vt = eval1(t)
-          (quote1(vt, UnfoldNone)(using env.lvl), vt)
-        }
+        ps.map { (_, t) => eval1(t) }
       case _ => impossible()
 
   private def exhaustivenessCheck(
@@ -940,12 +942,9 @@ object Elaboration:
           val tyapp = ps.indices.foldRight(ty)((i, ty) =>
             Tm1.App(ty, Tm1.Var(mkIx(i)), Expl)
           )
-          val eps = cps.map { (x, t) =>
-            val et = check1(t, VTyVal)
-            (x, et, conctx.eval1(et))
-          }
+          val eps = cps.map((x, t) => (x, check1(t, VTyVal)))
           val cty0 = eps.foldRight(Tm1.Lift(Tm1.Val, tyapp)) {
-            case ((x, pty, _), rty) =>
+            case ((x, pty), rty) =>
               Tm1.Pi(x, Expl, Tm1.Lift(Tm1.Val, pty), Tm1.Wk1(rty))
           }
           val cty =
@@ -964,7 +963,7 @@ object Elaboration:
               vcty
             )
           )
-          Constructor(cx, eps.map((x, t, _) => (x, t)))
+          Constructor(cx, eps)
       }
       Def.Data(k, pub, x, ps, ecs)
 
