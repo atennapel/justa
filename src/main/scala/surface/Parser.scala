@@ -47,7 +47,8 @@ object Parser:
       "else"
     )
   private val symbols1: Set[Char] =
-    Set(':', ';', '=', '\\', ',', '(', ')', '{', '}', '^', '`', '$', '|')
+    Set(':', ';', '=', '\\', ',', '(', ')', '{', '}', '[', ']', ',', '^', '`',
+      '$', '|')
   private val symbols2: Map[Char, Set[Char]] =
     Map(':' -> Set('='), '-' -> Set('>'), '=' -> Set('>'))
 
@@ -312,18 +313,65 @@ object Parser:
       case None    =>
         if trySymbol("(") then
           val pos = ctx.pos
-          if trySymbol(")") then Some(Tm.Unit(pos))
-          else
-            val expr = parseExpr()
-            symbol(")")
-            Some(expr)
+          val expr = parseExpr()
+          symbol(")")
+          Some(expr)
         else if trySymbol("^") then Some(Tm.Lift(ctx.pos, parseAtom()))
         else if trySymbol("`") then Some(Tm.Quote(ctx.pos, parseAtom()))
         else if trySymbol("$") then Some(Tm.Splice(ctx.pos, parseAtom()))
+        else if trySymbol("[") then
+          if trySymbol("]") then Some(Tm.Unit(ctx.pos))
+          else
+            val tm = parseRecord()
+            symbol("]")
+            Some(tm)
         else
           tryNumber() match
             case None    => None
             case Some(v) => Some(Tm.IntLit(ctx.pos, v))
+
+  private enum RecordKind:
+    case Type
+    case Con1
+    case Con0
+    def symbol: String = this match
+      case Type => ":"
+      case Con1 => "="
+      case Con0 => ":="
+
+  private def parseRecord()(using ctx: Ctx): Tm =
+    val pos = ctx.pos
+    backtrack {
+      val xs = list(tryName)
+      val kind =
+        if trySymbol(":=") then Some(RecordKind.Con0)
+        else if trySymbol("=") then Some(RecordKind.Con1)
+        else if trySymbol(":") then Some(RecordKind.Type)
+        else None
+      kind match
+        case None       => None
+        case Some(kind) =>
+          val tm = parseExpr()
+          val tl = mutable.ArrayBuffer.empty[(List[Name], Tm)]
+          while trySymbol(",") do
+            val xs = list(tryName)
+            symbol(kind.symbol)
+            val tm = parseExpr()
+            tl += ((xs, tm))
+          val fields = ((xs, tm) :: tl.toList).flatMap { (xs, tm) =>
+            xs.map(x => (x, tm))
+          }
+          kind match
+            case RecordKind.Type => Some(Tm.RecordTy(pos, fields))
+            case RecordKind.Con1 => Some(Tm.RecordCon1(pos, fields))
+            case RecordKind.Con0 => Some(Tm.RecordCon0(pos, fields))
+    } match
+      case None =>
+        val hd = parseExpr()
+        val tl = mutable.ArrayBuffer.empty[Tm]
+        while trySymbol(",") do tl += parseExpr()
+        Tm.Tuple(pos, hd :: tl.toList)
+      case Some(tm) => tm
 
   private def parseAtom()(using ctx: Ctx): Tm =
     debug(s"parseAtom: $ctx")

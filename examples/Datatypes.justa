@@ -17,7 +17,7 @@ def incIntOption (o : Option Int) := mapOption {Int} {Int} iinc o
 
 data List A = Nil | Cons (head : A) (tail : List A)
 
-def test2 := Cons {Int} 1 (Cons {Int} 2 (Cons {Int} 3 ()))
+def test2 := Cons {Int} 1 (Cons {Int} 2 (Cons {Int} 3 []))
 
 def mapList {A B : vtype} (f : A -> B) (l : List A) : List B =
   let rec go (l : List A) : List B :=

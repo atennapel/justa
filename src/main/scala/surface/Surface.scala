@@ -79,7 +79,6 @@ object Surface:
   enum Tm:
     case Var(posInfo: PosInfo, mod: Option[Name], name: Name)
     case IntLit(posInfo: PosInfo, value: Int)
-    case Unit(posInfo: PosInfo)
 
     case Let0(posInfo: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
     case Let1(posInfo: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
@@ -117,6 +116,12 @@ object Surface:
     )
     case If(posInfo: PosInfo, cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
+    case RecordTy(posInfo: PosInfo, fields: List[(Name, Ty)])
+    case RecordCon1(posInfo: PosInfo, fields: List[(Name, Tm)])
+    case RecordCon0(posInfo: PosInfo, fields: List[(Name, Tm)])
+    case Tuple(posInfo: PosInfo, fields: List[Tm])
+    case Unit(posInfo: PosInfo)
+
     def pos: PosInfo = this match
       case Tm.Var(pos, _, _)          => pos
       case Tm.IntLit(pos, _)          => pos
@@ -134,12 +139,15 @@ object Surface:
       case Tm.Instr(pos, _, _)        => pos
       case Tm.Match(pos, _, _, _)     => pos
       case Tm.If(pos, _, _, _)        => pos
+      case RecordTy(pos, _)           => pos
+      case RecordCon1(pos, _)         => pos
+      case RecordCon0(pos, _)         => pos
+      case Tuple(pos, _)              => pos
 
     override def toString: String = this match
       case Var(_, None, x)      => s"$x"
       case Var(_, Some(m), x)   => s"$m.$x"
       case IntLit(_, v)         => v.toString
-      case Unit(_)              => "()"
       case Let0(_, x, ty, v, b) =>
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
       case Let1(_, x, ty, v, b) =>
@@ -167,4 +175,12 @@ object Surface:
         s"(match ${s.getOrElse("")} { ${cs.map((_, x, ps, b) => s"$x ${ps.mkString(" ")} => $b").mkString(" | ")} | _ => $o })"
       case Match(_, s, cs, None) =>
         s"(match ${s.getOrElse("")} { ${cs.map((_, x, ps, b) => s"$x ${ps.mkString(" ")} => $b").mkString(" | ")} })"
-      case If(_, c, a, b) => s"(if $c then $a else $b)"
+      case If(_, c, a, b)  => s"(if $c then $a else $b)"
+      case Unit(_)         => "[]"
+      case RecordTy(_, fs) =>
+        fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
+      case RecordCon1(_, fs) =>
+        fs.map((x, t) => s"$x = $t").mkString("[", ", ", "]")
+      case RecordCon0(_, fs) =>
+        fs.map((x, t) => s"$x := $t").mkString("[", ", ", "]")
+      case Tuple(_, fs) => fs.mkString("[", ", ", "]")

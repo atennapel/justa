@@ -454,6 +454,11 @@ object Elaboration:
         case Tm.Hole(_, _) => err("cannot infer hole")
         case Tm.Unit(_)    => err("cannot infer ()")
 
+        case Tm.RecordTy(_, _)   => ???
+        case Tm.RecordCon1(_, _) => ???
+        case Tm.RecordCon0(_, _) => ???
+        case Tm.Tuple(_, _)      => ???
+
         case Tm.IntLit(_, v) => Infer0(Tm0.IntLit(v), intType, Val1.Val)
 
         case Tm.Var(_, None, Name("meta")) => Infer1(Tm1.UMeta, Val1.UMeta)
