@@ -49,6 +49,8 @@ object Common:
   object Name:
     val Underscore = Name("_")
 
+  type Assoc[T] = List[(Name, T)]
+
   enum Bind:
     case DontBind
     case DoBind(name: Name)

@@ -26,7 +26,7 @@ object Elaboration:
   import Infer.*
 
   // unification
-  private def unify1(a: VTy, b: VTy)(using ctx: Ctx): Unit =
+  private def unify(a: VTy, b: VTy)(using ctx: Ctx): Unit =
     debug(s"unify1 ${ctx.pretty1(a)} ~ ${ctx.pretty1(b)}")
     try Unification.unify1(a, b)(using ctx.lvl)
     catch
@@ -70,8 +70,43 @@ object Elaboration:
       )
     )
 
+  private def liftRec(ts: Assoc[VTy])(using ctx: Ctx): ClosRec =
+    def go(lvl: Lvl, ts: Assoc[VTy]): Assoc[Ty] =
+      ts match
+        case Nil           => Nil
+        case (x, ty) :: tl =>
+          val ety = Tm1.Lift(Tm1.Val, quote1(ty, UnfoldNone)(using lvl))
+          (x, ety) :: go(lvl + 1, tl)
+    ClosRec(ctx.env, go(ctx.lvl, ts))
+
+  private def quoteRec(tm: Tm1, ts: Assoc[VTy])(using ctx: Ctx): Tm1 =
+    ??? // TODO: requires projection
+
+  private def spliceRec()(using ctx: Ctx): Tm1 =
+    ??? // TODO: requires projection
+
   // coercion
+  // TODO: handle records
   private def coe(t: Tm1, a1: VTy, a2: VTy)(using ctx: Ctx): Tm1 =
+    def goRec(tm: Tm1, ix: Int, fs1: ClosRec, fs2: ClosRec)(using
+        ctx: Ctx
+    ): List[(Boolean, Name, Tm1)] =
+      (fs1.fields, fs2.fields) match
+        case (Nil, Nil)                                   => Nil
+        case ((x, ty1) :: tl1, (y, ty2) :: tl2) if x == y =>
+          val va1 = eval1(ty1)(using fs1.env)
+          val va2 = eval1(ty2)(using fs2.env)
+          ??? // TODO: requires projection
+        case _ =>
+          err(s"coercion failure: ${ctx.pretty1(a1)} ~ ${ctx.pretty1(a2)}")
+
+    def refineRec(fs: Assoc[Ty])(using ctx: Ctx): Assoc[VTy] =
+      fs match
+        case Nil           => Nil
+        case (x, ty) :: tl =>
+          val ety = ??? // TODO: needs metas
+          (x, ety) :: refineRec(tl)
+
     def go(t: Tm1, a1: VTy, a2: VTy)(using ctx: Ctx): Option[Tm1] =
       debug(
         s"coe ${ctx.pretty1(t)} from ${ctx.pretty1(a1)} to ${ctx.pretty1(a2)}"
@@ -103,6 +138,12 @@ object Elaboration:
                 )
               )
 
+        case (Val1.RecordTy1(ts1), Val1.RecordTy1(ts2)) =>
+          val fs = goRec(t, 0, ts1, ts2)
+          if fs.exists((b, _, _) => b) then
+            Some(Tm1.RecordCon(fs.map((_, _, t) => t)))
+          else None
+
         case (Val1.Lift(_, Val1.Fun(a, cv, b)), Val1.Pi(x, _, _, _)) =>
           Some(coe(quoteFun(x, a, t), liftFun(a, b, cv), a2))
         case (Val1.Lift(_, Val1.Fun(a, cv, b)), _) =>
@@ -112,7 +153,7 @@ object Elaboration:
         case (_, Val1.Lift(_, Val1.Fun(t1, cv, t2))) =>
           Some(spliceFun(DontBind, t1, coe(t, a1, liftFun(t1, t2, cv))))
 
-        case (_, _) => unify1(a1, a2); None
+        case (_, _) => unify(a1, a2); None
     go(t, a1, a2).getOrElse(t)
 
   // helpers
@@ -176,7 +217,7 @@ object Elaboration:
           if i != ArgInfo.Icit(Expl) then err(s"implicit lambda in Ty")
           val (t1, fcv, t2) = ensureFun(ty)
           ma.foreach { sty =>
-            unify1(ctx.eval1(check1(sty, VTyVal)), t1)
+            unify(ctx.eval1(check1(sty, VTyVal)), t1)
           }
           val qt1 = ctx.quote1(t1)
           Tm0.Lam(
@@ -216,7 +257,7 @@ object Elaboration:
         case Tm.Hole(_, x) =>
           err(s"checking _${x.getOrElse("")} against ${ctx.pretty1(ty)}")
 
-        case Tm.Unit(_) =>
+        case Tm.Tuple(_, Nil) =>
           forceAll1(ty) match
             case VTypeCon(_, m, x, dps) =>
               val uc = State.getGlobal(m, x) match
@@ -284,11 +325,47 @@ object Elaboration:
             )
           Tm0.Lam(DoBind(Name("x")), qpty, etm)
 
+        case Tm.RecordCon0(_, fs0) =>
+          forceAll1(ty) match
+            case Val1.RecordTy0(ts) =>
+              val fs = orderFields(ty, fs0, ts)
+              def go(fs: Assoc[Tm], ts: Assoc[VTy]): List[Tm0] =
+                (fs, ts) match
+                  case (Nil, Nil)                                => Nil
+                  case ((x, tm) :: fs, (y, vty) :: ts) if x == y =>
+                    check0(tm, vty, Val1.Val) :: go(fs, ts)
+                  case _ =>
+                    err(
+                      s"record field mismatch, checking against type: ${ctx.pretty1(ty)}"
+                    )
+              Tm0.RecordCon(ctx.quote1(ty), go(fs, ts))
+            case _ =>
+              unify(cv, Val1.Val)
+              val (etm, ity, _) = infer0(tm)
+              unify(ty, ity)
+              etm
+
+        case Tm.Tuple(_, fs) =>
+          forceAll1(ty) match
+            case Val1.RecordTy0(ts) =>
+              def go(fs: List[Tm], ts: Assoc[VTy]): List[Tm0] =
+                (fs, ts) match
+                  case (Nil, Nil)                 => Nil
+                  case (tm :: fs, (y, vty) :: ts) =>
+                    check0(tm, vty, Val1.Val) :: go(fs, ts)
+                  case _ =>
+                    err(
+                      s"record field mismatch, checking against type: ${ctx.pretty1(ty)}"
+                    )
+              Tm0.RecordCon(ctx.quote1(ty), go(fs, ts))
+            case _ =>
+              err(s"cannot check tuple against type: ${ctx.pretty1(ty)}")
+
         case tm =>
           infer(tm) match
             case Infer0(etm, vty, vcv) =>
-              unify1(vcv, cv)
-              unify1(vty, ty)
+              unify(vcv, cv)
+              unify(vty, ty)
               etm
             case Infer1(etm, vty) =>
               val (etm2, vty2) = (etm, vty)
@@ -307,7 +384,7 @@ object Elaboration:
       (tm, forceAll1(ty)) match
         case (Tm.Lam(_, x, i, ma, b), Val1.Pi(x2, i2, t1, t2))
             if icitMatch(i, x2, i2) =>
-          ma.foreach { sty => unify1(ctx.eval1(check1(sty, Val1.UMeta)), t1) }
+          ma.foreach { sty => unify(ctx.eval1(check1(sty, Val1.UMeta)), t1) }
           val qt1 = ctx.quote1(t1)
           Tm1.Lam(
             x,
@@ -326,7 +403,7 @@ object Elaboration:
           )
 
         case (Tm.Pi(_, DontBind, Expl, t1, t2), Val1.UTy(cv)) =>
-          unify1(cv, Val1.Comp)
+          unify(cv, Val1.Comp)
           val et1 = check1(t1, VTyVal)
           val (et2, k) = infer1(t2)
           val vfcv = forceAll1(k) match
@@ -380,9 +457,108 @@ object Elaboration:
             )
           Tm1.Lam(x, Expl, qpty, etm.quote)
 
+        case (Tm.Tuple(_, Nil), Val1.UTy(vcv)) =>
+          unify(vcv, Val1.Val)
+          Tm1.RecordTy0(Nil)
+        case (Tm.Tuple(_, Nil), Val1.UMeta) =>
+          Tm1.RecordTy1(Nil)
+
+        case (Tm.Tuple(_, fs), Val1.RecordTy1(ts)) =>
+          Tm1.RecordCon(checkTuple1(ty, fs, ts))
+
+        case (Tm.RecordTy(_, fs), Val1.UTy(vcv)) =>
+          val xs = fs.map(_._1)
+          if xs.toSet.size != xs.size then err(s"duplicate name in record type")
+          unify(vcv, Val1.Val)
+          def go(fs: Assoc[Tm]): Assoc[Ty] =
+            fs match
+              case Nil             => Nil
+              case (x, ty) :: rest =>
+                val ety = check1(ty, VTyVal)
+                (x, ety) :: go(rest)
+          val efields = go(fs)
+          Tm1.RecordTy0(efields)
+        case (Tm.RecordTy(_, fs), Val1.UMeta) =>
+          val xs = fs.map(_._1)
+          if xs.toSet.size != xs.size then err(s"duplicate name in record type")
+          def go(ctx: Ctx, fs: Assoc[Tm]): Assoc[Ty] =
+            fs match
+              case Nil             => Nil
+              case (x, ty) :: rest =>
+                val ety = check1(ty, Val1.UMeta)(using ctx)
+                val vty = ctx.eval1(ety)
+                (x, ety) :: go(ctx.bind1(DoBind(x), ety, vty), rest)
+          val efields = go(ctx, fs)
+          Tm1.RecordTy1(efields)
+
+        case (Tm.RecordCon1(_, fs0), topty @ Val1.RecordTy1(ts)) =>
+          val fs = orderFields(topty, fs0, ts.fields)
+          def go(
+              env: Env,
+              fs: Assoc[Tm],
+              ts: Assoc[Ty]
+          ): List[Tm1] =
+            (fs, ts) match
+              case (Nil, Nil)                               => Nil
+              case ((x, tm) :: fs, (y, ty) :: ts) if x == y =>
+                val vty = eval1(ty)(using env)
+                val qty = ctx.quote1(vty)
+                val etm = check1(tm, vty)
+                val vtm = ctx.eval1(etm)
+                val rest = go(Env.E1(env, vtm), fs, ts)
+                etm :: rest
+              case _ =>
+                err(
+                  s"record fields mismatch, checking against type: ${ctx.pretty1(topty)}"
+                )
+          Tm1.RecordCon(go(ts.env, fs, ts.fields))
+
         case (tm, _) =>
           val (etm, vty) = infer1(tm)
           coe(etm, vty, ty)
+
+  private def orderFields[T](
+      topty: VTy,
+      fs: Assoc[Tm],
+      ts: Assoc[T]
+  )(using ctx: Ctx): Assoc[Tm] =
+    if fs.size != ts.size then
+      err(
+        s"record fields mismatch, checking against type: ${ctx.pretty1(topty)}"
+      )
+    val xs = fs.map(_._1)
+    if xs.toSet.size != xs.size then
+      err(
+        s"duplicate name in record, checking against type: ${ctx.pretty1(topty)}"
+      )
+    def go(ts: Assoc[T]): Assoc[Tm] =
+      ts match
+        case Nil          => Nil
+        case (x, _) :: tl =>
+          fs.find((y, _) => x == y) match
+            case None =>
+              err(
+                s"expected $x in record, checking against type: ${ctx.pretty1(topty)}"
+              )
+            case Some(hd) => hd :: go(tl)
+    go(ts)
+
+  private def checkTuple1(topty: VTy, fs: List[Tm], ts: ClosRec)(using
+      ctx: Ctx
+  ): List[Tm1] =
+    def go(env: Env, fs: List[Tm], ts: Assoc[Ty]): List[Tm1] =
+      (fs, ts) match
+        case (Nil, Nil)                => Nil
+        case (tm :: fs, (x, ty) :: ts) =>
+          val vty = eval1(ty)(using env)
+          val qty = ctx.quote1(vty)
+          val etm = check1(tm, vty)
+          val vtm = ctx.eval1(etm)
+          val rest = go(Env.E1(env, vtm), fs, ts)
+          etm :: rest
+        case _ =>
+          err(s"failed to check tuple against type: ${ctx.pretty1(topty)}")
+    go(ts.env, fs, ts.fields)
 
   // inference
   private def infer0(tm: Tm)(using ctx: Ctx): (Tm0, VTy, VTy) =
@@ -391,11 +567,11 @@ object Elaboration:
       tm match
         case Tm.Lam(_, x, i, mty, b) =>
           i match
-            case ArgInfo.Named(_)   => err(s"implicit lambda in type")
-            case ArgInfo.Icit(Impl) => err(s"implicit lambda in type")
+            case ArgInfo.Named(_)   => err("implicit lambda in type")
+            case ArgInfo.Icit(Impl) => err("implicit lambda in type")
             case ArgInfo.Icit(Expl) =>
               val (ety, vcv) = mty match
-                case None     => err(s"cannot infer unannotated lambda")
+                case None     => err("cannot infer unannotated lambda")
                 case Some(ty) =>
                   val (ety, k) = infer1(ty)
                   val vcv = forceAll1(k) match
@@ -410,6 +586,9 @@ object Elaboration:
               val nctx = ctx.bind0(x, ety, vty, cv, vcv)
               val (eb, vrt, vrcv) = infer0(b)(using nctx)
               (Tm0.Lam(x, ety, eb), Val1.Fun(vty, vrcv, vrt), Val1.Comp)
+
+        case Tm.Tuple(_, Nil) =>
+          (Tm0.RecordCon(Tm1.RecordTy0(Nil), Nil), Val1.RecordTy0(Nil), VTyVal)
 
         case tm =>
           infer(tm) match
@@ -451,13 +630,8 @@ object Elaboration:
     debug(s"infer $tm")
     enter(tm.pos):
       tm match
-        case Tm.Hole(_, _) => err("cannot infer hole")
-        case Tm.Unit(_)    => err("cannot infer ()")
-
-        case Tm.RecordTy(_, _)   => ???
-        case Tm.RecordCon1(_, _) => ???
-        case Tm.RecordCon0(_, _) => ???
-        case Tm.Tuple(_, _)      => ???
+        case Tm.Hole(_, _)  => err("cannot infer hole")
+        case Tm.Tuple(_, _) => err("cannot infer tuple")
 
         case Tm.IntLit(_, v) => Infer0(Tm0.IntLit(v), intType, Val1.Val)
 
@@ -559,7 +733,7 @@ object Elaboration:
           val (ea, vta) = infer1(a)
           forceAll1(vta) match
             case Val1.UTy(cv) =>
-              unify1(cv, Val1.Val)
+              unify(cv, Val1.Val)
               val (eb, k) = infer1(b)
               val vbcv = forceAll1(k) match
                 case Val1.UTy(cv) => cv
@@ -594,7 +768,7 @@ object Elaboration:
                     Val1.Pi(x, Expl, vty, Clos1.Clos(ctx.env, qrt))
                   )
                 case Val1.UTy(cv) =>
-                  unify1(cv, Val1.Val)
+                  unify(cv, Val1.Val)
                   val ctx2 = ctx.bind1(x, ety, vty)
                   val (eb, vrt, vcv) = infer0(b)(using ctx2)
                   Infer0(
@@ -667,6 +841,56 @@ object Elaboration:
           val cs =
             List((Name("True"), Tm0.Wk0(ea)), (Name("False"), Tm0.Wk0(eb)))
           Infer0(Tm0.Match(rt, dt, ec, cs, None), vrt, vcv)
+
+        case Tm.RecordCon1(_, _) => err("cannot infer meta record")
+
+        case Tm.RecordTy(_, Nil)               => impossible()
+        case Tm.RecordTy(_, (x, ty) :: fields) =>
+          val xs = x :: fields.map(_._1)
+          if xs.toSet.size != xs.size then err(s"duplicate name in record type")
+          val (ety, vk) = infer1(ty)
+          forceAll1(vk) match
+            case Val1.UTy(vcv) =>
+              unify(vcv, Val1.Val)
+              def go(fs: Assoc[Tm]): Assoc[Ty] =
+                fs match
+                  case Nil             => Nil
+                  case (x, ty) :: rest =>
+                    val ety = check1(ty, VTyVal)
+                    (x, ety) :: go(rest)
+              val efields = go(fields)
+              Infer1(Tm1.RecordTy0((x, ety) :: efields), VTyVal)
+            case Val1.UMeta =>
+              def go(ctx: Ctx, fs: Assoc[Tm]): Assoc[Ty] =
+                fs match
+                  case Nil             => Nil
+                  case (x, ty) :: rest =>
+                    val ety = check1(ty, Val1.UMeta)(using ctx)
+                    val vty = ctx.eval1(ety)
+                    (x, ety) :: go(ctx.bind1(DoBind(x), ety, vty), rest)
+              val vty = ctx.eval1(ety)
+              val efields = go(ctx.bind1(DoBind(x), ety, vty), fields)
+              Infer1(Tm1.RecordTy1((x, ety) :: efields), Val1.UMeta)
+            case _ =>
+              err(
+                s"expected universe for type in record type but got ${ctx.pretty1(vk)}"
+              )
+
+        case Tm.RecordCon0(_, fields) =>
+          val xs = fields.map(_._1)
+          if xs.toSet.size != xs.size then err(s"duplicate name in record")
+          def go(fs: Assoc[Tm]): (List[Tm0], Assoc[VTy]) =
+            fs match
+              case Nil             => (Nil, Nil)
+              case (x, tm) :: rest =>
+                val (etm, vty, vcv) = infer0(tm)
+                unify(vcv, Val1.Val)
+                val (efields, tfields) = go(rest)
+                (etm :: efields, (x, vty) :: tfields)
+          val (efields, tfields) = go(fields)
+          val vty = Val1.RecordTy0(tfields)
+          val ty = ctx.quote1(vty)
+          Infer0(Tm0.RecordCon(ty, efields), vty, VTyVal)
 
   private def inferMatch(
       escrut: Tm0,
@@ -832,7 +1056,7 @@ object Elaboration:
     def go1(ty: VTy)(using lvl: Lvl): Unit =
       inline def goClos(c: Clos1): Unit = go1(c(Var1(lvl)))(using lvl + 1)
       def goRec(c: ClosRec): Unit =
-        def go(env: Env, lvl: Lvl, fs: List[(Name, Ty)]): Unit =
+        def go(env: Env, lvl: Lvl, fs: Assoc[Ty]): Unit =
           fs match
             case Nil             => ()
             case (_, ty) :: rest =>

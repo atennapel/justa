@@ -320,7 +320,7 @@ object Parser:
         else if trySymbol("`") then Some(Tm.Quote(ctx.pos, parseAtom()))
         else if trySymbol("$") then Some(Tm.Splice(ctx.pos, parseAtom()))
         else if trySymbol("[") then
-          if trySymbol("]") then Some(Tm.Unit(ctx.pos))
+          if trySymbol("]") then Some(Tm.Tuple(ctx.pos, Nil))
           else
             val tm = parseRecord()
             symbol("]")

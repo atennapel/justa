@@ -1,3 +1,11 @@
 module Records
 
 def NatSig = [Nat : meta, Z : Nat, S : Nat -> Nat]
+
+def NatM : NatSig = [
+  Nat = (A : meta) -> A -> (A -> A) -> A,
+  Z = \A z s => z,
+  S = \n A z s => s (n A z s)
+]
+
+def test := [x := 1, y := 2]

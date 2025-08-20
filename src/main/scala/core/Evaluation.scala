@@ -157,8 +157,8 @@ object Evaluation:
       case QuoteOption.UnfoldAll   => forceAll1(v)
       case QuoteOption.UnfoldNone  => v
       case QuoteOption.UnfoldStage => forceStage1(v)
-    def goRec(c: ClosRec): List[(Name, Ty)] =
-      def go(env: Env, lvl: Lvl, fs: List[(Name, Ty)]): List[(Name, Ty)] =
+    def goRec(c: ClosRec): Assoc[Ty] =
+      def go(env: Env, lvl: Lvl, fs: Assoc[Ty]): Assoc[Ty] =
         fs match
           case Nil             => Nil
           case (x, ty) :: rest =>

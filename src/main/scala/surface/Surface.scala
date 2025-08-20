@@ -116,16 +116,14 @@ object Surface:
     )
     case If(posInfo: PosInfo, cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
-    case RecordTy(posInfo: PosInfo, fields: List[(Name, Ty)])
-    case RecordCon1(posInfo: PosInfo, fields: List[(Name, Tm)])
-    case RecordCon0(posInfo: PosInfo, fields: List[(Name, Tm)])
+    case RecordTy(posInfo: PosInfo, fields: Assoc[Ty])
+    case RecordCon1(posInfo: PosInfo, fields: Assoc[Tm])
+    case RecordCon0(posInfo: PosInfo, fields: Assoc[Tm])
     case Tuple(posInfo: PosInfo, fields: List[Tm])
-    case Unit(posInfo: PosInfo)
 
     def pos: PosInfo = this match
       case Tm.Var(pos, _, _)          => pos
       case Tm.IntLit(pos, _)          => pos
-      case Tm.Unit(pos)               => pos
       case Tm.Let0(pos, _, _, _, _)   => pos
       case Tm.Let1(pos, _, _, _, _)   => pos
       case Tm.LetRec(pos, _, _, _, _) => pos
@@ -176,7 +174,6 @@ object Surface:
       case Match(_, s, cs, None) =>
         s"(match ${s.getOrElse("")} { ${cs.map((_, x, ps, b) => s"$x ${ps.mkString(" ")} => $b").mkString(" | ")} })"
       case If(_, c, a, b)  => s"(if $c then $a else $b)"
-      case Unit(_)         => "[]"
       case RecordTy(_, fs) =>
         fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
       case RecordCon1(_, fs) =>

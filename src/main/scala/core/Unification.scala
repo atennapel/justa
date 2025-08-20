@@ -81,9 +81,9 @@ object Unification:
       def go(
           lvl: Lvl,
           env1: Env,
-          f1: List[(Name, Ty)],
+          f1: Assoc[Ty],
           env2: Env,
-          f2: List[(Name, Ty)]
+          f2: Assoc[Ty]
       ): Unit =
         (f1, f2) match
           case (Nil, Nil)                                           => ()

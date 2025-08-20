@@ -108,7 +108,12 @@ object Unstaging:
           o.map(go)
         )
 
-      case Tm0.RecordCon(ty, fs) => ??? // TODO: implement
+      case Tm0.RecordCon(ty, fs) =>
+        goTy(ty) match
+          case IR.Type.Data(k @ DataKind.Record, dx) =>
+            val args = fs.map(go)
+            IR.Expr.Con(k, dx, dx.name, 0, args)
+          case _ => impossible()
 
       case Tm0.Splice(tm) =>
         @tailrec
@@ -187,12 +192,20 @@ object Unstaging:
 
       case VTypeCon(_, m, x, ps) => monomorphize(m, x, ps.map(_._1))
 
+      case Val1.RecordTy0(ts) =>
+        val x = t match
+          case Val1.Unfold(UnfoldHead.Global(_, x, _), _, _) => Some(x)
+          case _                                             => None
+        val ets = ts.map((x, t) => (x, goVTy(t)))
+        monomorphizeRec(x, ets)
+
       case _ => impossible()
 
   // monomorphization
   private type MonoKey = (IR.MName, List[IR.Type])
   private var currentModule: Option[Name] = None
   private val monoStore = mutable.Map.empty[MonoKey, Name]
+  private val monoRecStore = mutable.Map.empty[Assoc[IR.Type], Name]
   private val newDefs = mutable.ArrayBuffer.empty[IR.Def]
 
   private def conIndex(m: Name, dx: Name, cx: Name): Int =
@@ -249,3 +262,40 @@ object Unstaging:
         s"${name.module.expose.replace('.', '$')}$$${name.name}"
     if ps.isEmpty then name.name
     else Name(s"${name.name}_${ps.map(paramStr).mkString("_")}")
+
+  private def monomorphizeRec(name: Option[Name], ts: Assoc[IR.Type]): IR.Type =
+    val (nx, alreadyDone) = monomorphizeRecStore(name, ts)
+    if !alreadyDone then
+      val cons = List(
+        IR.Constructor(nx, ts.map((x, t) => (Some(x), t)))
+      )
+      newDefs += IR.Def.Data(DataKind.Record, false, nx, cons)
+    IR.Type.Data(DataKind.Record, IR.MName(currentModule.get, nx))
+
+  private def monomorphizeRecStore(
+      name: Option[Name],
+      ts: Assoc[IR.Type]
+  ): (Name, Boolean) =
+    monoRecStore.get(ts) match
+      case Some(x) => (x, true)
+      case None    =>
+        val x = createRecName(name)
+        monoRecStore += ts -> x
+        (x, false)
+
+  private def createRecName(name: Option[Name]): Name =
+    val exNames = newDefs.toList.flatMap {
+      case IR.Def.Data(DataKind.Record, _, x, _) => List(x)
+      case _                                     => Nil
+    }
+    name match
+      case None =>
+        val i = exNames.size
+        Name(s"Record_$i")
+      case Some(x) =>
+        def fresh(i: Int): Name =
+          val y = Name(s"${x}_$i")
+          if exNames.contains(y) then fresh(i + 1)
+          else y
+        if exNames.contains(x) then fresh(0)
+        else x

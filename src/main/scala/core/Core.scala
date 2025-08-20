@@ -67,7 +67,7 @@ object Core:
         rty: Ty,
         dty: Ty,
         scrut: Tm0,
-        cases: List[(Name, Tm0)],
+        cases: Assoc[Tm0],
         otherwise: Option[Tm0]
     )
     case RecordCon(ty: Ty, fields: List[Tm0])
@@ -133,8 +133,8 @@ object Core:
     case Lift(cv: Ty, ty: Ty)
     case Quote(tm: Tm0)
 
-    case RecordTy1(fields: List[(Name, Ty)])
-    case RecordTy0(fields: List[(Name, Ty)])
+    case RecordTy1(fields: Assoc[Ty])
+    case RecordTy0(fields: Assoc[Ty])
     case RecordCon(fields: List[Tm1])
 
     case Wk0(tm: Tm1)
@@ -202,10 +202,10 @@ object Core:
   object Clos1:
     def apply(tm: Tm1)(using env: Env): Clos1 = Clos1.Clos(env, tm)
 
-  final case class ClosRec(env: Env, fields: List[(Name, Ty)]):
+  final case class ClosRec(env: Env, fields: Assoc[Ty]):
     def add(v: Val1): ClosRec = ClosRec(Env.E1(env, v), fields.tail)
   object ClosRec:
-    def apply(fields: List[(Name, Ty)])(using env: Env): ClosRec =
+    def apply(fields: Assoc[Ty])(using env: Env): ClosRec =
       ClosRec(env, fields)
 
   enum Env:
@@ -300,7 +300,7 @@ object Core:
         rty: VTy,
         dty: VTy,
         scrut: Val0,
-        cases: List[(Name, Clos0)],
+        cases: Assoc[Clos0],
         otherwise: Option[Val0]
     )
     case RecordCon(ty: VTy, fields: List[Val0])
@@ -336,7 +336,7 @@ object Core:
     case Quote(tm: Val0)
 
     case RecordTy1(fields: ClosRec)
-    case RecordTy0(fields: List[(Name, VTy)])
+    case RecordTy0(fields: Assoc[VTy])
     case RecordCon(fields: List[Val1])
 
   private inline def bind(x: String): Bind =

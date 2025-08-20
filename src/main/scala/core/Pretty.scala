@@ -125,7 +125,7 @@ object Pretty:
     case Tm0.Wk0(tm) => pretty0(tm)(using ns.tail)
 
   def pretty1(tm: Tm1)(using ns: List[Bind]): String =
-    def goRec(ns: List[Bind], fs: List[(Name, Ty)]): List[String] =
+    def goRec(ns: List[Bind], fs: Assoc[Ty]): List[String] =
       fs match
         case Nil            => Nil
         case (x, t) :: rest =>
