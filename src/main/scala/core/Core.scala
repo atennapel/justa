@@ -70,6 +70,7 @@ object Core:
         cases: List[(Name, Tm0)],
         otherwise: Option[Tm0]
     )
+    case RecordCon(ty: Ty, fields: List[Tm0])
     case Wk1(tm: Tm0)
     case Wk0(tm: Tm0)
 
@@ -103,8 +104,9 @@ object Core:
         s"(match $s { ${cs.map((x, b) => s"$x => $b").mkString(" | ")} | _ => $o })"
       case Match(_, _, s, cs, None) =>
         s"(match $s { ${cs.map((x, b) => s"$x => $b").mkString(" | ")} })"
-      case Wk1(tm) => s"Wk10($tm)"
-      case Wk0(tm) => s"Wk00($tm)"
+      case RecordCon(_, fs) => fs.mkString("[", ", ", "]")
+      case Wk1(tm)          => s"Wk10($tm)"
+      case Wk0(tm)          => s"Wk00($tm)"
 
   type Ty = Tm1
   enum Tm1:
@@ -130,6 +132,10 @@ object Core:
 
     case Lift(cv: Ty, ty: Ty)
     case Quote(tm: Tm0)
+
+    case RecordTy1(fields: List[(Name, Ty)])
+    case RecordTy0(fields: List[(Name, Ty)])
+    case RecordCon(fields: List[Tm1])
 
     case Wk0(tm: Tm1)
     case Wk1(tm: Tm1)
@@ -167,8 +173,13 @@ object Core:
       case Fun(pty, _, rty)        => s"($pty -> $rty)"
       case Lift(_, ty)             => s"^$ty"
       case Quote(tm)               => s"`$tm"
-      case Wk0(tm)                 => s"Wk01($tm)"
-      case Wk1(tm)                 => s"Wk11($tm)"
+      case RecordTy1(fs)           =>
+        fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
+      case RecordTy0(fs) =>
+        fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
+      case RecordCon(fs) => fs.mkString("[", ", ", "]")
+      case Wk0(tm)       => s"Wk01($tm)"
+      case Wk1(tm)       => s"Wk11($tm)"
 
   enum Locals:
     case Empty
@@ -190,6 +201,12 @@ object Core:
 
   object Clos1:
     def apply(tm: Tm1)(using env: Env): Clos1 = Clos1.Clos(env, tm)
+
+  final case class ClosRec(env: Env, fields: List[(Name, Ty)]):
+    def add(v: Val1): ClosRec = ClosRec(Env.E1(env, v), fields.tail)
+  object ClosRec:
+    def apply(fields: List[(Name, Ty)])(using env: Env): ClosRec =
+      ClosRec(env, fields)
 
   enum Env:
     case Empty
@@ -286,6 +303,7 @@ object Core:
         cases: List[(Name, Clos0)],
         otherwise: Option[Val0]
     )
+    case RecordCon(ty: VTy, fields: List[Val0])
 
   enum Head:
     case Var(lvl: Lvl)
@@ -316,6 +334,10 @@ object Core:
     case Lift(cv: VTy, ty: VTy)
 
     case Quote(tm: Val0)
+
+    case RecordTy1(fields: ClosRec)
+    case RecordTy0(fields: List[(Name, VTy)])
+    case RecordCon(fields: List[Val1])
 
   private inline def bind(x: String): Bind =
     if x == "_" then Bind.DontBind else Bind.DoBind(Name(x))

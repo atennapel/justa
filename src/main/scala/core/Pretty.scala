@@ -2,6 +2,7 @@ package core
 
 import common.Common.*
 import common.Common.Icit.*
+import common.Common.Bind.*
 import Core.*
 
 import scala.annotation.tailrec
@@ -18,9 +19,9 @@ object Pretty:
 
   private def prettyPi(tm: Ty)(using ns: List[Bind]): String = tm match
     case Tm1.Fun(a, _, b) => s"${prettyParen1(a, true)} -> ${prettyPi(b)}"
-    case Tm1.Pi(Bind.DontBind, Expl, t, b) =>
-      s"${prettyParen1(t, true)} -> ${prettyPi(b)(using Bind.DontBind :: ns)}"
-    case Tm1.Pi(bx @ Bind.DoBind(x), Expl, t, b) =>
+    case Tm1.Pi(DontBind, Expl, t, b) =>
+      s"${prettyParen1(t, true)} -> ${prettyPi(b)(using DontBind :: ns)}"
+    case Tm1.Pi(bx @ DoBind(x), Expl, t, b) =>
       s"($x : ${pretty1(t)}) -> ${prettyPi(b)(using bx :: ns)}"
     case Tm1.Pi(x, i, t, b) =>
       s"${i.wrap(s"$x : ${pretty1(t)}")} -> ${prettyPi(b)(using x :: ns)}"
@@ -54,6 +55,7 @@ object Pretty:
       case Tm0.Global(_, _)     => pretty0(tm)
       case Tm0.Splice(_)        => pretty0(tm)
       case Tm0.App(_, _) if app => pretty0(tm)
+      case Tm0.RecordCon(_, _)  => pretty0(tm)
       case Tm0.Wk1(tm)          => prettyParen0(tm, app)(using ns.tail)
       case _                    => s"(${pretty0(tm)})"
 
@@ -74,6 +76,9 @@ object Pretty:
       case Tm1.CV                  => pretty1(tm)
       case Tm1.Val                 => pretty1(tm)
       case Tm1.Comp                => pretty1(tm)
+      case Tm1.RecordTy1(_)        => pretty1(tm)
+      case Tm1.RecordTy0(_)        => pretty1(tm)
+      case Tm1.RecordCon(_)        => pretty1(tm)
       case Tm1.Wk0(tm)             => prettyParen1(tm, app)(using ns.tail)
       case Tm1.Wk1(tm)             => prettyParen1(tm, app)(using ns.tail)
       case _                       => s"(${pretty1(tm)})"
@@ -86,10 +91,10 @@ object Pretty:
   def pretty0(tm: Tm0)(using ns: List[Bind]): String = tm match
     case Tm0.Var(ix) =>
       ns(ix.expose) match
-        case Bind.DontBind => s"_@${ns.size - ix.expose - 1}"
-        case Bind.DoBind(x) if ns.take(ix.expose).contains(Bind.DoBind(x)) =>
+        case DontBind => s"_@${ns.size - ix.expose - 1}"
+        case DoBind(x) if ns.take(ix.expose).contains(DoBind(x)) =>
           s"$x@${ns.size - ix.expose - 1}"
-        case Bind.DoBind(x) => s"$x"
+        case DoBind(x) => s"$x"
     case Tm0.IntLit(v)          => v.toString
     case Tm0.Global(m, x)       => s"$m.$x"
     case Tm0.Select(_, _, s, i) => s"select $i ${pretty0(s)}"
@@ -110,41 +115,55 @@ object Pretty:
       s"match ${pretty0(s)} { _ => ${pretty0(b)} }"
     case Tm0.Match(_, _, s, cs, o) =>
       val scs =
-        cs.map((x, b) => s"$x => ${prettyLift0(Bind.DoBind(Name("c")), b)}")
+        cs.map((x, b) => s"$x => ${prettyLift0(DoBind(Name("c")), b)}")
       val so = o.map(o => s" | _ => ${pretty0(o)}")
       s"match ${pretty0(s)} { ${scs.mkString(" | ")}$so }"
+
+    case Tm0.RecordCon(_, fs) => fs.map(pretty0).mkString("[", ", ", "]")
 
     case Tm0.Wk1(tm) => pretty0(tm)(using ns.tail)
     case Tm0.Wk0(tm) => pretty0(tm)(using ns.tail)
 
-  def pretty1(tm: Tm1)(using ns: List[Bind]): String = tm match
-    case Tm1.Var(ix) =>
-      ns(ix.expose) match
-        case Bind.DontBind => s"_@${ns.size - ix.expose - 1}"
-        case Bind.DoBind(x) if ns.take(ix.expose).contains(Bind.DoBind(x)) =>
-          s"$x@${ns.size - ix.expose - 1}"
-        case Bind.DoBind(x) => s"$x"
-    case Tm1.Primitive(m, x)  => s"$m.$x"
-    case Tm1.Global(m, x, _)  => s"$m.$x"
-    case Tm1.Con(m, _, cx)    => s"$m.$cx"
-    case Tm1.TypeCon(_, m, x) => s"$m.$x"
-    case Tm1.Let(x, t, v, b)  =>
-      s"let $x : ${pretty1(t)} = ${pretty1(v)}; ${prettyLift1(x.toBind, b)}"
+  def pretty1(tm: Tm1)(using ns: List[Bind]): String =
+    def goRec(ns: List[Bind], fs: List[(Name, Ty)]): List[String] =
+      fs match
+        case Nil            => Nil
+        case (x, t) :: rest =>
+          val nns = DoBind(x) :: ns
+          s"$x : ${pretty1(t)(using ns)}" :: goRec(nns, rest)
+    tm match
+      case Tm1.Var(ix) =>
+        ns(ix.expose) match
+          case DontBind => s"_@${ns.size - ix.expose - 1}"
+          case DoBind(x) if ns.take(ix.expose).contains(DoBind(x)) =>
+            s"$x@${ns.size - ix.expose - 1}"
+          case DoBind(x) => s"$x"
+      case Tm1.Primitive(m, x)  => s"$m.$x"
+      case Tm1.Global(m, x, _)  => s"$m.$x"
+      case Tm1.Con(m, _, cx)    => s"$m.$cx"
+      case Tm1.TypeCon(_, m, x) => s"$m.$x"
+      case Tm1.Let(x, t, v, b)  =>
+        s"let $x : ${pretty1(t)} = ${pretty1(v)}; ${prettyLift1(x.toBind, b)}"
 
-    case Tm1.UTy(s) => s"type ${prettyParen1(s)}"
-    case Tm1.UMeta  => "meta"
+      case Tm1.UTy(s) => s"type ${prettyParen1(s)}"
+      case Tm1.UMeta  => "meta"
 
-    case Tm1.CV   => "cv"
-    case Tm1.Val  => "val"
-    case Tm1.Comp => "comp"
+      case Tm1.CV   => "cv"
+      case Tm1.Val  => "val"
+      case Tm1.Comp => "comp"
 
-    case Tm1.Pi(_, _, _, _)  => prettyPi(tm)
-    case Tm1.Fun(_, _, _)    => prettyPi(tm)
-    case Tm1.Lam(_, _, _, _) => prettyLam1(tm)
-    case Tm1.App(_, _, _)    => prettyApp1(tm)
+      case Tm1.Pi(_, _, _, _)  => prettyPi(tm)
+      case Tm1.Fun(_, _, _)    => prettyPi(tm)
+      case Tm1.Lam(_, _, _, _) => prettyLam1(tm)
+      case Tm1.App(_, _, _)    => prettyApp1(tm)
 
-    case Tm1.Lift(_, t) => s"^${prettyParen1(t)}"
-    case Tm1.Quote(t)   => s"`${prettyParen0(t)}"
+      case Tm1.Lift(_, t) => s"^${prettyParen1(t)}"
+      case Tm1.Quote(t)   => s"`${prettyParen0(t)}"
 
-    case Tm1.Wk0(tm) => pretty1(tm)(using ns.tail)
-    case Tm1.Wk1(tm) => pretty1(tm)(using ns.tail)
+      case Tm1.RecordTy1(fs) => goRec(ns, fs).mkString("[", ", ", "]")
+      case Tm1.RecordTy0(fs) =>
+        fs.map((x, t) => s"$x : ${pretty1(t)}").mkString("[", ", ", "]")
+      case Tm1.RecordCon(fs) => fs.map(pretty1).mkString("[", ", ", "]")
+
+      case Tm1.Wk0(tm) => pretty1(tm)(using ns.tail)
+      case Tm1.Wk1(tm) => pretty1(tm)(using ns.tail)

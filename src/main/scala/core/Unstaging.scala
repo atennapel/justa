@@ -108,6 +108,8 @@ object Unstaging:
           o.map(go)
         )
 
+      case Tm0.RecordCon(ty, fs) => ??? // TODO: implement
+
       case Tm0.Splice(tm) =>
         @tailrec
         def apps(

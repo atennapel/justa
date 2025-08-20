@@ -831,6 +831,15 @@ object Elaboration:
         case UnfoldHead.Global(m, x, v) => checkGlobal(m, x); go1(v)
     def go1(ty: VTy)(using lvl: Lvl): Unit =
       inline def goClos(c: Clos1): Unit = go1(c(Var1(lvl)))(using lvl + 1)
+      def goRec(c: ClosRec): Unit =
+        def go(env: Env, lvl: Lvl, fs: List[(Name, Ty)]): Unit =
+          fs match
+            case Nil             => ()
+            case (_, ty) :: rest =>
+              val vty = eval1(ty)(using env)
+              go1(vty)
+              go(Env.E1(env, Var1(lvl)), lvl + 1, rest)
+        go(c.env, lvl, c.fields)
       ty match
         case Val1.UMeta => ()
         case Val1.CV    => ()
@@ -848,6 +857,10 @@ object Elaboration:
 
         case Val1.Pi(_, _, ty, b)  => go1(ty); goClos(b)
         case Val1.Lam(_, _, ty, b) => go1(ty); goClos(b)
+
+        case Val1.RecordTy1(fs) => goRec(fs)
+        case Val1.RecordTy0(fs) => fs.foreach((_, t) => go1(t))
+        case Val1.RecordCon(fs) => fs.foreach(go1)
     def go0(tm: Val0)(using lvl: Lvl): Unit =
       inline def goClos(c: Clos0): Unit = go0(c(Val0.Var(lvl)))(using lvl + 1)
       tm match
@@ -872,6 +885,7 @@ object Elaboration:
           go0(s)
           cs.foreach((_, b) => goClos(b))
           o.foreach(go0)
+        case Val0.RecordCon(ty, fs) => go1(ty); fs.foreach(go0)
     go1(ty)(using lvl0)
 
   private def elaborate(defn: Surface.Def): Def = defn match

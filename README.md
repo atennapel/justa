@@ -3,6 +3,8 @@ Programming language targeting the JVM
 
 TODO:
 - Records
+- Eta for records
+- Remove nominal records?
 - Generate non-parametrized in the defining module
 - Nicer syntax for record field selection
 - Clean up elaboration, reduce duplication

@@ -53,6 +53,9 @@ object Unification:
             )
           goClos(b1, b2)
         }
+      case (Val0.RecordCon(_, f1), Val0.RecordCon(_, f2))
+          if f1.size == f2.size =>
+        f1.zip(f2).foreach(unify0)
       case _ =>
         err(s"cannot unify ${quote0(a, UnfoldNone)} ~ ${quote0(b, UnfoldNone)}")
 
@@ -69,9 +72,27 @@ object Unification:
         )
 
   def unify1(a: Val1, b: Val1)(using lvl: Lvl): Unit =
+    inline def unifyErr(): Nothing =
+      err(s"cannot unify ${quote1(a, UnfoldNone)} ~ ${quote1(b, UnfoldNone)}")
     inline def goClos(a: Clos1, b: Clos1): Unit =
       val v = Var1(lvl)
       unify1(a(v), b(v))(using lvl + 1)
+    def goRec(f1: ClosRec, f2: ClosRec): Unit =
+      def go(
+          lvl: Lvl,
+          env1: Env,
+          f1: List[(Name, Ty)],
+          env2: Env,
+          f2: List[(Name, Ty)]
+      ): Unit =
+        (f1, f2) match
+          case (Nil, Nil)                                           => ()
+          case ((x1, ty1) :: rest1, (x2, ty2) :: rest2) if x1 == x2 =>
+            unify1(eval1(ty1)(using env1), eval1(ty2)(using env2))(using lvl)
+            val v = Var1(lvl)
+            go(lvl + 1, Env.E1(env1, v), rest1, Env.E1(env2, v), rest2)
+          case _ => unifyErr()
+      go(lvl, f1.env, f1.fields, f2.env, f2.fields)
     (a, b) match
       case (Val1.Rigid(x, sp1), Val1.Rigid(y, sp2)) if x == y =>
         unify1(a, sp1, b, sp2)
@@ -89,6 +110,11 @@ object Unification:
       case (Val1.Val, Val1.Val)           => ()
       case (Val1.Comp, Val1.Comp)         => ()
 
+      case (Val1.RecordTy1(f1), Val1.RecordTy1(f2)) => goRec(f1, f2)
+      case (Val1.RecordTy0(f1), Val1.RecordTy0(f2))
+          if f1.map(_._1) == f2.map(_._1) =>
+        f1.zip(f2).foreach { case ((_, t1), (_, t2)) => unify1(t1, t2) }
+
       case (Val1.Lam(_, _, _, b1), Val1.Lam(_, _, _, b2)) => goClos(b1, b2)
       case (Val1.Lam(_, i, _, b), f)                      =>
         val v = Var1(lvl)
@@ -96,6 +122,10 @@ object Unification:
       case (f, Val1.Lam(_, i, _, b)) =>
         val v = Var1(lvl)
         unify1(app1(f, v, i), b(v))(using lvl + 1)
+
+      case (Val1.RecordCon(f1), Val1.RecordCon(f2)) if f1.size == f2.size =>
+        f1.zip(f2).foreach((a, b) => unify1(a, b))
+      // TODO: eta for records
 
       case (Val1.Unfold(h1, sp1, v1), Val1.Unfold(h2, sp2, v2)) =>
         try
@@ -105,5 +135,4 @@ object Unification:
       case (Val1.Unfold(_, _, v1), v2) => unify1(v1(), v2)
       case (v1, Val1.Unfold(_, _, v2)) => unify1(v1, v2())
 
-      case _ =>
-        err(s"cannot unify ${quote1(a, UnfoldNone)} ~ ${quote1(b, UnfoldNone)}")
+      case _ => unifyErr()

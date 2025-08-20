@@ -85,8 +85,9 @@ object Evaluation:
           cs.map((x, b) => (x, Clos0(b))),
           o.map(eval0)
         )
-      case Tm0.Wk1(t) => eval0(t)(using env.wk1)
-      case Tm0.Wk0(t) => eval0(t)(using env.wk0)
+      case Tm0.RecordCon(ty, fs) => Val0.RecordCon(eval1(ty), fs.map(eval0))
+      case Tm0.Wk1(t)            => eval0(t)(using env.wk1)
+      case Tm0.Wk0(t)            => eval0(t)(using env.wk0)
 
   def eval1(t: Tm1)(using env: Env): Val1 =
     t match
@@ -108,8 +109,11 @@ object Evaluation:
       case Tm1.Fun(p, cv, r)    => Val1.Fun(eval1(p), eval1(cv), eval1(r))
       case Tm1.Lift(cv, ty)     => Val1.Lift(eval1(cv), eval1(ty))
       case Tm1.Quote(tm)        => quote(eval0(tm))
-      case Tm1.Wk0(tm)          => eval1(tm)(using env.wk0)
-      case Tm1.Wk1(tm)          => eval1(tm)(using env.wk1)
+      case Tm1.RecordTy1(fs)    => Val1.RecordTy1(ClosRec(fs))
+      case Tm1.RecordTy0(fs) => Val1.RecordTy0(fs.map((x, t) => (x, eval1(t))))
+      case Tm1.RecordCon(fs) => Val1.RecordCon(fs.map(eval1))
+      case Tm1.Wk0(tm)       => eval1(tm)(using env.wk0)
+      case Tm1.Wk1(tm)       => eval1(tm)(using env.wk1)
 
   // forcing
   @tailrec
@@ -153,6 +157,14 @@ object Evaluation:
       case QuoteOption.UnfoldAll   => forceAll1(v)
       case QuoteOption.UnfoldNone  => v
       case QuoteOption.UnfoldStage => forceStage1(v)
+    def goRec(c: ClosRec): List[(Name, Ty)] =
+      def go(env: Env, lvl: Lvl, fs: List[(Name, Ty)]): List[(Name, Ty)] =
+        fs match
+          case Nil             => Nil
+          case (x, ty) :: rest =>
+            val qty = quote1(eval1(ty)(using env), q)(using lvl)
+            (x, qty) :: go(Env.E1(env, Var1(lvl)), lvl + 1, rest)
+      go(c.env, lvl, c.fields)
     force(v) match
       case Val1.Rigid(hd, sp) =>
         hd match
@@ -172,6 +184,9 @@ object Evaluation:
       case Val1.Fun(pty, cv, rty) => Tm1.Fun(go1(pty), go1(cv), go1(rty))
       case Val1.Lift(cv, ty)      => Tm1.Lift(go1(cv), go1(ty))
       case Val1.Quote(tm)         => go0(tm).quote
+      case Val1.RecordTy1(fs)     => Tm1.RecordTy1(goRec(fs))
+      case Val1.RecordTy0(fs) => Tm1.RecordTy0(fs.map((x, t) => (x, go1(t))))
+      case Val1.RecordCon(fs) => Tm1.RecordCon(fs.map(t => go1(t)))
 
   def quote0(v: Val0, q: QuoteOption)(using lvl: Lvl): Tm0 =
     inline def go0(v: Val0): Tm0 = quote0(v, q)
@@ -204,6 +219,7 @@ object Evaluation:
           cs.map((x, b) => (x, goClos(b))),
           o.map(go0)
         )
+      case Val0.RecordCon(ty, fs) => Tm0.RecordCon(go1(ty), fs.map(t => go0(t)))
 
   def nf(tm: Tm1, q: QuoteOption = QuoteOption.UnfoldAll): Tm1 =
     quote1(eval1(tm)(using Env.Empty), q)(using lvl0)
