@@ -47,8 +47,8 @@ object Parser:
       "else"
     )
   private val symbols1: Set[Char] =
-    Set(':', ';', '=', '\\', ',', '(', ')', '{', '}', '[', ']', ',', '^', '`',
-      '$', '|')
+    Set(':', ';', '=', '\\', '.', ',', '(', ')', '{', '}', '[', ']', ',', '^',
+      '`', '$', '|')
   private val symbols2: Map[Char, Set[Char]] =
     Map(':' -> Set('='), '-' -> Set('>'), '=' -> Set('>'))
 
@@ -298,18 +298,13 @@ object Parser:
     else tryParseAtom().map(t => List((DontBind, t)))
 
   // expressions
-  private def tryParseAtom()(using ctx: Ctx): Option[Tm] =
+  private def tryParseAtomInner()(using ctx: Ctx): Option[Tm] =
     tryIdentifier() match
       case Some(x) if x.startsWith("_") =>
         Some(
           Tm.Hole(ctx.pos, if x.length == 1 then None else Some(Name(x.tail)))
         )
-      case Some(x) if x.contains('.') =>
-        val spl = x.split('.')
-        val m = spl.init.mkString(".")
-        val y = spl.last
-        Some(Tm.Var(ctx.pos, Some(Name(m)), Name(y)))
-      case Some(x) => Some(Tm.Var(ctx.pos, None, Name(x)))
+      case Some(x) => Some(Tm.Var(ctx.pos, Name(x)))
       case None    =>
         if trySymbol("(") then
           val pos = ctx.pos
@@ -329,6 +324,22 @@ object Parser:
           tryNumber() match
             case None    => None
             case Some(v) => Some(Tm.IntLit(ctx.pos, v))
+
+  private def tryParseAtom()(using ctx: Ctx): Option[Tm] =
+    tryParseAtomInner() match
+      case None     => None
+      case Some(tm) =>
+        val projs = mutable.ArrayBuffer.empty[(PosInfo, ProjType)]
+        while trySymbol(".") do
+          val pos = ctx.pos
+          val proj = tryNumber() match
+            case Some(ix) => ProjType.Indexed(ix)
+            case None     => ProjType.Named(name())
+          projs += ((pos, proj))
+        val res = projs.foldLeft(tm) { case (tm, (pos, proj)) =>
+          Tm.Proj(pos, tm, proj)
+        }
+        Some(res)
 
   private enum RecordKind:
     case Type

@@ -52,6 +52,14 @@ object Core:
       case Data(k, p, x, ps, cs) =>
         s"${if p then "pub " else ""}$k $x ${ps.mkString(" ")} = ${cs.map(c => s"$c ${c.parameters.map((x, t) => s"($x : $t)").mkString(" ")}").mkString(" | ")}"
 
+  enum ProjType:
+    case Named(name: Name)
+    case Indexed(ix: Int)
+
+    override def toString: String = this match
+      case Named(x)    => x.toString
+      case Indexed(ix) => ix.toString
+
   enum Tm0:
     case Var(ix: Ix)
     case IntLit(value: Int)
@@ -71,6 +79,7 @@ object Core:
         otherwise: Option[Tm0]
     )
     case RecordCon(ty: Ty, fields: List[Tm0])
+    case Proj(tm: Tm0, proj: ProjType)
     case Wk1(tm: Tm0)
     case Wk0(tm: Tm0)
 
@@ -105,6 +114,7 @@ object Core:
       case Match(_, _, s, cs, None) =>
         s"(match $s { ${cs.map((x, b) => s"$x => $b").mkString(" | ")} })"
       case RecordCon(_, fs) => fs.mkString("[", ", ", "]")
+      case Proj(tm, p)      => s"$tm.$p"
       case Wk1(tm)          => s"Wk10($tm)"
       case Wk0(tm)          => s"Wk00($tm)"
 

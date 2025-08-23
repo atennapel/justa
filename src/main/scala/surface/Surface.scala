@@ -75,10 +75,19 @@ object Surface:
     case Named(name: Name)
     case Icit(icit: common.Common.Icit)
 
+  enum ProjType:
+    case Named(name: Name)
+    case Indexed(ix: Int)
+
+    override def toString: String = this match
+      case Named(x)    => x.toString
+      case Indexed(ix) => ix.toString
+
   type Ty = Tm
   enum Tm:
-    case Var(posInfo: PosInfo, mod: Option[Name], name: Name)
+    case Var(posInfo: PosInfo, name: Name)
     case IntLit(posInfo: PosInfo, value: Int)
+    case Proj(posInfo: PosInfo, tm: Tm, proj: ProjType)
 
     case Let0(posInfo: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
     case Let1(posInfo: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
@@ -122,8 +131,9 @@ object Surface:
     case Tuple(posInfo: PosInfo, fields: List[Tm])
 
     def pos: PosInfo = this match
-      case Tm.Var(pos, _, _)          => pos
+      case Tm.Var(pos, _)             => pos
       case Tm.IntLit(pos, _)          => pos
+      case Tm.Proj(pos, _, _)         => pos
       case Tm.Let0(pos, _, _, _, _)   => pos
       case Tm.Let1(pos, _, _, _, _)   => pos
       case Tm.LetRec(pos, _, _, _, _) => pos
@@ -142,10 +152,16 @@ object Surface:
       case RecordCon0(pos, _)         => pos
       case Tuple(pos, _)              => pos
 
+    def splitProjs: (Tm, List[(PosInfo, ProjType)]) = this match
+      case Proj(pos, tm, proj) =>
+        val (hd, tl) = tm.splitProjs
+        (hd, tl ++ List((pos, proj)))
+      case tm => (tm, Nil)
+
     override def toString: String = this match
-      case Var(_, None, x)      => s"$x"
-      case Var(_, Some(m), x)   => s"$m.$x"
+      case Var(_, x)            => s"$x"
       case IntLit(_, v)         => v.toString
+      case Proj(_, t, p)        => s"$t.$p"
       case Let0(_, x, ty, v, b) =>
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
       case Let1(_, x, ty, v, b) =>

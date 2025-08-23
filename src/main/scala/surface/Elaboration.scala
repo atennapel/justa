@@ -10,8 +10,10 @@ import core.Evaluation.QuoteOption.UnfoldNone
 import core.{Core, Unification}
 import Ctx.*
 import Surface.{ArgInfo, Tm}
+import Surface as S
 import common.State
 import common.State.GlobalEntry
+import surface.Surface.ProjType
 
 object Elaboration:
   class ElaborationError(val pos: PosInfo, val module: Name, val msg: String)
@@ -197,8 +199,8 @@ object Elaboration:
     case ArgInfo.Icit(i) => i == i2
 
   private def isNotVar(t: Tm): Boolean = t match
-    case Tm.Var(_, _, _) => false
-    case _               => true
+    case Tm.Var(_, _) => false
+    case _            => true
 
   private def coeQuote(t: Tm1, a1: VTy, a2: VTy, cv: VTy)(using ctx: Ctx): Tm0 =
     coe(t, a1, Val1.Lift(cv, a2)).splice
@@ -626,6 +628,29 @@ object Elaboration:
 
   private val intType: Val1 = VPrimitive(Name("Primitives"), Name("Int"))
 
+  private def inferGlobal(m: Option[Name], x: Name)(using ctx: Ctx): Infer =
+    State.getGlobal(m, x) match
+      case Left((m, x, State.GlobalLookupFailure.ModuleNotFound)) =>
+        err(s"undefined variable $m.$x: undefined module")
+      case Left((m, x, State.GlobalLookupFailure.GlobalNotFound)) =>
+        err(s"undefined variable $m.$x")
+      case Left(
+            (m, x, State.GlobalLookupFailure.GlobalIsNotAccessible)
+          ) =>
+        err(s"inaccessible variable $m.$x")
+      case Right((m, GlobalEntry.Def0(_, _, _, _, _, _, ty, cv))) =>
+        Infer0(Tm0.Global(m, x), ty, cv)
+      case Right((m, GlobalEntry.Def1(_, _, _, _, v, ty))) =>
+        Infer1(Tm1.Global(m, x, v), ty)
+      case Right((m, GlobalEntry.Primitive(_, _, _, ty))) =>
+        Infer1(Tm1.Primitive(m, x), ty)
+      case Right((_, GlobalEntry.Data(_, _, _, _, tm, ty, _))) =>
+        Infer1(tm, ty)
+      case Right(
+            (_, GlobalEntry.DataCon(_, _, _, _, _, _, tm, _, ty))
+          ) =>
+        Infer1(tm, ty)
+
   private def infer(tm: Tm)(using ctx: Ctx): Infer =
     debug(s"infer $tm")
     enter(tm.pos):
@@ -635,15 +660,15 @@ object Elaboration:
 
         case Tm.IntLit(_, v) => Infer0(Tm0.IntLit(v), intType, Val1.Val)
 
-        case Tm.Var(_, None, Name("meta")) => Infer1(Tm1.UMeta, Val1.UMeta)
+        case Tm.Var(_, Name("meta")) => Infer1(Tm1.UMeta, Val1.UMeta)
         case Tm.App(
               _,
-              Tm.Var(_, None, Name("type")),
+              Tm.Var(_, Name("type")),
               arg,
               ArgInfo.Icit(Expl)
             ) =>
           Infer1(Tm1.UTy(check1(arg, Val1.CV)), Val1.UMeta)
-        case Tm.Var(_, None, Name("type")) =>
+        case Tm.Var(_, Name("type")) =>
           Infer1(
             Tm1.Lam(
               Bind.DoBind(Name("ty")),
@@ -654,38 +679,60 @@ object Elaboration:
             vfun1(Val1.CV, Val1.UMeta)
           )
 
-        case Tm.Var(_, None, Name("cv"))   => Infer1(Tm1.CV, Val1.UMeta)
-        case Tm.Var(_, None, Name("val"))  => Infer1(Tm1.Val, Val1.CV)
-        case Tm.Var(_, None, Name("comp")) => Infer1(Tm1.Comp, Val1.CV)
+        case Tm.Var(_, Name("cv"))   => Infer1(Tm1.CV, Val1.UMeta)
+        case Tm.Var(_, Name("val"))  => Infer1(Tm1.Val, Val1.CV)
+        case Tm.Var(_, Name("comp")) => Infer1(Tm1.Comp, Val1.CV)
 
-        case Tm.Var(_, m, x) =>
+        case Tm.Var(_, x) =>
           ctx.lookup(x) match
             case Some(NameInfo.Name0(x, ty, cv)) =>
               Infer0(Tm0.Var(x.toIx(using ctx.lvl)), ty, cv)
             case Some(NameInfo.Name1(x, ty)) =>
               Infer1(Tm1.Var(x.toIx(using ctx.lvl)), ty)
-            case None =>
-              State.getGlobal(m, x) match
-                case Left((m, x, State.GlobalLookupFailure.ModuleNotFound)) =>
-                  err(s"undefined variable $m.$x: undefined module")
-                case Left((m, x, State.GlobalLookupFailure.GlobalNotFound)) =>
-                  err(s"undefined variable $m.$x")
-                case Left(
-                      (m, x, State.GlobalLookupFailure.GlobalIsNotAccessible)
-                    ) =>
-                  err(s"inaccessible variable $m.$x")
-                case Right((m, GlobalEntry.Def0(_, _, _, _, _, _, ty, cv))) =>
-                  Infer0(Tm0.Global(m, x), ty, cv)
-                case Right((m, GlobalEntry.Def1(_, _, _, _, v, ty))) =>
-                  Infer1(Tm1.Global(m, x, v), ty)
-                case Right((m, GlobalEntry.Primitive(_, _, _, ty))) =>
-                  Infer1(Tm1.Primitive(m, x), ty)
-                case Right((_, GlobalEntry.Data(_, _, _, _, tm, ty, _))) =>
-                  Infer1(tm, ty)
-                case Right(
-                      (_, GlobalEntry.DataCon(_, _, _, _, _, _, tm, _, ty))
-                    ) =>
-                  Infer1(tm, ty)
+            case None => inferGlobal(None, x)
+
+        case proj @ Tm.Proj(_, tm, p) =>
+          val (hd, tl) = proj.splitProjs
+          val global = hd match
+            case Tm.Var(pos, x) =>
+              if ctx.lookup(x).isEmpty && State.getGlobal(None, x).isLeft then
+                def createMod(tl: List[(PosInfo, S.ProjType)]): List[Name] =
+                  tl match
+                    case Nil                               => Nil
+                    case (pos, S.ProjType.Indexed(_)) :: _ =>
+                      err("indexed projection for module is invalid")(using
+                        ctx.enter(pos)
+                      )
+                    case (pos, S.ProjType.Named(x)) :: tl => x :: createMod(tl)
+                val xs = x :: createMod(tl)
+                val m = Name(xs.init.mkString("."))
+                Some(inferGlobal(Some(m), xs.last)(using ctx.enter(tl.last._1)))
+              else None
+            case _ => None
+          global match
+            case Some(res) => res
+            case None      =>
+              infer(tm) match
+                case Infer0(etm, vty, _) =>
+                  forceAll1(vty) match
+                    case Val1.RecordTy0(fs) =>
+                      val fty = p match
+                        case ProjType.Named(x)    => fs.find((y, _) => x == y)
+                        case ProjType.Indexed(ix) =>
+                          fs.zipWithIndex
+                            .find { case (_, ix2) => ix == ix2 }
+                            .map(_._1)
+                      fty match
+                        case None =>
+                          err(
+                            s"no matching projection $p in type: ${ctx.pretty1(vty)}"
+                          )
+                        case Some((_, fty)) => Infer0(???, fty, VTyVal)
+                    case _ =>
+                      err(
+                        s"expected record type in projection, but got: ${ctx.pretty1(vty)}"
+                      )
+                case Infer1(etm, vty) => ???
 
         case Tm.LetRec(_, x, Some(ty), v, b) =>
           val ety = check1(ty, VTyComp)
@@ -1014,7 +1061,7 @@ object Elaboration:
   private def checkIfCond(p: PosInfo, c: Tm)(using
       ctx: Ctx
   ): (Tm0, Tm1) =
-    val tbool = check1(Tm.Var(p, None, Name("Bool")), VTyVal)
+    val tbool = check1(Tm.Var(p, Name("Bool")), VTyVal)
     forceAll1(ctx.eval1(tbool)) match
       case Val1.Rigid(
             Head.TypeCon(DataKind.Finite, m, dx),
