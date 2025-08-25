@@ -56,6 +56,9 @@ object Unification:
       case (Val0.RecordCon(_, f1), Val0.RecordCon(_, f2))
           if f1.size == f2.size =>
         f1.zip(f2).foreach(unify0)
+      case (Val0.Proj(ty1, v1, p1), Val0.Proj(ty2, v2, p2)) if p1 == p2 =>
+        unify1(ty1, ty2)
+        unify0(v1, v2)
       case _ =>
         err(s"cannot unify ${quote0(a, UnfoldNone)} ~ ${quote0(b, UnfoldNone)}")
 

@@ -114,6 +114,13 @@ object Unstaging:
             val args = fs.map(go)
             IR.Expr.Con(k, dx, dx.name, 0, args)
           case _ => impossible()
+      case Tm0.Proj(ty, tm, p) =>
+        goTy(ty) match
+          case IR.Type.Data(k @ DataKind.Record, dx) =>
+            val etm = go(tm)
+            val cx = p.name.getOrElse(recordFields(dx)(p.ix))
+            IR.Expr.Field(k, dx, cx, etm, p.ix)
+          case _ => impossible()
 
       case Tm0.Splice(tm) =>
         @tailrec
@@ -207,6 +214,7 @@ object Unstaging:
   private val monoStore = mutable.Map.empty[MonoKey, Name]
   private val monoRecStore = mutable.Map.empty[Assoc[IR.Type], Name]
   private val newDefs = mutable.ArrayBuffer.empty[IR.Def]
+  private val recordFields = mutable.Map.empty[IR.MName, List[Name]]
 
   private def conIndex(m: Name, dx: Name, cx: Name): Int =
     State.getGlobal(m, dx) match
@@ -270,7 +278,9 @@ object Unstaging:
         IR.Constructor(nx, ts.map((x, t) => (Some(x), t)))
       )
       newDefs += IR.Def.Data(DataKind.Record, false, nx, cons)
-    IR.Type.Data(DataKind.Record, IR.MName(currentModule.get, nx))
+    val dx = IR.MName(currentModule.get, nx)
+    recordFields += (dx -> ts.map(_._1))
+    IR.Type.Data(DataKind.Record, dx)
 
   private def monomorphizeRecStore(
       name: Option[Name],

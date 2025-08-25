@@ -6,8 +6,8 @@ References:
 - https://github.com/AndrasKovacs/elaboration-zoo
 
 TODO:
+- Meta records
 - Better record caching in unstaging
-- Record projection
 - Tuples?
 - Definition syntax in records?
 - Eta for records

@@ -86,6 +86,7 @@ object Evaluation:
           o.map(eval0)
         )
       case Tm0.RecordCon(ty, fs) => Val0.RecordCon(eval1(ty), fs.map(eval0))
+      case Tm0.Proj(ty, tm, p)   => Val0.Proj(eval1(ty), eval0(tm), p)
       case Tm0.Wk1(t)            => eval0(t)(using env.wk1)
       case Tm0.Wk0(t)            => eval0(t)(using env.wk0)
 
@@ -220,6 +221,7 @@ object Evaluation:
           o.map(go0)
         )
       case Val0.RecordCon(ty, fs) => Tm0.RecordCon(go1(ty), fs.map(t => go0(t)))
+      case Val0.Proj(ty, tm, p)   => Tm0.Proj(go1(ty), go0(tm), p)
 
   def nf(tm: Tm1, q: QuoteOption = QuoteOption.UnfoldAll): Tm1 =
     quote1(eval1(tm)(using Env.Empty), q)(using lvl0)

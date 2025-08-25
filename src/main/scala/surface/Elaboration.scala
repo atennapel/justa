@@ -13,7 +13,6 @@ import Surface.{ArgInfo, Tm}
 import Surface as S
 import common.State
 import common.State.GlobalEntry
-import surface.Surface.ProjType
 
 object Elaboration:
   class ElaborationError(val pos: PosInfo, val module: Name, val msg: String)
@@ -716,18 +715,27 @@ object Elaboration:
                 case Infer0(etm, vty, _) =>
                   forceAll1(vty) match
                     case Val1.RecordTy0(fs) =>
-                      val fty = p match
-                        case ProjType.Named(x)    => fs.find((y, _) => x == y)
-                        case ProjType.Indexed(ix) =>
-                          fs.zipWithIndex
+                      val (fty, ep) = p match
+                        case S.ProjType.Named(x) =>
+                          val fty = fs.find((y, _) => x == y)
+                          val ix = fs.indexWhere(((y, _) => x == y))
+                          (fty, ProjType(Some(x), ix))
+                        case S.ProjType.Indexed(ix) =>
+                          val fty = fs.zipWithIndex
                             .find { case (_, ix2) => ix == ix2 }
                             .map(_._1)
+                          (fty, ProjType(None, ix))
                       fty match
                         case None =>
                           err(
                             s"no matching projection $p in type: ${ctx.pretty1(vty)}"
                           )
-                        case Some((_, fty)) => Infer0(???, fty, VTyVal)
+                        case Some((_, fty)) =>
+                          Infer0(
+                            Tm0.Proj(ctx.quote1(vty), etm, ep),
+                            fty,
+                            VTyVal
+                          )
                     case _ =>
                       err(
                         s"expected record type in projection, but got: ${ctx.pretty1(vty)}"
@@ -1157,6 +1165,7 @@ object Elaboration:
           cs.foreach((_, b) => goClos(b))
           o.foreach(go0)
         case Val0.RecordCon(ty, fs) => go1(ty); fs.foreach(go0)
+        case Val0.Proj(ty, tm, _)   => go1(ty); go0(tm)
     go1(ty)(using lvl0)
 
   private def elaborate(defn: Surface.Def): Def = defn match

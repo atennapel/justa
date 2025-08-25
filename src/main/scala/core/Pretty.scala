@@ -56,6 +56,7 @@ object Pretty:
       case Tm0.Splice(_)        => pretty0(tm)
       case Tm0.App(_, _) if app => pretty0(tm)
       case Tm0.RecordCon(_, _)  => pretty0(tm)
+      case Tm0.Proj(_, _, _)    => pretty0(tm)
       case Tm0.Wk1(tm)          => prettyParen0(tm, app)(using ns.tail)
       case _                    => s"(${pretty0(tm)})"
 
@@ -120,6 +121,7 @@ object Pretty:
       s"match ${pretty0(s)} { ${scs.mkString(" | ")}$so }"
 
     case Tm0.RecordCon(_, fs) => fs.map(pretty0).mkString("[", ", ", "]")
+    case Tm0.Proj(_, tm, p)   => s"${prettyParen0(tm)}.$p"
 
     case Tm0.Wk1(tm) => pretty0(tm)(using ns.tail)
     case Tm0.Wk0(tm) => pretty0(tm)(using ns.tail)
