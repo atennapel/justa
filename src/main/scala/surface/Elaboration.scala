@@ -80,11 +80,23 @@ object Elaboration:
           (x, ety) :: go(lvl + 1, tl)
     ClosRec(ctx.env, go(ctx.lvl, ts))
 
-  private def quoteRec(tm: Tm1, ts: Assoc[VTy])(using ctx: Ctx): Tm1 =
-    ??? // TODO: requires projection
+  private def quoteRec[A](ty: Ty, tm: Tm1, fs: Assoc[A])(using ctx: Ctx): Tm1 =
+    def go(fs: Assoc[A], ix: Int): List[Tm1] =
+      fs match
+        case Nil          => Nil
+        case (x, _) :: tl =>
+          val p = Tm0.Proj(ty, tm.splice, ProjType(Some(x), ix))
+          p.quote :: go(tl, ix + 1)
+    Tm1.RecordCon(go(fs, 0))
 
-  private def spliceRec()(using ctx: Ctx): Tm1 =
-    ??? // TODO: requires projection
+  private def spliceRec[A](ty: Ty, tm: Tm1, fs: Assoc[A])(using ctx: Ctx): Tm1 =
+    def go(fs: Assoc[A], ix: Int): List[Tm0] =
+      fs match
+        case Nil          => Nil
+        case (x, _) :: tl =>
+          val p = Tm1.Proj(tm, ProjType(Some(x), ix)).splice
+          p :: go(tl, ix + 1)
+    Tm0.RecordCon(ty, go(fs, 0)).quote
 
   // coercion
   // TODO: handle records
@@ -153,6 +165,13 @@ object Elaboration:
           Some(spliceFun(x, t1, coe(t, a1, liftFun(t1, t2, cv))))
         case (_, Val1.Lift(_, Val1.Fun(t1, cv, t2))) =>
           Some(spliceFun(DontBind, t1, coe(t, a1, liftFun(t1, t2, cv))))
+
+        case (Val1.Lift(_, ty @ Val1.RecordTy0(fs)), a) =>
+          val qty = ctx.quote1(ty)
+          Some(coe(quoteRec(qty, t, fs), Val1.RecordTy1(liftRec(fs)), a))
+        case (a, Val1.Lift(_, ty @ Val1.RecordTy0(fs))) =>
+          val qty = ctx.quote1(ty)
+          Some(spliceRec(qty, coe(t, a, Val1.RecordTy1(liftRec(fs))), fs))
 
         case (_, _) => unify(a1, a2); None
     go(t, a1, a2).getOrElse(t)

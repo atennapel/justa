@@ -6,15 +6,13 @@ References:
 - https://github.com/AndrasKovacs/elaboration-zoo
 
 TODO:
-- Implement more coercions using record projection
+- Projection of nominal records
 - Better record caching in unstaging
 - Tuples?
 - Definition syntax in records?
 - Remove nominal records?
 - Generate non-parametrized in the defining module
-- Nicer syntax for record field selection
 - Clean up elaboration, reduce duplication
-- Sigma types (or meta-level record types?)
 - Class type
 - JVM descriptor type?
 - Operators
