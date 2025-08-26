@@ -8,6 +8,12 @@ def NatM : NatSig = [
   S = \n A z s => s (n A z s)
 ]
 
+def Nat = NatM.Nat
+def Z : Nat = NatM.Z
+def S : Nat -> Nat = NatM.S
+
+def one = S Z
+
 def test := [x := 1, y := 2]
 
 def test2 := test.x

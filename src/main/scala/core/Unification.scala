@@ -56,7 +56,7 @@ object Unification:
       case (Val0.RecordCon(_, f1), Val0.RecordCon(_, f2))
           if f1.size == f2.size =>
         f1.zip(f2).foreach(unify0)
-      case (Val0.Proj(ty1, v1, p1), Val0.Proj(ty2, v2, p2)) if p1 == p2 =>
+      case (Val0.Proj(ty1, v1, p1), Val0.Proj(ty2, v2, p2)) if p1.ix == p2.ix =>
         unify1(ty1, ty2)
         unify0(v1, v2)
       case _ =>
@@ -69,6 +69,8 @@ object Unification:
       case (Spine.Empty, Spine.Empty)                     => ()
       case (Spine.App(sp1, a1, _), Spine.App(sp2, a2, _)) =>
         unify1(top1, sp1, top2, sp2); unify1(a1, a2)
+      case (Spine.Proj(sp1, p1), Spine.Proj(sp2, p2)) if p1.ix == p2.ix =>
+        unify1(top1, sp1, top2, sp2)
       case _ =>
         err(
           s"spine mismatch ${quote1(top1, UnfoldNone)} ~ ${quote1(top2, UnfoldNone)}"
@@ -128,7 +130,10 @@ object Unification:
 
       case (Val1.RecordCon(f1), Val1.RecordCon(f2)) if f1.size == f2.size =>
         f1.zip(f2).foreach((a, b) => unify1(a, b))
-      // TODO: eta for records
+      case (Val1.RecordCon(fs), v) =>
+        fs.zipWithIndex.foreach((f, ix) => unify1(f, projIx(v, ix)))
+      case (v, Val1.RecordCon(fs)) =>
+        fs.zipWithIndex.foreach((f, ix) => unify1(projIx(v, ix), f))
 
       case (Val1.Unfold(h1, sp1, v1), Val1.Unfold(h2, sp2, v2)) =>
         try

@@ -59,9 +59,19 @@ object Evaluation:
     app1(f, a, Icit.Expl)
   inline def appI(f: Val1, a: Val1): Val1 = app1(f, a, Icit.Impl)
 
+  def proj(tm: Val1, p: ProjType): Val1 = tm match
+    case Val1.RecordCon(fs)    => fs(p.ix)
+    case Val1.Rigid(h, sp)     => Val1.Rigid(h, Spine.Proj(sp, p))
+    case Val1.Unfold(h, sp, v) =>
+      Val1.Unfold(h, Spine.Proj(sp, p), () => proj(v(), p))
+    case _ => impossible()
+  inline def projIx(tm: Val1, ix: Int, name: Option[Name] = None): Val1 =
+    proj(tm, ProjType(name, ix))
+
   def spine(v: Val1, sp: Spine): Val1 = sp match
     case Spine.Empty         => v
     case Spine.App(sp, a, i) => app1(spine(v, sp), a, i)
+    case Spine.Proj(sp, p)   => proj(spine(v, sp), p)
 
   def eval0(t: Tm0)(using env: Env): Val0 =
     t match
@@ -113,6 +123,7 @@ object Evaluation:
       case Tm1.RecordTy1(fs)    => Val1.RecordTy1(ClosRec(fs))
       case Tm1.RecordTy0(fs) => Val1.RecordTy0(fs.map((x, t) => (x, eval1(t))))
       case Tm1.RecordCon(fs) => Val1.RecordCon(fs.map(eval1))
+      case Tm1.Proj(tm, p)   => proj(eval1(tm), p)
       case Tm1.Wk0(tm)       => eval1(tm)(using env.wk0)
       case Tm1.Wk1(tm)       => eval1(tm)(using env.wk1)
 
@@ -148,6 +159,7 @@ object Evaluation:
     sp match
       case Spine.Empty         => h
       case Spine.App(sp, v, i) => Tm1.App(quote1(h, sp, q), quote1(v, q), i)
+      case Spine.Proj(sp, p)   => Tm1.Proj(quote1(h, sp, q), p)
 
   def quote1(v: Val1, q: QuoteOption)(using lvl: Lvl): Tm1 =
     inline def go0(v: Val0): Tm0 = quote0(v, q)

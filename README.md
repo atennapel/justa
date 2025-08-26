@@ -6,11 +6,10 @@ References:
 - https://github.com/AndrasKovacs/elaboration-zoo
 
 TODO:
-- Meta records
+- Implement more coercions using record projection
 - Better record caching in unstaging
 - Tuples?
 - Definition syntax in records?
-- Eta for records
 - Remove nominal records?
 - Generate non-parametrized in the defining module
 - Nicer syntax for record field selection

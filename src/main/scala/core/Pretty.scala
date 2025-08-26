@@ -80,6 +80,7 @@ object Pretty:
       case Tm1.RecordTy1(_)        => pretty1(tm)
       case Tm1.RecordTy0(_)        => pretty1(tm)
       case Tm1.RecordCon(_)        => pretty1(tm)
+      case Tm1.Proj(_, _)          => pretty1(tm)
       case Tm1.Wk0(tm)             => prettyParen1(tm, app)(using ns.tail)
       case Tm1.Wk1(tm)             => prettyParen1(tm, app)(using ns.tail)
       case _                       => s"(${pretty1(tm)})"
@@ -166,6 +167,7 @@ object Pretty:
       case Tm1.RecordTy0(fs) =>
         fs.map((x, t) => s"$x : ${pretty1(t)}").mkString("[", ", ", "]")
       case Tm1.RecordCon(fs) => fs.map(pretty1).mkString("[", ", ", "]")
+      case Tm1.Proj(tm, p)   => s"${prettyParen1(tm)}.$p"
 
       case Tm1.Wk0(tm) => pretty1(tm)(using ns.tail)
       case Tm1.Wk1(tm) => pretty1(tm)(using ns.tail)

@@ -740,7 +740,43 @@ object Elaboration:
                       err(
                         s"expected record type in projection, but got: ${ctx.pretty1(vty)}"
                       )
-                case Infer1(etm, vty) => ???
+                case Infer1(etm, vty) =>
+                  forceAll1(vty) match
+                    case Val1.RecordTy1(fs) =>
+                      def go(
+                          vtm: Val1,
+                          env: Env,
+                          fs: Assoc[Ty],
+                          ix: Int
+                      ): Option[(VTy, ProjType)] =
+                        fs match
+                          case Nil             => None
+                          case (x, ty) :: rest =>
+                            p match
+                              case S.ProjType.Named(y) if x == y =>
+                                Some(
+                                  (eval1(ty)(using env), ProjType(Some(x), ix))
+                                )
+                              case S.ProjType.Indexed(ix2) if ix == ix2 =>
+                                Some((eval1(ty)(using env), ProjType(None, ix)))
+                              case _ =>
+                                go(
+                                  vtm,
+                                  Env.E1(env, projIx(vtm, ix, Some(x))),
+                                  rest,
+                                  ix + 1
+                                )
+                      val vtm = ctx.eval1(etm)
+                      go(vtm, fs.env, fs.fields, 0) match
+                        case None =>
+                          err(
+                            s"no matching projection $p in type: ${ctx.pretty1(vty)}"
+                          )
+                        case Some((fty, ep)) => Infer1(Tm1.Proj(etm, ep), fty)
+                    case _ =>
+                      err(
+                        s"expected record type in projection, but got: ${ctx.pretty1(vty)}"
+                      )
 
         case Tm.LetRec(_, x, Some(ty), v, b) =>
           val ety = check1(ty, VTyComp)
@@ -1099,6 +1135,7 @@ object Elaboration:
       sp match
         case Spine.Empty         => ()
         case Spine.App(sp, a, _) => goSp(sp); go1(a)
+        case Spine.Proj(sp, _)   => goSp(sp)
     def goHead(hd: Head): Unit =
       hd match
         case Head.Var(_)           => ()

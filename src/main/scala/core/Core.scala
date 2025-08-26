@@ -144,6 +144,7 @@ object Core:
     case RecordTy1(fields: Assoc[Ty])
     case RecordTy0(fields: Assoc[Ty])
     case RecordCon(fields: List[Tm1])
+    case Proj(tm: Tm1, proj: ProjType)
 
     case Wk0(tm: Tm1)
     case Wk1(tm: Tm1)
@@ -186,6 +187,7 @@ object Core:
       case RecordTy0(fs) =>
         fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
       case RecordCon(fs) => fs.mkString("[", ", ", "]")
+      case Proj(tm, p)   => s"$tm.$p"
       case Wk0(tm)       => s"Wk01($tm)"
       case Wk1(tm)       => s"Wk11($tm)"
 
@@ -250,12 +252,14 @@ object Core:
   enum Spine:
     case Empty
     case App(sp: Spine, arg: Val1, icit: Icit)
+    case Proj(sp: Spine, proj: ProjType)
 
     def size: Int =
       @tailrec
       def go(acc: Int, sp: Spine): Int = sp match
         case Empty         => acc
         case App(sp, _, _) => go(acc + 1, sp)
+        case Proj(sp, _)   => go(acc + 1, sp)
 
       go(0, this)
 
@@ -264,6 +268,7 @@ object Core:
       def go(acc: Spine, sp: Spine): Spine = sp match
         case Empty         => acc
         case App(sp, v, i) => go(App(acc, v, i), sp)
+        case Proj(sp, p)   => go(Proj(acc, p), sp)
 
       go(Empty, this)
 
@@ -274,6 +279,7 @@ object Core:
     def toList: List[(Val1, Icit)] = this match
       case Spine.App(sp, arg, i) => sp.toList ++ List((arg, i))
       case Spine.Empty           => Nil
+      case _                     => impossible()
   object Spine:
     def apps(args: List[(Val1, Icit)]): Spine =
       args.foldLeft(Spine.Empty) { case (s, (a, i)) => Spine.App(s, a, i) }
