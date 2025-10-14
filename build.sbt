@@ -1,4 +1,4 @@
-val scala3Version = "3.7.1"
+val scala3Version = "3.7.3"
 
 lazy val root = project
   .in(file("."))
@@ -10,7 +10,5 @@ lazy val root = project
       "-Wunused:imports",
       "-Xfatal-warnings",
       "-explain-cyclic"
-    ),
-    libraryDependencies += "org.ow2.asm" % "asm" % "9.8",
-    libraryDependencies += "org.ow2.asm" % "asm-commons" % "9.8"
+    )
   )
