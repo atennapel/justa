@@ -17,34 +17,51 @@ object Lexer:
   enum Symbol:
     case L_PAREN
     case R_PAREN
+    case L_BRACE
+    case R_BRACE
     case COLON
     case SEMICOLON
     case EQUALS
     case COLON_EQUALS
+    case BACKSLASH
+    case ARROW
+    case DOUBLE_ARROW
 
     def pretty: String =
       this match
         case L_PAREN      => "("
         case R_PAREN      => ")"
+        case L_BRACE      => "{"
+        case R_BRACE      => "}"
         case COLON        => ":"
         case SEMICOLON    => ";"
         case EQUALS       => "="
         case COLON_EQUALS => ":="
+        case BACKSLASH    => "\\"
+        case ARROW        => "->"
+        case DOUBLE_ARROW => "=>"
 
   object Symbol:
     def parseImmediate(symbol: String): Symbol | Null =
       symbol match
         case "(" => L_PAREN
         case ")" => R_PAREN
+        case "{" => L_BRACE
+        case "}" => R_BRACE
         case _   => null
     def parse(symbol: String): Symbol | Null =
       symbol match
         case "("  => L_PAREN
         case ")"  => R_PAREN
+        case "{"  => L_BRACE
+        case "}"  => R_BRACE
         case ":"  => COLON
         case ";"  => SEMICOLON
         case "="  => EQUALS
         case ":=" => COLON_EQUALS
+        case "\\" => BACKSLASH
+        case "->" => ARROW
+        case "=>" => DOUBLE_ARROW
         case _    => null
 
   enum Keyword:
@@ -117,11 +134,10 @@ object Lexer:
       state match
         case LexState.Start =>
           take match
-            case null    => add(EOF)
-            case c: Char =>
+            case null => add(EOF)
+            case c    =>
               Symbol.parseImmediate(c.toString) match
-                case sym: Symbol => add(SYMBOL(sym)); skip(); tokenize()
-                case null        =>
+                case null =>
                   c match
                     case c: Char if Token.identHead.contains(c) =>
                       use(c)
@@ -133,6 +149,7 @@ object Lexer:
                       tokenize()
                     case c: Char if c.isWhitespace => skip(); tokenize()
                     case c => err(s"unexpected character: $c")
+                case sym => add(SYMBOL(sym)); skip(); tokenize()
         case LexState.Ident =>
           take match
             case c: Char if Token.identTail.contains(c) => use(c); tokenize()
@@ -141,8 +158,8 @@ object Lexer:
                 val id = acc.result()
                 acc.clear()
                 Keyword.parse(id) match
-                  case kw: Keyword => add(KEYWORD(kw))
-                  case null        => add(IDENT(id))
+                  case null => add(IDENT(id))
+                  case kw   => add(KEYWORD(kw))
               to(LexState.Start)
               tokenize()
         case LexState.Op =>
@@ -153,7 +170,7 @@ object Lexer:
                 val id = acc.result()
                 acc.clear()
                 Symbol.parse(id) match
-                  case sym: Symbol => add(SYMBOL(sym))
-                  case null        => add(OP(id))
+                  case null => add(OP(id))
+                  case sym  => add(SYMBOL(sym))
               to(LexState.Start)
               tokenize()

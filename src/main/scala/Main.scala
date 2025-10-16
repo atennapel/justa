@@ -5,5 +5,7 @@ object Main:
   def run(): Unit =
     while true do
       val text = readLine()
-      val tm = surface.Parser.parse(text)
-      println(tm)
+      try
+        val tm = surface.Parser.parse(text)
+        println(tm)
+      catch case e: Exception => e.printStackTrace()
