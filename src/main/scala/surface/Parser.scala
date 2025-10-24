@@ -24,6 +24,7 @@ object Parser:
     else err(s"expected EOF but got ${state.peek.pretty}")
 
   // Implementation
+  private type DefParam = (ArgInfo, mutable.ArrayBuffer[Bind], Tm | Null)
   private final class State(
       var tokens: mutable.ArrayBuffer[Token],
       var ix: Int = 0
@@ -301,22 +302,71 @@ object Parser:
       else null
 
     private def lam(): Tm =
-      val x = bind()
+      val ps = list(tryParam())
       symbol(DOUBLE_ARROW)
       val b = expr()
-      Tm.Lam(x, ArgInfo.Expl, None, b)
+      ps.foldRight(b) { case ((a, xs, ty), b) =>
+        xs.foldRight(b)((x, b) => Tm.Lam(x, a, Option(ty), b))
+      }
+
+    private def tryParam(): DefParam | Null =
+      if trySymbol(L_PAREN) then
+        val (xs, ty) = grouping()
+        symbol(R_PAREN)
+        (ArgInfo.Expl, xs, ty)
+      else if trySymbol(L_BRACE) then
+        val (xs, ty) = grouping()
+        val named = if trySymbol(EQUALS) then nameOrOp() else null
+        symbol(R_BRACE)
+        val arginfo = named match
+          case null => ArgInfo.Impl
+          case x    => ArgInfo.Named(x)
+        (arginfo, xs, ty)
+      else
+        tryBind() match
+          case null => null
+          case x    => (ArgInfo.Expl, mutable.ArrayBuffer(x), null)
+
+    private def defn(): (Name, Tm | Null, Tm) =
+      val x = nameOrOp()
+      val ps = list(tryParam())
+      val prety = if trySymbol(COLON) then expr() else null
+      symbol(EQUALS)
+      val prebody = expr()
+      val (ty, body) = prety match
+        case null =>
+          val body = ps.foldRight(prebody) { case ((i, xs, ty), b) =>
+            xs.foldRight(b)((x, b) => Tm.Lam(x, i, Option(ty), b))
+          }
+          (null, body)
+        case rty =>
+          val ty = mkPi(ps, rty)
+          val body = ps.foldRight(prebody) { case ((i, xs, _), b) =>
+            xs.foldRight(b)((x, b) => Tm.Lam(x, i, None, b))
+          }
+          (ty, body)
+      (x, ty, body)
+
+    private def mkPi(ps: mutable.ArrayBuffer[DefParam], rty: Tm): Tm =
+      ps.foldRight(rty) { case ((ai, xs, opty), rty) =>
+        val i = ai match
+          case ArgInfo.Named(_) =>
+            err(
+              "named parameter not allowed for lets or top-level definitions"
+            )
+          case ArgInfo.Icit(i) => i
+        val pty = opty match
+          case null => Tm.Hole
+          case ty   => ty
+        xs.foldRight(rty) { (x, rty) => Tm.Pi(x, i, pty, rty) }
+      }
 
     def expr(): Tm =
       if tryKeyword(LET) then
-        val x = nameOrOp()
-        val t =
-          if trySymbol(COLON) then Some(expr())
-          else None
-        symbol(EQUALS)
-        val v = expr()
+        val (x, t, v) = defn()
         symbol(SEMICOLON)
         val b = expr()
-        Tm.Let(x, t, v, b)
+        Tm.Let(x, Option(t), v, b)
       else if trySymbol(BACKSLASH) then lam()
       else
         backtrack(tryPiParam()) match
@@ -330,4 +380,4 @@ object Parser:
               xs.foldRight(rt)((x, rt) => Tm.Pi(x, i, ty, rt))
             }
 
-// TODO: parameters for let and lam, positions, prefix operators
+// TODO: modules, definitions, positions, prefix operators
