@@ -26,6 +26,7 @@ object Lexer:
     case BACKSLASH
     case ARROW
     case DOUBLE_ARROW
+    case UNDERSCORE
 
     def pretty: String =
       this match
@@ -40,6 +41,7 @@ object Lexer:
         case BACKSLASH    => "\\"
         case ARROW        => "->"
         case DOUBLE_ARROW => "=>"
+        case UNDERSCORE   => "_"
 
   object Symbol:
     def parseImmediate(symbol: String): Symbol | Null =
@@ -62,6 +64,7 @@ object Lexer:
         case "\\" => BACKSLASH
         case "->" => ARROW
         case "=>" => DOUBLE_ARROW
+        case "_"  => UNDERSCORE
         case _    => null
 
   enum Keyword:
