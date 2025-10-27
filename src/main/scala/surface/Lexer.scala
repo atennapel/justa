@@ -1,5 +1,7 @@
 package surface
 
+import common.Common.PosInfo
+
 import scala.collection.mutable
 import scala.annotation.tailrec
 
@@ -90,26 +92,34 @@ object Lexer:
         case _        => null
 
   enum Token:
-    case EOF
-    case KEYWORD(keyword: Keyword)
-    case SYMBOL(symbol: Symbol)
-    case IDENT(name: String)
-    case OP(name: String)
+    case EOF(_pos: PosInfo)
+    case KEYWORD(keyword: Keyword, _pos: PosInfo)
+    case SYMBOL(symbol: Symbol, _pos: PosInfo)
+    case IDENT(name: String, _pos: PosInfo)
+    case OP(name: String, _pos: PosInfo)
 
     def pretty: String =
       this match
-        case EOF         => "eof"
-        case KEYWORD(kw) => kw.pretty
-        case SYMBOL(s)   => s.pretty
-        case IDENT(x)    => x
-        case OP(op)      => op
+        case EOF(_)         => "eof"
+        case KEYWORD(kw, _) => kw.pretty
+        case SYMBOL(s, _)   => s.pretty
+        case IDENT(x, _)    => x
+        case OP(op, _)      => op
+
+    def pos: PosInfo = this match
+      case Token.EOF(p)        => p
+      case Token.KEYWORD(_, p) => p
+      case Token.SYMBOL(_, p)  => p
+      case Token.IDENT(_, p)   => p
+      case Token.OP(_, p)      => p
   import Token.*
 
   object Token:
-    val identHead = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    val identTail = s"${identHead}0123456789_"
-    val opHead = "`~!@#$%^&*-+=\\|:;,<.>?/"
-    val opTail = opHead
+    private[surface] val identHead =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    private[surface] val identTail = s"${identHead}0123456789_"
+    private[surface] val opHead = "`~!@#$%^&*-+=\\|:;,<.>?/"
+    private[surface] val opTail = opHead
 
   private enum LexState:
     case Start
@@ -120,6 +130,8 @@ object Lexer:
   private final class State(
       text: String,
       var ix: Int = 0,
+      var line: Int = 1,
+      var col: Int = 1,
       var state: LexState = LexState.Start,
       val tokens: mutable.ArrayBuffer[Token] = mutable.ArrayBuffer.empty,
       acc: mutable.StringBuilder = new mutable.StringBuilder()
@@ -128,7 +140,13 @@ object Lexer:
       if ix >= text.length then null
       else text(ix)
 
-    private inline def skip(): Unit = ix += 1
+    private inline def skip(isNewline: Boolean = false): Unit = {
+      ix += 1
+      if isNewline then
+        col = 1
+        line += 1
+      else col += 1
+    }
 
     private inline def keep(c: Char): Unit = acc += c
 
@@ -142,12 +160,14 @@ object Lexer:
     private inline def to(newState: LexState): Unit =
       state = newState
 
+    private inline def pos: PosInfo = PosInfo(line, col)
+
     @tailrec
     def tokenize(): Unit =
       state match
         case LexState.Comment =>
           take match
-            case null => add(EOF)
+            case null => add(EOF(pos))
             case '\n' =>
               skip()
               to(LexState.Start)
@@ -155,7 +175,7 @@ object Lexer:
             case c => skip(); tokenize()
         case LexState.Start =>
           take match
-            case null => add(EOF)
+            case null => add(EOF(pos))
             case c    =>
               Symbol.parseImmediate(c.toString) match
                 case null =>
@@ -168,9 +188,11 @@ object Lexer:
                       use(c)
                       to(LexState.Op)
                       tokenize()
-                    case c: Char if c.isWhitespace => skip(); tokenize()
+                    case c: Char if c.isWhitespace =>
+                      skip(c == '\n')
+                      tokenize()
                     case c => err(s"unexpected character: $c")
-                case sym => add(SYMBOL(sym)); skip(); tokenize()
+                case sym => add(SYMBOL(sym, pos)); skip(); tokenize()
         case LexState.Ident =>
           take match
             case c: Char if Token.identTail.contains(c) => use(c); tokenize()
@@ -179,8 +201,8 @@ object Lexer:
                 val id = acc.result()
                 acc.clear()
                 Keyword.parse(id) match
-                  case null => add(IDENT(id))
-                  case kw   => add(KEYWORD(kw))
+                  case null => add(IDENT(id, pos))
+                  case kw   => add(KEYWORD(kw, pos))
               to(LexState.Start)
               tokenize()
         case LexState.Op =>
@@ -196,7 +218,7 @@ object Lexer:
                 val id = acc.result()
                 acc.clear()
                 Symbol.parse(id) match
-                  case null => add(OP(id))
-                  case sym  => add(SYMBOL(sym))
+                  case null => add(OP(id, pos))
+                  case sym  => add(SYMBOL(sym, pos))
               to(LexState.Start)
               tokenize()

@@ -33,6 +33,7 @@ object Parser:
     inline def isDone: Boolean = ix == tokens.length - 1
 
     inline def peek: Token = tokens(ix)
+    private inline def pos: PosInfo = peek.pos
     private inline def skip(): Unit = ix += 1
     private inline def pop(): Token =
       val token = peek
@@ -81,29 +82,29 @@ object Parser:
 
     private inline def matchIdent(token: Token): String | Null =
       token match
-        case IDENT(x) => x
-        case _        => null
+        case IDENT(x, _) => x
+        case _           => null
     private def tryIdent(): String | Null = tryConsume(matchIdent)
     private def ident(): String = consume("identifier")(matchIdent)
 
     private inline def matchOp(token: Token): String | Null =
       token match
-        case OP(x) => x
-        case _     => null
+        case OP(x, _) => x
+        case _        => null
     private def tryOp(): String | Null = tryConsume(matchOp)
     private def op(): String = consume("operator")(matchOp)
 
     private inline def matchSymbol(s: Symbol)(token: Token): Boolean =
       token match
-        case SYMBOL(s2) if s2 == s => true
-        case _                     => false
+        case SYMBOL(s2, _) if s2 == s => true
+        case _                        => false
     private def trySymbol(s: Symbol): Boolean = tryConsumeBool(matchSymbol(s))
     private def symbol(s: Symbol): Unit = consumeBool(s.pretty)(matchSymbol(s))
 
     private inline def matchKeyword(s: Keyword)(token: Token): Boolean =
       token match
-        case KEYWORD(s2) if s2 == s => true
-        case _                      => false
+        case KEYWORD(s2, _) if s2 == s => true
+        case _                         => false
     private def tryKeyword(s: Keyword): Boolean =
       tryConsumeBool(matchKeyword(s))
     private def keyword(s: Keyword): Unit =
@@ -397,8 +398,8 @@ object Parser:
     ): mutable.ArrayBuffer[(Name, Option[Name])] =
       if trySymbol(R_PAREN) then res
       else
-        val x = name()
-        val r = if trySymbol(DOUBLE_ARROW) then Some(name()) else None
+        val x = nameOrOp()
+        val r = if trySymbol(DOUBLE_ARROW) then Some(nameOrOp()) else None
         res += ((x, r))
         if trySymbol(COMMA) then imports(res)
         else
