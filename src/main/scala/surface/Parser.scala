@@ -221,8 +221,8 @@ object Parser:
 
     private def shunting(sp: mutable.ArrayBuffer[Tm | String]): Tm =
       // Dijkstra shunting yard to handle operators
-      val stack: mutable.ArrayStack[Tm] = mutable.ArrayStack.empty
-      val opstack: mutable.ArrayStack[String] = mutable.ArrayStack.empty
+      val stack: mutable.Stack[Tm] = mutable.Stack.empty
+      val opstack: mutable.Stack[String] = mutable.Stack.empty
       inline def handleOp(op: String): Unit =
         // TODO: prefix operators
         val x = Tm.Var(Name.op(op))
@@ -433,4 +433,4 @@ object Parser:
       val ds = defs()
       Module(x, deps.toSet, imps.toMap, moduleAliases.toMap, ds)
 
-// TODO: positions, comments, allow empty file, accept shebang, prefix operators
+// TODO: positions, block comments, allow empty file, accept shebang, prefix operators
