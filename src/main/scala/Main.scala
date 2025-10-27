@@ -1,11 +1,14 @@
-import scala.io.StdIn.readLine
+import common.Util.time
 
 object Main:
   @main
   def run(): Unit =
-    while true do
-      val text = readLine()
-      try
-        val tm = surface.Parser.parse(text)
-        println(tm)
-      catch case e: Exception => e.printStackTrace()
+    try
+      val file = "test.txt"
+      val src = io.Source.fromFile(file, "utf-8")
+      val text =
+        try src.getLines.mkString("\n")
+        finally src.close
+      val tm = time("parse")(surface.Parser.parse("test", text))
+      println(tm)
+    catch case e: Exception => e.printStackTrace()

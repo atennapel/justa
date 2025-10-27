@@ -1,6 +1,7 @@
 package surface
 
 import common.Common.*
+import common.Util.time
 import Lexer.{Symbol, Keyword, Token}
 import Lexer.Symbol.*
 import Lexer.Keyword.*
@@ -16,11 +17,11 @@ object Parser:
   private inline def err(msg: String): Nothing =
     throw new ParseError(msg)
 
-  def parse(text: String): Tm =
-    val tokens = Lexer.tokenize(text)
+  def parse(mod: String, text: String): Module =
+    val tokens = time("lexer")(Lexer.tokenize(text))
     val state = new State(tokens)
-    val tm = state.expr()
-    if state.isDone then tm
+    val m = time("parser")(state.module(mod))
+    if state.isDone then m
     else err(s"expected EOF but got ${state.peek.pretty}")
 
   // Implementation
@@ -50,7 +51,7 @@ object Parser:
     private inline def list[A: ClassTag](
         inline test: A | Null
     ): mutable.ArrayBuffer[A] =
-      val result: mutable.ArrayBuffer[A] = new mutable.ArrayBuffer()
+      val result: mutable.ArrayBuffer[A] = mutable.ArrayBuffer.empty
       var go = true
       while go do
         test match
@@ -196,7 +197,7 @@ object Parser:
 
     @tailrec
     private def apps(
-        res: mutable.ArrayBuffer[Tm | String] = new mutable.ArrayBuffer()
+        res: mutable.ArrayBuffer[Tm | String] = mutable.ArrayBuffer.empty
     ): Tm =
       val hd = atom()
       val tl = list(tryArg())
@@ -220,8 +221,8 @@ object Parser:
 
     private def shunting(sp: mutable.ArrayBuffer[Tm | String]): Tm =
       // Dijkstra shunting yard to handle operators
-      val stack: mutable.ArrayStack[Tm] = new mutable.ArrayStack()
-      val opstack: mutable.ArrayStack[String] = new mutable.ArrayStack()
+      val stack: mutable.ArrayStack[Tm] = mutable.ArrayStack.empty
+      val opstack: mutable.ArrayStack[String] = mutable.ArrayStack.empty
       inline def handleOp(op: String): Unit =
         // TODO: prefix operators
         val x = Tm.Var(Name.op(op))
@@ -327,11 +328,12 @@ object Parser:
           case null => null
           case x    => (ArgInfo.Expl, mutable.ArrayBuffer(x), null)
 
-    private def defn(): (Name, Tm | Null, Tm) =
+    private def defn(): (Boolean, Name, Tm | Null, Tm) =
       val x = nameOrOp()
       val ps = list(tryParam())
       val prety = if trySymbol(COLON) then expr() else null
-      symbol(EQUALS)
+      val meta =
+        if trySymbol(COLON_EQUALS) then false else { symbol(EQUALS); true }
       val prebody = expr()
       val (ty, body) = prety match
         case null =>
@@ -340,14 +342,18 @@ object Parser:
           }
           (null, body)
         case rty =>
-          val ty = mkPi(ps, rty)
+          val ty = mkPi(ps, rty, meta)
           val body = ps.foldRight(prebody) { case ((i, xs, _), b) =>
             xs.foldRight(b)((x, b) => Tm.Lam(x, i, None, b))
           }
           (ty, body)
-      (x, ty, body)
+      (meta, x, ty, body)
 
-    private def mkPi(ps: mutable.ArrayBuffer[DefParam], rty: Tm): Tm =
+    private def mkPi(
+        ps: mutable.ArrayBuffer[DefParam],
+        rty: Tm,
+        meta: Boolean
+    ): Tm =
       ps.foldRight(rty) { case ((ai, xs, opty), rty) =>
         val i = ai match
           case ArgInfo.Named(_) =>
@@ -358,15 +364,19 @@ object Parser:
         val pty = opty match
           case null => Tm.Hole
           case ty   => ty
-        xs.foldRight(rty) { (x, rty) => Tm.Pi(x, i, pty, rty) }
+        xs.foldRight(rty) { (x, rty) =>
+          val px = if meta then x else Bind.Dont
+          Tm.Pi(px, i, pty, rty)
+        }
       }
 
-    def expr(): Tm =
+    private def expr(): Tm =
       if tryKeyword(LET) then
-        val (x, t, v) = defn()
+        val (meta, x, t, v) = defn()
         symbol(SEMICOLON)
         val b = expr()
-        Tm.Let(x, Option(t), v, b)
+        if meta then Tm.Let1(x, Option(t), v, b)
+        else Tm.Let0(x, Option(t), v, b)
       else if trySymbol(BACKSLASH) then lam()
       else
         backtrack(tryPiParam()) match
@@ -380,4 +390,47 @@ object Parser:
               xs.foldRight(rt)((x, rt) => Tm.Pi(x, i, ty, rt))
             }
 
-// TODO: modules, definitions, positions, prefix operators
+    @tailrec
+    private def imports(
+        res: mutable.ArrayBuffer[(Name, Option[Name])] =
+          mutable.ArrayBuffer.empty
+    ): mutable.ArrayBuffer[(Name, Option[Name])] =
+      if trySymbol(R_PAREN) then res
+      else
+        val x = name()
+        val r = if trySymbol(DOUBLE_ARROW) then Some(name()) else None
+        res += ((x, r))
+        if trySymbol(COMMA) then imports(res)
+        else
+          symbol(R_PAREN)
+          res
+
+    private def defs(): Defs = Defs(list(tryDef()).toSeq)
+
+    private def tryDef(): Def | Null =
+      if tryKeyword(LET) then
+        val (meta, x, ty, body) = defn()
+        if meta then Def.D1(x, Option(ty), body)
+        else Def.D0(x, Option(ty), body)
+      else null
+
+    def module(mod: String): Module =
+      keyword(MODULE)
+      val x = name()
+      if x.expose != mod then
+        err(
+          s"module name does not match file name or path, expected $mod but got $x"
+        )
+      val deps = mutable.Set.empty[Name]
+      val imps = mutable.Map.empty[Name, (Name, Option[Name])]
+      val moduleAliases = mutable.Map.empty[Name, Name]
+      while tryKeyword(IMPORT) do
+        val m = name()
+        val xr = if trySymbol(DOUBLE_ARROW) then name() else m
+        moduleAliases += m -> xr
+        deps += m
+        if trySymbol(L_PAREN) then imports().foreach(p => imps += x -> p)
+      val ds = defs()
+      Module(x, deps.toSet, imps.toMap, moduleAliases.toMap, ds)
+
+// TODO: positions, comments, allow empty file, accept shebang, prefix operators

@@ -14,9 +14,14 @@ object Common:
     override def toString: String = this match
       case Nm(x) => x
       case Op(x) => s"($x)"
+
+    def expose: String = this match
+      case Nm(x) => x
+      case Op(x) => x
+
   object Name:
-    private val namestore: mutable.Map[String, Name] = new mutable.HashMap()
-    private val opstore: mutable.Map[String, Name] = new mutable.HashMap()
+    private val namestore: mutable.Map[String, Name] = mutable.Map.empty
+    private val opstore: mutable.Map[String, Name] = mutable.Map.empty
     def apply(name: String): Name = namestore.getOrElseUpdate(name, Nm(name))
     def op(name: String): Name = opstore.getOrElseUpdate(name, Op(name))
 
@@ -27,6 +32,14 @@ object Common:
     override def toString: String = this match
       case Dont  => "_"
       case Do(x) => s"$x"
+
+    def toName: Name = this match
+      case Dont  => Name("_")
+      case Do(x) => x
+
+    def expose: String = this match
+      case Dont  => "_"
+      case Do(x) => x.expose
 
   // icit
   enum Icit:

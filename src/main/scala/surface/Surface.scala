@@ -4,6 +4,37 @@ import common.Common
 import common.Common.*
 
 object Surface:
+  final case class Module(
+      name: Name,
+      deps: Set[Name],
+      imports: Map[Name, (Name, Option[Name])],
+      moduleAliases: Map[Name, Name],
+      defs: Defs
+  ):
+    override def toString: String =
+      s"module $name\n$defs"
+
+  final case class Defs(defs: Seq[Def]):
+    override def toString: String = defs.mkString("\n")
+    def toSeq: Seq[Def] = defs
+
+  enum Def:
+    case D0(
+        name: Name,
+        ty: Option[Tm],
+        value: Tm
+    )
+    case D1(
+        name: Name,
+        ty: Option[Tm],
+        value: Tm
+    )
+    override def toString: String = this match
+      case D0(x, t, v) =>
+        s"let $x${t.map(t => s" : $t").getOrElse("")} := $v"
+      case D1(x, t, v) =>
+        s"let $x${t.map(t => s" : $t").getOrElse("")} = $v"
+
   enum ArgInfo:
     case Named(name: Name)
     case Icit(icit: Common.Icit)
@@ -14,7 +45,8 @@ object Surface:
   enum Tm:
     case Var(name: Name)
 
-    case Let(name: Name, ty: Option[Tm], value: Tm, body: Tm)
+    case Let0(name: Name, ty: Option[Tm], value: Tm, body: Tm)
+    case Let1(name: Name, ty: Option[Tm], value: Tm, body: Tm)
 
     case Pi(name: Bind, icit: Icit, ty: Tm, body: Tm)
     case Lam(name: Bind, icit: ArgInfo, ty: Option[Tm], body: Tm)
@@ -23,9 +55,11 @@ object Surface:
     case Hole
 
     override def toString(): String = this match
-      case Var(x)                => s"$x"
-      case Let(x, None, v, b)    => s"(let $x = $v; $b)"
-      case Let(x, Some(t), v, b) => s"(let $x : $t = $v; $b)"
+      case Var(x)                 => s"$x"
+      case Let0(x, None, v, b)    => s"(let $x := $v; $b)"
+      case Let0(x, Some(t), v, b) => s"(let $x : $t := $v; $b)"
+      case Let1(x, None, v, b)    => s"(let $x = $v; $b)"
+      case Let1(x, Some(t), v, b) => s"(let $x : $t = $v; $b)"
 
       case Pi(x, i, ty, b) => s"(${i.wrap(s"$x : $ty")} -> $b)"
 

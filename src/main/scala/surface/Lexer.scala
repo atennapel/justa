@@ -27,6 +27,7 @@ object Lexer:
     case ARROW
     case DOUBLE_ARROW
     case UNDERSCORE
+    case COMMA
 
     def pretty: String =
       this match
@@ -42,6 +43,7 @@ object Lexer:
         case ARROW        => "->"
         case DOUBLE_ARROW => "=>"
         case UNDERSCORE   => "_"
+        case COMMA        => ","
 
   object Symbol:
     def parseImmediate(symbol: String): Symbol | Null =
@@ -65,20 +67,27 @@ object Lexer:
         case "->" => ARROW
         case "=>" => DOUBLE_ARROW
         case "_"  => UNDERSCORE
+        case ","  => COMMA
         case _    => null
 
   enum Keyword:
+    case MODULE
+    case IMPORT
     case LET
 
     def pretty: String =
       this match
-        case LET => "let"
+        case MODULE => "module"
+        case IMPORT => "import"
+        case LET    => "let"
 
   object Keyword:
     def parse(keyword: String): Keyword | Null =
       keyword match
-        case "let" => LET
-        case _     => null
+        case "module" => MODULE
+        case "import" => IMPORT
+        case "let"    => LET
+        case _        => null
 
   enum Token:
     case EOF
@@ -104,6 +113,7 @@ object Lexer:
 
   private enum LexState:
     case Start
+    case Comment
     case Ident
     case Op
 
@@ -111,7 +121,7 @@ object Lexer:
       text: String,
       var ix: Int = 0,
       var state: LexState = LexState.Start,
-      val tokens: mutable.ArrayBuffer[Token] = new mutable.ArrayBuffer(),
+      val tokens: mutable.ArrayBuffer[Token] = mutable.ArrayBuffer.empty,
       acc: mutable.StringBuilder = new mutable.StringBuilder()
   ):
     private inline def take: Char | Null =
@@ -135,6 +145,14 @@ object Lexer:
     @tailrec
     def tokenize(): Unit =
       state match
+        case LexState.Comment =>
+          take match
+            case null => add(EOF)
+            case '\n' =>
+              skip()
+              to(LexState.Start)
+              tokenize()
+            case c => skip(); tokenize()
         case LexState.Start =>
           take match
             case null => add(EOF)
@@ -167,8 +185,13 @@ object Lexer:
               tokenize()
         case LexState.Op =>
           take match
-            case c: Char if Token.opTail.contains(c) => use(c); tokenize()
-            case _                                   =>
+            case c: Char if Token.opTail.contains(c) =>
+              use(c)
+              if acc.result() == "--" then
+                acc.clear()
+                to(LexState.Comment)
+              tokenize()
+            case _ =>
               if acc.nonEmpty then
                 val id = acc.result()
                 acc.clear()
