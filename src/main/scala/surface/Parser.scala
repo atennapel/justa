@@ -29,7 +29,8 @@ object Parser:
       else err(s"expected EOF but got ${state.peek.pretty}")
 
   // Implementation
-  private type DefParam = (ArgInfo, mutable.ArrayBuffer[Bind], Tm | Null)
+  private type DefParam =
+    (ArgInfo, mutable.ArrayBuffer[(PosInfo, Bind)], Tm | Null)
   private final class State(
       var tokens: mutable.ArrayBuffer[Token],
       var ix: Int = 0
@@ -143,6 +144,12 @@ object Parser:
           case null => null
           case x    => Bind.Do(x)
 
+    private def tryBindPos(): (PosInfo, Bind) | Null =
+      val p = pos
+      tryBind() match
+        case null => null
+        case x    => (p, x)
+
     // operators
     // precendence rules taken from Scala for now
     private def prec(op: String): Int =
@@ -165,35 +172,44 @@ object Parser:
 
     // Language parsing
     private def tryAtom(): Tm | Null =
+      val p = pos
       tryName() match
         case null =>
           if trySymbol(L_PAREN) then
+            val p2 = pos
             tryOp() match
               case null =>
                 val e = expr()
                 symbol(R_PAREN)
                 e
               case op =>
-                if trySymbol(R_PAREN) then Tm.Var(Name.op(op))
+                if trySymbol(R_PAREN) then Tm.Var(p2, Name.op(op))
                 else
-                  val arg = apps() // TODO: support trailing lambda here?
+                  val arg = apps()
                   symbol(R_PAREN)
                   // operator section
                   // (op arg) ~> \x => x op arg
                   // TODO: (arg op) ~> ((op) arg)
                   val x = Name("x") // TODO: name shadowing issues!!!
                   Tm.Lam(
+                    p,
                     Bind.Do(x),
                     ArgInfo.Expl,
                     None,
                     Tm.App(
-                      Tm.App(Tm.Var(Name.op(op)), Tm.Var(x), ArgInfo.Expl),
+                      p,
+                      Tm.App(
+                        p,
+                        Tm.Var(p2, Name.op(op)),
+                        Tm.Var(p, x),
+                        ArgInfo.Expl
+                      ),
                       arg,
                       ArgInfo.Expl
                     )
                   )
           else null
-        case x => Tm.Var(x)
+        case x => Tm.Var(p, x)
 
     private def atom(): Tm =
       tryAtom() match
@@ -202,55 +218,60 @@ object Parser:
 
     @tailrec
     private def apps(
-        res: mutable.ArrayBuffer[Tm | String] = mutable.ArrayBuffer.empty
+        res: mutable.ArrayBuffer[Tm | (PosInfo, String)] =
+          mutable.ArrayBuffer.empty
     ): Tm =
       val hd = atom()
       val tl = list(tryArg())
       if trySymbol(BACKSLASH) then tl += ((lam(), ArgInfo.Expl))
-      val tm = tl.foldLeft(hd) { case (f, (a, i)) => Tm.App(f, a, i) }
+      val tm = tl.foldLeft(hd) { case (f, (a, i)) => Tm.App(a.pos, f, a, i) }
       res += tm
       inline def finalize() =
         val tm = shunting(res)
+        val p = pos
         if trySymbol(ARROW) then
           val rt = expr()
-          Tm.Pi(Bind.Dont, Icit.Expl, tm, rt)
+          Tm.Pi(p, Bind.Dont, Icit.Expl, tm, rt)
         else tm
+      val p = pos
       tryOp() match
         case null => finalize()
         case op   =>
-          res += op
+          res += ((p, op))
           if trySymbol(BACKSLASH) then
             res += lam()
             finalize()
           else apps(res)
 
-    private def shunting(sp: mutable.ArrayBuffer[Tm | String]): Tm =
+    private def shunting(sp: mutable.ArrayBuffer[Tm | (PosInfo, String)]): Tm =
       // Dijkstra shunting yard to handle operators
       val stack: mutable.Stack[Tm] = mutable.Stack.empty
-      val opstack: mutable.Stack[String] = mutable.Stack.empty
-      inline def handleOp(op: String): Unit =
+      val opstack: mutable.Stack[(PosInfo, String)] = mutable.Stack.empty
+      inline def handleOp(op: (PosInfo, String)): Unit =
         // TODO: prefix operators
-        val x = Tm.Var(Name.op(op))
+        val x = Tm.Var(op._1, Name.op(op._2))
         val r = stack.pop()
         val l = stack.pop()
-        val tm = Tm.App(Tm.App(x, l, ArgInfo.Expl), r, ArgInfo.Expl)
+        val tm =
+          Tm.App(r.pos, Tm.App(l.pos, x, l, ArgInfo.Expl), r, ArgInfo.Expl)
         stack.push(tm)
       var i = 0
       val l = sp.length
       while i < l do
         sp(i) match
-          case tm: Tm                => stack.push(tm)
-          case op: String @unchecked =>
+          case tm: Tm                            => stack.push(tm)
+          case opp: (PosInfo, String) @unchecked =>
+            val op = opp._2
             val p = prec(op)
             val l = !rassoc(op)
             var run = true
             while opstack.nonEmpty && run do
               val top = opstack.last
-              val ptop = prec(top)
+              val ptop = prec(top._2)
               if p < ptop || (p == ptop && !l) then
                 opstack.pop(); handleOp(top)
               else run = false
-            opstack.push(op)
+            opstack.push(opp)
         i += 1
       i = opstack.length - 1
       while i >= 0 do
@@ -279,19 +300,22 @@ object Parser:
           case null => null
           case a    => (a, ArgInfo.Expl)
 
-    private def grouping(): (mutable.ArrayBuffer[Bind], Tm | Null) =
-      val x = bind()
-      val xs = list(tryBind())
+    private def grouping(): (mutable.ArrayBuffer[(PosInfo, Bind)], Tm | Null) =
+      val p = pos
+      val x = (p, bind())
+      val xs = list(tryBindPos())
       xs.insert(0, x)
       val ty = if trySymbol(COLON) then expr() else null
       (xs, ty)
 
-    private def tryPiParam(): (Icit, mutable.ArrayBuffer[Bind], Tm) | Null =
+    private def tryPiParam(): (Icit, mutable.ArrayBuffer[(PosInfo, Bind)], Tm) |
+      Null =
       if trySymbol(L_PAREN) then
         if trySymbol(R_PAREN) then null
         else
-          val x = bind()
-          val xs = list(tryBind())
+          val p = pos
+          val x = (p, bind())
+          val xs = list(tryBindPos())
           xs.insert(0, x)
           if trySymbol(COLON) then
             val ty = expr()
@@ -300,8 +324,9 @@ object Parser:
           else null
       else if trySymbol(L_BRACE) then
         val (xs, prety) = grouping()
+        val p = pos
         val ty = prety match
-          case null => Tm.Hole
+          case null => Tm.Hole(p)
           case ty   => ty
         symbol(R_BRACE)
         (Icit.Impl, xs, ty)
@@ -312,7 +337,7 @@ object Parser:
       symbol(DOUBLE_ARROW)
       val b = expr()
       ps.foldRight(b) { case ((a, xs, ty), b) =>
-        xs.foldRight(b)((x, b) => Tm.Lam(x, a, Option(ty), b))
+        xs.foldRight(b) { case ((p, x), b) => Tm.Lam(p, x, a, Option(ty), b) }
       }
 
     private def tryParam(): DefParam | Null =
@@ -329,13 +354,15 @@ object Parser:
           case x    => ArgInfo.Named(x)
         (arginfo, xs, ty)
       else
+        val p = pos
         tryBind() match
           case null => null
-          case x    => (ArgInfo.Expl, mutable.ArrayBuffer(x), null)
+          case x    => (ArgInfo.Expl, mutable.ArrayBuffer((p, x)), null)
 
     private def defn(): (Boolean, Name, Tm | Null, Tm) =
       val x = nameOrOp()
       val ps = list(tryParam())
+      val p = pos
       val prety = if trySymbol(COLON) then expr() else null
       val meta =
         if trySymbol(COLON_EQUALS) then false else { symbol(EQUALS); true }
@@ -343,18 +370,21 @@ object Parser:
       val (ty, body) = prety match
         case null =>
           val body = ps.foldRight(prebody) { case ((i, xs, ty), b) =>
-            xs.foldRight(b)((x, b) => Tm.Lam(x, i, Option(ty), b))
+            xs.foldRight(b) { case ((p, x), b) =>
+              Tm.Lam(p, x, i, Option(ty), b)
+            }
           }
           (null, body)
         case rty =>
-          val ty = mkPi(ps, rty, meta)
+          val ty = mkPi(p, ps, rty, meta)
           val body = ps.foldRight(prebody) { case ((i, xs, _), b) =>
-            xs.foldRight(b)((x, b) => Tm.Lam(x, i, None, b))
+            xs.foldRight(b) { case ((p, x), b) => Tm.Lam(p, x, i, None, b) }
           }
           (ty, body)
       (meta, x, ty, body)
 
     private def mkPi(
+        p: PosInfo,
         ps: mutable.ArrayBuffer[DefParam],
         rty: Tm,
         meta: Boolean
@@ -367,21 +397,22 @@ object Parser:
             )
           case ArgInfo.Icit(i) => i
         val pty = opty match
-          case null => Tm.Hole
+          case null => Tm.Hole(p) // TODO: this position is incorrect
           case ty   => ty
-        xs.foldRight(rty) { (x, rty) =>
+        xs.foldRight(rty) { case ((p, x), rty) =>
           val px = if meta then x else Bind.Dont
-          Tm.Pi(px, i, pty, rty)
+          Tm.Pi(p, px, i, pty, rty)
         }
       }
 
     private def expr(): Tm =
+      val p = pos
       if tryKeyword(LET) then
         val (meta, x, t, v) = defn()
         symbol(SEMICOLON)
         val b = expr()
-        if meta then Tm.Let1(x, Option(t), v, b)
-        else Tm.Let0(x, Option(t), v, b)
+        if meta then Tm.Let1(p, x, Option(t), v, b)
+        else Tm.Let0(p, x, Option(t), v, b)
       else if trySymbol(BACKSLASH) then lam()
       else
         backtrack(tryPiParam()) match
@@ -392,19 +423,24 @@ object Parser:
             symbol(ARROW)
             val rt = expr()
             ps.foldRight(rt) { case ((i, xs, ty), rt) =>
-              xs.foldRight(rt)((x, rt) => Tm.Pi(x, i, ty, rt))
+              xs.foldRight(rt) { case ((p, x), rt) => Tm.Pi(p, x, i, ty, rt) }
             }
 
     @tailrec
     private def imports(
-        res: mutable.ArrayBuffer[(Name, Option[Name])] =
+        res: mutable.ArrayBuffer[(PosInfo, PosInfo, Name, Option[Name])] =
           mutable.ArrayBuffer.empty
-    ): mutable.ArrayBuffer[(Name, Option[Name])] =
+    ): mutable.ArrayBuffer[(PosInfo, PosInfo, Name, Option[Name])] =
       if trySymbol(R_PAREN) then res
       else
+        val p1 = pos
         val x = nameOrOp()
-        val r = if trySymbol(DOUBLE_ARROW) then Some(nameOrOp()) else None
-        res += ((x, r))
+        var p2 = p1
+        val r = if trySymbol(DOUBLE_ARROW) then
+          p2 = pos
+          Some(nameOrOp())
+        else None
+        res += ((p1, p2, x, r))
         if trySymbol(COMMA) then imports(res)
         else
           symbol(R_PAREN)
@@ -413,13 +449,15 @@ object Parser:
     private def defs(): Defs = Defs(list(tryDef()).toSeq)
 
     private def tryDef(): Def | Null =
+      val p = pos
       if tryKeyword(LET) then
         val (meta, x, ty, body) = defn()
-        if meta then Def.D1(x, Option(ty), body)
-        else Def.D0(x, Option(ty), body)
+        if meta then Def.D1(p, x, Option(ty), body)
+        else Def.D0(p, x, Option(ty), body)
       else null
 
     def module(mod: String): Module =
+      val p = pos
       keyword(MODULE)
       val x = name()
       if x.expose != mod then
@@ -427,7 +465,7 @@ object Parser:
           s"module name does not match file name or path, expected $mod but got $x"
         )
       val deps = mutable.Set.empty[Name]
-      val imps = mutable.Map.empty[Name, (Name, Option[Name])]
+      val imps = mutable.Map.empty[Name, (PosInfo, PosInfo, Name, Option[Name])]
       val moduleAliases = mutable.Map.empty[Name, Name]
       while tryKeyword(IMPORT) do
         val m = name()
@@ -436,4 +474,4 @@ object Parser:
         deps += m
         if trySymbol(L_PAREN) then imports().foreach(p => imps += x -> p)
       val ds = defs()
-      Module(x, deps.toSet, imps.toMap, moduleAliases.toMap, ds)
+      Module(p, x, deps.toSet, imps.toMap, moduleAliases.toMap, ds)

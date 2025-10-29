@@ -6,5 +6,6 @@ References:
 - https://github.com/AndrasKovacs/elaboration-zoo
 
 TODO:
-- Positions in parser
+- Position ranges
+- Position information in names/binds?
 - Prefix operators
