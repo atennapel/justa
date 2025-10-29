@@ -124,6 +124,8 @@ object Lexer:
   private enum LexState:
     case Start
     case Comment
+    case BlockComment1
+    case BlockComment2
     case Ident
     case Op
 
@@ -168,11 +170,19 @@ object Lexer:
         case LexState.Comment =>
           take match
             case null => add(EOF(pos))
-            case '\n' =>
-              skip()
-              to(LexState.Start)
-              tokenize()
-            case c => skip(); tokenize()
+            case '\n' => skip(); to(LexState.Start); tokenize()
+            case _    => skip(); tokenize()
+        case LexState.BlockComment1 =>
+          take match
+            case null => add(EOF(pos))
+            case '-'  => skip(); to(LexState.BlockComment2); tokenize()
+            case _    => skip(); tokenize()
+        case LexState.BlockComment2 =>
+          take match
+            case null => add(EOF(pos))
+            case '}'  => skip(); to(LexState.Start); tokenize()
+            case '-'  => skip(); tokenize()
+            case _    => skip(); to(LexState.BlockComment1); tokenize()
         case LexState.Start =>
           take match
             case null => add(EOF(pos))
@@ -192,6 +202,13 @@ object Lexer:
                       skip(c == '\n')
                       tokenize()
                     case c => err(s"unexpected character: $c")
+                case sym @ Symbol.L_BRACE =>
+                  val p = pos
+                  skip()
+                  take match
+                    case '-' => skip(); to(LexState.BlockComment1)
+                    case _   => add(SYMBOL(sym, p))
+                  tokenize()
                 case sym => add(SYMBOL(sym, pos)); skip(); tokenize()
         case LexState.Ident =>
           take match

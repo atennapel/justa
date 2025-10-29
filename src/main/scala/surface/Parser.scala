@@ -434,4 +434,4 @@ object Parser:
       val ds = defs()
       Module(x, deps.toSet, imps.toMap, moduleAliases.toMap, ds)
 
-// TODO: positions, block comments, allow empty file, accept shebang, prefix operators
+// TODO: positions, allow empty file, accept shebang, prefix operators
