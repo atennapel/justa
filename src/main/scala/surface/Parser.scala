@@ -17,12 +17,16 @@ object Parser:
   private inline def err(msg: String): Nothing =
     throw new ParseError(msg)
 
-  def parse(mod: String, text: String): Module =
+  def parseModule(mod: String, text: String): Option[Module] =
     val tokens = time("lexer")(Lexer.tokenize(text))
-    val state = new State(tokens)
-    val m = time("parser")(state.module(mod))
-    if state.isDone then m
-    else err(s"expected EOF but got ${state.peek.pretty}")
+    if tokens.length == 1 then
+      // empty file
+      None
+    else
+      val state = new State(tokens)
+      val m = time("parser")(state.module(mod))
+      if state.isDone then Some(m)
+      else err(s"expected EOF but got ${state.peek.pretty}")
 
   // Implementation
   private type DefParam = (ArgInfo, mutable.ArrayBuffer[Bind], Tm | Null)
@@ -434,4 +438,4 @@ object Parser:
       val ds = defs()
       Module(x, deps.toSet, imps.toMap, moduleAliases.toMap, ds)
 
-// TODO: positions, allow empty file, accept shebang, prefix operators
+// TODO: positions, accept shebang, prefix operators

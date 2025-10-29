@@ -9,6 +9,6 @@ object Main:
       val text =
         try src.getLines.mkString("\n")
         finally src.close
-      val tm = time("parse")(surface.Parser.parse("test", text))
-      println(tm)
+      val mod = time("parse")(surface.Parser.parseModule("test", text))
+      println(mod)
     catch case e: Exception => e.printStackTrace()
