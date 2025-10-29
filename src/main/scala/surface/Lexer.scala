@@ -142,13 +142,16 @@ object Lexer:
       if ix >= text.length then null
       else text(ix)
 
-    private inline def skip(isNewline: Boolean = false): Unit = {
+    private inline def takeSkip: Char | Null =
+      if ix + 1 >= text.length then null
+      else text(ix + 1)
+
+    private inline def skip(isNewline: Boolean = false): Unit =
       ix += 1
       if isNewline then
         col = 1
         line += 1
       else col += 1
-    }
 
     private inline def keep(c: Char): Unit = acc += c
 
@@ -185,8 +188,11 @@ object Lexer:
             case _    => skip(); to(LexState.BlockComment1); tokenize()
         case LexState.Start =>
           take match
-            case null => add(EOF(pos))
-            case c    =>
+            case null =>
+              add(EOF(pos))
+            case '#' if tokens.isEmpty && takeSkip == '!' =>
+              skip(); skip(); to(LexState.Comment); tokenize()
+            case c =>
               Symbol.parseImmediate(c.toString) match
                 case null =>
                   c match

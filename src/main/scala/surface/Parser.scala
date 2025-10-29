@@ -437,5 +437,3 @@ object Parser:
         if trySymbol(L_PAREN) then imports().foreach(p => imps += x -> p)
       val ds = defs()
       Module(x, deps.toSet, imps.toMap, moduleAliases.toMap, ds)
-
-// TODO: positions, accept shebang, prefix operators

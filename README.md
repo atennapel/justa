@@ -6,4 +6,5 @@ References:
 - https://github.com/AndrasKovacs/elaboration-zoo
 
 TODO:
-- Positions in lexer/parser
+- Positions in parser
+- Prefix operators
