@@ -1,4 +1,4 @@
-val scala3Version = "3.4.2"
+val scala3Version = "3.7.4"
 
 lazy val root = project
   .in(file("."))
@@ -11,5 +11,5 @@ lazy val root = project
       "-Xfatal-warnings",
       "-explain-cyclic"
     ),
-    libraryDependencies += "com.github.j-mie6" %% "parsley" % "4.5.2"
+    javacOptions ++= Seq("-source", "25", "-target", "25")
   )
