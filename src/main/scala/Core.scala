@@ -107,12 +107,6 @@ object Core:
     case Prim(prim: Primitive)
     case Let(name: Name, ty: Ty, value: Tm1, body: Tm1)
 
-    case UMeta
-    case UTy(cv: Tm1)
-    case CV
-    case Val
-    case Comp
-
     case Pi(name: Bind, icit: Icit, ty: Ty, body: Ty)
     case Lam(name: Bind, icit: Icit, ty: Ty, body: Tm1)
     case App(fn: Tm1, arg: Tm1, icit: Icit)
@@ -152,11 +146,6 @@ object Core:
       case Var(ix)                 => s"'$ix"
       case Prim(p)                 => p.toString
       case Let(x, ty, v, b)        => s"(let $x : $ty = $v; $b)"
-      case UTy(cv)                 => s"(type $cv)"
-      case UMeta                   => "meta"
-      case CV                      => "cv"
-      case Val                     => "val"
-      case Comp                    => "comp"
       case Pi(x, i, ty, b)         => s"(${i.wrap(s"$x : $ty")} -> $b)"
       case Lam(x, i, ty, b)        => s"(\\${i.wrap(s"$x : $ty")} => $b)"
       case App(fn, arg, Icit.Expl) => s"($fn $arg)"
@@ -234,6 +223,8 @@ object Core:
     case Var(lvl: Lvl)
     case Prim(prim: Primitive)
 
+  type UnfoldHead = Nothing
+
   enum Spine:
     case Empty
     case App(sp: Spine, arg: Val1, icit: Icit)
@@ -266,6 +257,7 @@ object Core:
   enum Val1:
     case Rigid(head: Head, spine: Spine)
     case Flex(id: MetaId, spine: Spine)
+    case Unfold(head: UnfoldHead, spine: Spine, value: () => Val1)
 
     case Pi(name: Bind, icit: Icit, ty: VTy, body: Clos1)
     case Lam(name: Bind, icit: Icit, ty: VTy, body: Clos1)
@@ -286,3 +278,9 @@ object Core:
       def unapply(value: Val1): Option[Lvl] = value match
         case Rigid(Head.Var(hd), Spine.Empty) => Some(hd)
         case _                                => None
+
+    object Prim:
+      def apply(prim: Primitive): Val1 = Rigid(Head.Prim(prim), Spine.Empty)
+      def unapply(value: Val1): Option[Primitive] = value match
+        case Rigid(Head.Prim(hd), Spine.Empty) => Some(hd)
+        case _                                 => None
