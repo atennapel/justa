@@ -4,11 +4,11 @@ import Core.*
 import scala.collection.mutable.ArrayBuffer
 
 object State:
+  // metas
   enum MetaEntry:
     case Unsolved(ty: VTy)
     case Solved(value: Val1, ty: VTy)
 
-  // metas
   private val metas: ArrayBuffer[MetaEntry] = ArrayBuffer.empty
   private var frozen: MetaId = metaId(0)
 
@@ -55,3 +55,33 @@ object State:
     frozen = metaId(metas.size)
 
   def isMetaFrozen(id: MetaId): Boolean = id.expose < frozen.expose
+
+  // globals
+  enum GlobalEntry:
+    case Def0(
+        x: Name,
+        tm: Tm0,
+        ty: Ty,
+        cv: VTy,
+        value: Val0,
+        vty: VTy,
+        vcv: VTy
+    )
+    case Def1(
+        x: Name,
+        tm: Tm1,
+        ty: Ty,
+        value: Val1,
+        vty: VTy
+    )
+    def name: Name = this match
+      case Def0(x, _, _, _, _, _, _) => x
+      case Def1(x, _, _, _, _)       => x
+
+  private val globals: ArrayBuffer[GlobalEntry] = ArrayBuffer.empty
+
+  def setGlobal(entry: GlobalEntry): Unit = globals += entry
+  def getGlobal(x: Name): Option[GlobalEntry] =
+    globals.findLast(e => e.name == x)
+
+  def allGlobals: List[GlobalEntry] = globals.toList

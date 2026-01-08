@@ -5,6 +5,7 @@ import scala.annotation.tailrec
 object Core:
   enum Tm0:
     case Var(ix: Ix)
+    case Global(name: Name)
     case Let(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case LetRec(name: Name, ty: Ty, value: Tm0, body: Tm0)
 
@@ -33,6 +34,7 @@ object Core:
 
     override def toString: String = this match
       case Var(ix)             => s"'$ix"
+      case Global(x)           => x.toString
       case Let(x, ty, v, b)    => s"(let $x : $ty := $v; $b)"
       case LetRec(x, ty, v, b) => s"(let rec $x : $ty := $v; $b)"
       case Lam(x, ty, b)       => s"(\\($x : $ty) => $b)"
@@ -104,6 +106,7 @@ object Core:
   type Ty = Tm1
   enum Tm1:
     case Var(ix: Ix)
+    case Global(name: Name)
     case Prim(prim: Primitive)
     case Let(name: Name, ty: Ty, value: Tm1, body: Tm1)
 
@@ -144,6 +147,7 @@ object Core:
 
     override def toString: String = this match
       case Var(ix)                 => s"'$ix"
+      case Global(x)               => x.toString
       case Prim(p)                 => p.toString
       case Let(x, ty, v, b)        => s"(let $x : $ty = $v; $b)"
       case Pi(x, i, ty, b)         => s"(${i.wrap(s"$x : $ty")} -> $b)"
@@ -213,6 +217,7 @@ object Core:
 
   enum Val0:
     case Var(lvl: Lvl)
+    case Global(name: Name)
     case Let(name: Name, ty: VTy, value: Val0, body: Clos0)
     case LetRec(name: Name, ty: VTy, value: Clos0, body: Clos0)
     case Lam(name: Bind, ty: VTy, body: Clos0)
@@ -223,7 +228,8 @@ object Core:
     case Var(lvl: Lvl)
     case Prim(prim: Primitive)
 
-  type UnfoldHead = Nothing
+  enum UnfoldHead:
+    case Global(name: Name)
 
   enum Spine:
     case Empty
@@ -284,3 +290,17 @@ object Core:
       def unapply(value: Val1): Option[Primitive] = value match
         case Rigid(Head.Prim(hd), Spine.Empty) => Some(hd)
         case _                                 => None
+
+    // helpers
+    private inline def bind(x: String): Bind =
+      if x == "_" then Bind.DontBind else Bind.DoBind(Name(x))
+    def lam1(x: String, ty: VTy, b: Val1 => Val1): Val1 =
+      Val1.Lam(bind(x), Icit.Expl, ty, Clos1.Fun(b))
+    def lamI(x: String, ty: VTy, b: Val1 => Val1): Val1 =
+      Val1.Lam(bind(x), Icit.Impl, ty, Clos1.Fun(b))
+    def fun1(ty: VTy, rt: VTy): Val1 =
+      Val1.Pi(Bind.DontBind, Icit.Expl, ty, Clos1.Fun(_ => rt))
+    def pi(x: String, ty: VTy, b: Val1 => Val1): Val1 =
+      Val1.Pi(bind(x), Icit.Expl, ty, Clos1.Fun(b))
+    def piI(x: String, ty: VTy, b: Val1 => Val1): Val1 =
+      Val1.Pi(bind(x), Icit.Impl, ty, Clos1.Fun(b))
