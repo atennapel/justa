@@ -104,24 +104,28 @@ final case class Ctx(
       pos
     )
 
-  inline def readback1(v: Val1)(using
+  inline def readback1(
+      v: Val1,
       unfoldOption: UnfoldOption = UnfoldOption.None
   ): Tm1 =
     Evaluation.readback1(v)(using lvl, unfoldOption)
-  inline def readback0(v: Val0)(using
+  inline def readback0(
+      v: Val0,
       unfoldOption: UnfoldOption = UnfoldOption.None
   ): Tm0 =
     Evaluation.readback0(v)(using lvl, unfoldOption)
   inline def eval1(t: Tm1): Val1 = Evaluation.eval1(t)(using env)
   inline def eval0(t: Tm0): Val0 = Evaluation.eval0(t)(using env)
 
-  inline def pretty1(v: Val1)(using
+  inline def pretty1(
+      v: Val1,
       unfoldOption: UnfoldOption = UnfoldOption.Metas
   ): String =
     Pretty.pretty1(Evaluation.readback1(v)(using lvl, unfoldOption))(using
       binds
     )
-  inline def pretty0(v: Val0)(using
+  inline def pretty0(
+      v: Val0,
       unfoldOption: UnfoldOption = UnfoldOption.Metas
   ): String =
     Pretty.pretty0(Evaluation.readback0(v)(using lvl, unfoldOption))(using

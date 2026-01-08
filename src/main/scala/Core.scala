@@ -168,6 +168,11 @@ object Core:
       case MetaApp1(f, a)          => s"($f 1 $a)"
       case AppPruning(id, p)       => s"(?$id ...(${p.size}))"
 
+  object Tm1:
+    val CV = Prim(Primitive.CV)
+    val Val = Prim(Primitive.Val)
+    val Comp = Prim(Primitive.Comp)
+
   enum Locals:
     case Empty
     case Def(locs: Locals, ty: Ty, value: Tm1)
@@ -290,6 +295,22 @@ object Core:
       def unapply(value: Val1): Option[Primitive] = value match
         case Rigid(Head.Prim(hd), Spine.Empty) => Some(hd)
         case _                                 => None
+
+    object Type:
+      def apply(cv: Val1): Val1 =
+        Rigid(Head.Prim(Primitive.Type), Spine.App(Spine.Empty, cv, Icit.Expl))
+      def unapply(value: Val1): Option[Val1] = value match
+        case Rigid(
+              Head.Prim(Primitive.Type),
+              Spine.App(Spine.Empty, cv, Icit.Expl)
+            ) =>
+          Some(cv)
+        case _ => None
+
+    val Meta = Prim(Primitive.Meta)
+    val CV = Prim(Primitive.CV)
+    val Val = Prim(Primitive.Val)
+    val Comp = Prim(Primitive.Comp)
 
     // helpers
     private inline def bind(x: String): Bind =
