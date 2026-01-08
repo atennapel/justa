@@ -6,6 +6,7 @@ object Core:
   enum Tm0:
     case Var(ix: Ix)
     case Global(name: Name)
+    case IntLit(value: Int)
     case Let(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case LetRec(name: Name, ty: Ty, value: Tm0, body: Tm0)
 
@@ -13,6 +14,8 @@ object Core:
     case App(fn: Tm0, arg: Tm0)
 
     case Splice(tm: Tm1)
+
+    case If(rty: Ty, cond: Tm0, ifTrue: Tm0, ifFalse: Tm0)
 
     case Wk1(tm: Tm0)
     case Wk0(tm: Tm0)
@@ -34,12 +37,14 @@ object Core:
 
     override def toString: String = this match
       case Var(ix)             => s"'$ix"
-      case Global(x)           => x.toString
+      case Global(x)           => s"$x"
+      case IntLit(v)           => s"$v"
       case Let(x, ty, v, b)    => s"(let $x : $ty := $v; $b)"
       case LetRec(x, ty, v, b) => s"(let rec $x : $ty := $v; $b)"
       case Lam(x, ty, b)       => s"(\\($x : $ty) => $b)"
       case App(fn, arg)        => s"($fn $arg)"
       case Splice(tm)          => s"$$$tm"
+      case If(_, c, t, f)      => s"(if $c then $t else $f)"
       case Wk1(tm)             => s"Wk10($tm)"
       case Wk0(tm)             => s"Wk00($tm)"
 
@@ -163,10 +168,12 @@ object Core:
   enum Val0:
     case Var(lvl: Lvl)
     case Global(name: Name)
+    case IntLit(value: Int)
     case Let(name: Name, ty: VTy, value: Val0, body: Clos0)
     case LetRec(name: Name, ty: VTy, value: Clos0, body: Clos0)
     case Lam(name: Bind, ty: VTy, body: Clos0)
     case App(fn: Val0, arg: Val0)
+    case If(rty: VTy, cond: Val0, ifTrue: Val0, ifFalse: Val0)
     case Splice(tm: Val1)
 
   enum Head:
@@ -251,6 +258,11 @@ object Core:
     val CV = Prim(Primitive.CV)
     val Val = Prim(Primitive.Val)
     val Comp = Prim(Primitive.Comp)
+    val Bool = Prim(Primitive.Bool)
+    val Int = Prim(Primitive.Int)
+
+    val TypeV = Type(Val)
+    val TypeC = Type(Comp)
 
     // helpers
     private inline def bind(x: String): Bind =

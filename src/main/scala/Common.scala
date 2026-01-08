@@ -4,7 +4,11 @@ object Common:
   inline def impossible(): Nothing =
     throw new RuntimeException("impossible")
 
-  type PosInfo = (Int, Int) // (line, col)
+  final case class PosInfo(line: Int, column: Int): // 1-based
+    override def toString: String = s"$line:$column"
+    def subCol(n: Int): PosInfo = PosInfo(line, column - n)
+  object PosInfo:
+    def start: PosInfo = PosInfo(1, 1)
 
   // debruijn indeces
   opaque type Ix = Int
@@ -100,10 +104,26 @@ object Common:
     case CV
     case Comp
     case Val
+    case Bool
+    case True
+    case False
+    case Int
+    case Lt
+    case Add
+    case Sub
+    case Mul
 
     override def toString: String = this match
-      case Meta => "meta"
-      case Type => "type"
-      case CV   => "cv"
-      case Comp => "comp"
-      case Val  => "val"
+      case Meta  => "meta"
+      case Type  => "type"
+      case CV    => "cv"
+      case Comp  => "comp"
+      case Val   => "val"
+      case Bool  => "bool"
+      case True  => "true"
+      case False => "false"
+      case Int   => "int"
+      case Lt    => "lt"
+      case Add   => "add"
+      case Sub   => "sub"
+      case Mul   => "mul"

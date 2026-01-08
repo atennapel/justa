@@ -263,10 +263,12 @@ object Unification:
           case Some(PS1(_)) => impossible()
           case Some(PS0(v)) => readback0(v)(using psub.dom, UnfoldOption.None)
       case V0.Global(x)           => T0.Global(x)
+      case V0.IntLit(v)           => T0.IntLit(v)
       case V0.Let(x, ty, v, b)    => T0.Let(x, go1(ty), go0(v), goClos(b))
       case V0.LetRec(x, ty, v, b) => T0.LetRec(x, go1(ty), goClos(v), goClos(b))
       case V0.Lam(x, ty, b)       => T0.Lam(x, go1(ty), goClos(b))
       case V0.App(f, a)           => T0.App(go0(f), go0(a))
+      case V0.If(ty, c, t, f)     => T0.If(go1(ty), go0(c), go0(t), go0(f))
       case V0.Splice(v)           => go1(v).splice
 
   private def psubstSpine(h: T1, sp: Spine)(using psub: PSub): T1 =
@@ -330,7 +332,9 @@ object Unification:
       unify0(a(V0.Var(lvl)), b(V0.Var(lvl)))(using lvl + 1)
     debug(s"unify0 ${readback0m(a)} ~ ${readback0m(b)}")
     (forceMetas0(a), forceMetas0(b)) match
-      case (V0.Var(x), V0.Var(y)) if x == y => ()
+      case (V0.Var(x), V0.Var(y)) if x == y       => ()
+      case (V0.Global(x), V0.Global(y)) if x == y => ()
+      case (V0.IntLit(x), V0.IntLit(y)) if x == y => ()
       case (V0.Let(_, ty1, v1, b1), V0.Let(_, ty2, v2, b2)) =>
         unify1(ty1, ty2); unify0(v1, v2); goClos(b1, b2)
       case (V0.LetRec(_, ty1, v1, b1), V0.LetRec(_, ty2, v2, b2)) =>
@@ -338,6 +342,8 @@ object Unification:
       case (V0.Splice(v1), V0.Splice(v2))       => unify1(v1, v2)
       case (V0.Lam(_, _, b1), V0.Lam(_, _, b2)) => goClos(b1, b2)
       case (V0.App(f1, a1), V0.App(f2, a2)) => unify0(f1, f2); unify0(a1, a2)
+      case (V0.If(ty1, c1, t1, f1), V0.If(ty2, c2, t2, f2)) =>
+        unify1(ty1, ty2); unify0(c1, c2); unify0(t1, t2); unify0(f1, f2)
       case _ => err(s"cannot unify ${readback0n(a)} ~ ${readback0n(b)}")
 
   private def flexFlex(m1: MetaId, sp1: Spine, m2: MetaId, sp2: Spine)(using

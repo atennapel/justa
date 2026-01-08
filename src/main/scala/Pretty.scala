@@ -62,6 +62,7 @@ object Pretty:
     tm match
       case T0.Var(_)           => pretty0(tm)
       case T0.Global(_)        => pretty0(tm)
+      case T0.IntLit(_)        => pretty0(tm)
       case T0.Splice(_)        => pretty0(tm)
       case T0.App(_, _) if app => pretty0(tm)
       case T0.Wk0(tm)          => prettyParen0(tm, app)(using ns.tail)
@@ -105,6 +106,7 @@ object Pretty:
           s"$x@${ns.size - ix.expose - 1}"
         case DoBind(x) => s"$x"
     case T0.Global(x) => s"$x"
+    case T0.IntLit(v) => s"$v"
     case T0.Let(x, t, v, b) =>
       s"let $x : ${pretty1(t)} := ${pretty0(v)}; ${prettyLift0(x.toBind, b)}"
     case T0.LetRec(x, t, v, b) =>
@@ -112,6 +114,9 @@ object Pretty:
 
     case T0.Lam(_, _, _) => prettyLam0(tm)
     case T0.App(_, _)    => prettyApp0(tm)
+
+    case T0.If(_, c, t, f) =>
+      s"if ${pretty0(c)} then ${pretty0(t)} else ${pretty0(f)}"
 
     case T0.Splice(t) => s"$$${prettyParen1(t)}"
 

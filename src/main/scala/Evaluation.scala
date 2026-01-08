@@ -101,14 +101,16 @@ object Evaluation:
   def eval0(t: T0)(using env: Env): V0 = t match
     case T0.Var(ix)          => var0(ix)
     case T0.Global(x)        => V0.Global(x)
+    case T0.IntLit(v)        => V0.IntLit(v)
     case T0.Let(x, ty, v, b) => V0.Let(x, eval1(ty), eval0(v), Clos0(b))
     case T0.LetRec(x, ty, v, b) =>
       V0.LetRec(x, eval1(ty), Clos0(v), Clos0(b))
-    case T0.Lam(x, ty, b) => V0.Lam(x, eval1(ty), Clos0(b))
-    case T0.App(f, a)     => V0.App(eval0(f), eval0(a))
-    case T0.Splice(tm)    => vsplice(eval1(tm))
-    case T0.Wk1(tm)       => eval0(t)(using env.wk1)
-    case T0.Wk0(tm)       => eval0(t)(using env.wk0)
+    case T0.Lam(x, ty, b)   => V0.Lam(x, eval1(ty), Clos0(b))
+    case T0.App(f, a)       => V0.App(eval0(f), eval0(a))
+    case T0.Splice(tm)      => vsplice(eval1(tm))
+    case T0.If(ty, c, t, f) => V0.If(eval1(ty), eval0(c), eval0(t), eval0(f))
+    case T0.Wk1(t)          => eval0(t)(using env.wk1)
+    case T0.Wk0(t)          => eval0(t)(using env.wk0)
 
   def eval1(t: T1)(using env: Env): V1 = t match
     case T1.Var(ix)          => var1(ix)
@@ -124,8 +126,8 @@ object Evaluation:
     case T1.Wk0(tm)          => eval1(tm)(using env.wk0)
     case T1.Wk1(tm)          => eval1(tm)(using env.wk1)
     case T1.Meta(id)         => vmeta(id)
-    case T1.MetaPi1(ty, b)   => V1.MetaPi1(eval1(t), Clos1(b))
-    case T1.MetaPi0(ty, b)   => V1.MetaPi0(eval1(t), Clos1(b))
+    case T1.MetaPi1(t, b)    => V1.MetaPi1(eval1(t), Clos1(b))
+    case T1.MetaPi0(t, b)    => V1.MetaPi0(eval1(t), Clos1(b))
     case T1.MetaLam1(b)      => V1.MetaLam1(Clos1(b))
     case T1.MetaLam0(b)      => V1.MetaLam0(Clos1(b))
     case T1.MetaApp1(f, a)   => vmetaapp1(eval1(f), eval1(a))
@@ -248,12 +250,14 @@ object Evaluation:
     force(v) match
       case V0.Var(x)           => T0.Var(x.toIx)
       case V0.Global(x)        => T0.Global(x)
+      case V0.IntLit(v)        => T0.IntLit(v)
       case V0.Let(x, ty, v, b) => T0.Let(x, go1(ty), go0(v), goClos(b))
       case V0.LetRec(x, ty, v, b) =>
         T0.LetRec(x, go1(ty), goClos(v), goClos(b))
-      case V0.Lam(x, ty, b) => T0.Lam(x, go1(ty), goClos(b))
-      case V0.App(f, a)     => T0.App(go0(f), go0(a))
-      case V0.Splice(tm)    => go1(tm).splice
+      case V0.Lam(x, ty, b)   => T0.Lam(x, go1(ty), goClos(b))
+      case V0.App(f, a)       => T0.App(go0(f), go0(a))
+      case V0.If(ty, c, t, f) => T0.If(go1(ty), go0(c), go0(t), go0(f))
+      case V0.Splice(tm)      => go1(tm).splice
 
   // helpers
   inline def readback1m(v: V1)(using lvl: Lvl): T1 =

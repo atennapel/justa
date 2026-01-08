@@ -22,51 +22,65 @@ object Surface:
 
   type Ty = Tm
   enum Tm:
-    case Var(name: Name)
-    case Prim(prim: Primitive)
-    case Let0(name: Name, ty: Option[Ty], value: Tm, body: Tm)
-    case Let1(name: Name, ty: Option[Ty], value: Tm, body: Tm)
-    case LetRec(name: Name, ty: Option[Ty], value: Tm, body: Tm)
+    case Var(_pos: PosInfo, name: Name)
+    case Prim(_pos: PosInfo, prim: Primitive)
+    case IntLit(_pos: PosInfo, value: Int)
+    case Let0(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
+    case Let1(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
+    case LetRec(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
 
-    case Pi(name: Bind, icit: Icit, ty: Ty, body: Ty)
-    case Lam(name: Bind, info: ArgInfo, ty: Option[Ty], body: Tm)
-    case App(fn: Tm, arg: Tm, info: ArgInfo)
+    case Pi(_pos: PosInfo, name: Bind, icit: Icit, ty: Ty, body: Ty)
+    case Lam(_pos: PosInfo, name: Bind, info: ArgInfo, ty: Option[Ty], body: Tm)
+    case App(_pos: PosInfo, fn: Tm, arg: Tm, info: ArgInfo)
 
-    case Lift(ty: Ty)
-    case Quote(tm: Tm)
-    case Splice(tm: Tm)
+    case Lift(_pos: PosInfo, ty: Ty)
+    case Quote(_pos: PosInfo, tm: Tm)
+    case Splice(_pos: PosInfo, tm: Tm)
 
-    case Hole(name: Option[Name])
+    case If(_pos: PosInfo, cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
-    // TODO: move pos into constructors
-    case Pos(pos: PosInfo, tm: Tm)
+    case Hole(_pos: PosInfo, name: Option[Name])
 
-    def isPos: Boolean = this match
-      case Pos(_, _) => true
-      case _         => false
+    def pos: PosInfo = this match
+      case Var(_pos, _)             => _pos
+      case Prim(_pos, _)            => _pos
+      case IntLit(_pos, _)          => _pos
+      case Let0(_pos, _, _, _, _)   => _pos
+      case Let1(_pos, _, _, _, _)   => _pos
+      case LetRec(_pos, _, _, _, _) => _pos
+      case Pi(_pos, _, _, _, _)     => _pos
+      case Lam(_pos, _, _, _, _)    => _pos
+      case App(_pos, _, _, _)       => _pos
+      case Lift(_pos, _)            => _pos
+      case Quote(_pos, _)           => _pos
+      case Splice(_pos, _)          => _pos
+      case If(_pos, _, _, _)        => _pos
+      case Hole(_pos, _)            => _pos
 
     override def toString: String = this match
-      case Var(x)  => s"$x"
-      case Prim(p) => s"$p"
-      case Let0(x, ty, v, b) =>
+      case Var(_, x)    => s"$x"
+      case Prim(_, p)   => s"$p"
+      case IntLit(_, v) => s"$v"
+      case Let0(_, x, ty, v, b) =>
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
-      case Let1(x, ty, v, b) =>
+      case Let1(_, x, ty, v, b) =>
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} = $v; $b)"
-      case LetRec(x, ty, v, b) =>
+      case LetRec(_, x, ty, v, b) =>
         s"(let rec $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
-      case Pi(Bind.DontBind, Expl, ty, b) => s"($ty -> $b)"
-      case Pi(x, i, ty, b)                => s"(${i.wrap(s"$x : $ty")} -> $b)"
-      case Lam(x, ArgInfo.Icit(Expl), None, b) => s"(\\$x => $b)"
-      case Lam(x, ArgInfo.Icit(i), ty, b) =>
+      case Pi(_, Bind.DontBind, Expl, ty, b) => s"($ty -> $b)"
+      case Pi(_, x, i, ty, b) => s"(${i.wrap(s"$x : $ty")} -> $b)"
+      case Lam(_, x, ArgInfo.Icit(Expl), None, b) => s"(\\$x => $b)"
+      case Lam(_, x, ArgInfo.Icit(i), ty, b) =>
         s"(\\${i.wrap(s"$x${ty.map(t => s" : $t").getOrElse("")}")} => $b)"
-      case Lam(x, ArgInfo.Named(y), ty, b) =>
+      case Lam(_, x, ArgInfo.Named(y), ty, b) =>
         s"(\\${Impl.wrap(s"$x${ty.map(t => s" : $t").getOrElse("")} = $y")} => $b)"
-      case App(fn, arg, ArgInfo.Icit(Expl)) => s"($fn $arg)"
-      case App(fn, arg, ArgInfo.Icit(Impl)) => s"($fn ${Impl.wrap(arg)})"
-      case App(fn, arg, ArgInfo.Named(x)) => s"($fn ${Impl.wrap(s"$x = $arg")})"
-      case Lift(ty)                       => s"^$ty"
-      case Quote(tm)                      => s"`$tm"
-      case Splice(tm)                     => s"$$$tm"
-      case Hole(None)                     => s"_"
-      case Hole(Some(x))                  => s"_$x"
-      case Pos(_, tm)                     => s"$tm"
+      case App(_, fn, arg, ArgInfo.Icit(Expl)) => s"($fn $arg)"
+      case App(_, fn, arg, ArgInfo.Icit(Impl)) => s"($fn ${Impl.wrap(arg)})"
+      case App(_, fn, arg, ArgInfo.Named(x)) =>
+        s"($fn ${Impl.wrap(s"$x = $arg")})"
+      case Lift(_, ty)      => s"^$ty"
+      case Quote(_, tm)     => s"`$tm"
+      case Splice(_, tm)    => s"$$$tm"
+      case If(_, c, t, f)   => s"(if $c then $t else $f)"
+      case Hole(_, None)    => s"_"
+      case Hole(_, Some(x)) => s"_$x"
