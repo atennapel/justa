@@ -100,56 +100,10 @@ object Common:
     case CV
     case Comp
     case Val
-    case Kind
-    case Prim
-    case Ref
-    case Nullability
-    case NonNullable
-    case Nullable
-    case Rep
-    case RepBoolean
-    case RepByte
-    case RepShort
-    case RepInt
-    case RepLong
-    case RepFloat
-    case RepDouble
-    case RepChar
-    case Boolean
-    case Byte
-    case Short
-    case Int
-    case Long
-    case Float
-    case Double
-    case Char
 
     override def toString: String = this match
-      case Meta        => "meta"
-      case Type        => "type"
-      case CV          => "cv"
-      case Comp        => "comp"
-      case Val         => "val"
-      case Kind        => "kind"
-      case Prim        => "prim"
-      case Ref         => "ref"
-      case Nullability => "nullability"
-      case NonNullable => "nonnullable"
-      case Nullable    => "nullable"
-      case Rep         => "rep"
-      case RepBoolean  => "repboolean"
-      case RepByte     => "repbyte"
-      case RepShort    => "repshort"
-      case RepInt      => "repint"
-      case RepLong     => "replong"
-      case RepFloat    => "repfloat"
-      case RepDouble   => "repdouble"
-      case RepChar     => "repchar"
-      case Boolean     => "bool"
-      case Byte        => "byte"
-      case Short       => "short"
-      case Int         => "int"
-      case Long        => "long"
-      case Float       => "float"
-      case Double      => "double"
-      case Char        => "char"
+      case Meta => "meta"
+      case Type => "type"
+      case CV   => "cv"
+      case Comp => "comp"
+      case Val  => "val"

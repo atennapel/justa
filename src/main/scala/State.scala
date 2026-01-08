@@ -62,7 +62,7 @@ object State:
         x: Name,
         tm: Tm0,
         ty: Ty,
-        cv: VTy,
+        cv: Ty,
         value: Val0,
         vty: VTy,
         vcv: VTy

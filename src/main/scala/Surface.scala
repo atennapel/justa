@@ -38,6 +38,7 @@ object Surface:
 
     case Hole(name: Option[Name])
 
+    // TODO: move pos into constructors
     case Pos(pos: PosInfo, tm: Tm)
 
     def isPos: Boolean = this match

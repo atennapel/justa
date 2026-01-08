@@ -3,13 +3,17 @@ import Common.Icit.*
 import Common.Bind.*
 import Core.{VTy, Ty, Clos1, Locals, Env, Val1 as V, Tm1 as T1, Tm0 as T0}
 import Evaluation.*
-import Surface as S
+import Surface.Tm as S
+import Surface.ArgInfo
+import Ctx.NameInfo
+import State.GlobalEntry
 import Debug.debug
 
 import scala.annotation.tailrec
 
 object Elaboration:
-  final class ElaborateError(pos: PosInfo, msg: String) extends Exception(msg)
+  final class ElaborateError(val pos: PosInfo, msg: String)
+      extends Exception(msg)
 
   private inline def err(msg: String)(using ctx: Ctx): Nothing =
     throw new ElaborateError(ctx.pos, msg)
@@ -20,7 +24,7 @@ object Elaboration:
   import Infer.*
 
   // unification
-  private def unify(a: VTy, b: VTy)(implicit ctx: Ctx): Unit =
+  private def unify(a: VTy, b: VTy)(using ctx: Ctx): Unit =
     debug(s"unify ${ctx.pretty1(a)} ~ ${ctx.pretty1(b)}")
     try Unification.unify1(a, b)(using ctx.lvl)
     catch
@@ -197,7 +201,7 @@ object Elaboration:
     go(t, a1, a2).getOrElse(t)
 
   // helpers
-  private def tyAnnot(ma: Option[S.Tm], ty: VTy)(using ctx: Ctx): Ty =
+  private def tyAnnot(ma: Option[S], ty: VTy)(using ctx: Ctx): Ty =
     ma.fold(freshMeta(ty))(a => check1(a, ty))
 
   private def ensureFun(a: VTy, acv: VTy)(using ctx: Ctx): (VTy, VTy, VTy) =
@@ -229,7 +233,7 @@ object Elaboration:
         unify(t, V.Lift(cv, ty))
         (cv, ty)
 
-  private def apply1(a: VTy, i: Icit, t: T1, u: S.Tm)(using ctx: Ctx): Infer =
+  private def apply1(a: VTy, i: Icit, t: T1, u: S)(using ctx: Ctx): Infer =
     debug(s"apply1 ${ctx.pretty1(a)} $i @ $u")
     forceAll1(a) match
       case V.Pi(x, i2, a, b) =>
@@ -253,19 +257,374 @@ object Elaboration:
   private def coeQuote(t: T1, a1: VTy, a2: VTy, cv: VTy)(using ctx: Ctx): T0 =
     coe(t, a1, V.Lift(cv, a2)).splice
 
-  // checking
-  private def check0(tm: S.Tm, ty: VTy, cv: VTy)(using ctx: Ctx): T0 = ???
+  private def icitMatch(i: ArgInfo, x: Bind, i2: Icit): Boolean = i match
+    case ArgInfo.Named(y) =>
+      x match
+        case DontBind  => false
+        case DoBind(x) => x == y
+    case ArgInfo.Icit(i) => i == i2
 
-  private def check1(tm: S.Tm, ty: VTy)(using ctx: Ctx): T1 = ???
+  private def varHasUnknownType1(x: Name)(using ctx: Ctx): Boolean =
+    ctx.lookup(x) match
+      case Some(NameInfo.Name1(_, ty)) =>
+        forceAll1(ty) match
+          case V.Flex(_, _) => true
+          case _            => false
+      case _ => false
+
+  // checking
+  private def check0(tm: S, ty: VTy, cv: VTy)(using ctx: Ctx): T0 =
+    if !tm.isPos then
+      debug(s"check0 $tm : ${ctx.pretty1(ty)} : ${ctx.pretty1(cv)}")
+    tm match
+      case S.Pos(pos, tm) => check0(tm, ty, cv)(using ctx.enter(pos))
+
+      case S.Lam(x, i, ma, b) =>
+        if i != ArgInfo.Icit(Expl) then err(s"implicit lambda in Ty")
+        val (t1, fcv, t2) = ensureFun(ty, cv)
+        ma.foreach { sty => unify(ctx.eval1(check1(sty, V.Type(V.Val))), t1) }
+        val qt1 = ctx.readback1(t1)
+        T0.Lam(
+          x,
+          qt1,
+          check0(b, t2, fcv)(using ctx.bind0(x, qt1, t1, T1.Val, V.Val))
+        )
+
+      case S.LetRec(x, ma, v, b) =>
+        val (ety, cv2, vcv2) = (tyAnnot(ma, V.Type(V.Comp)), T1.Comp, V.Comp)
+        val vty = ctx.eval1(ety)
+        ensureFun(vty, vcv2)
+        val nctx = ctx.bind0(DoBind(x), ety, vty, cv2, vcv2)
+        val ev = check0(v, vty, vcv2)(using nctx)
+        val eb = check0(b, ty, cv)(using nctx)
+        T0.LetRec(x, ety, ev, eb)
+
+      case S.Let0(x, ma, v, b) =>
+        val (ety, cv2, vcv2) =
+          val cv2 = freshCV()
+          val vcv2 = ctx.eval1(cv2)
+          val ety = tyAnnot(ma, V.Type(vcv2))
+          (ety, cv2, vcv2)
+        val vty = ctx.eval1(ety)
+        val nctx = ctx.bind0(DoBind(x), ety, vty, cv2, vcv2)
+        val ev = check0(v, vty, vcv2)(using ctx)
+        val eb = check0(b, ty, cv)(using nctx)
+        T0.Let(x, ety, ev, eb)
+
+      case S.Hole(_) => freshMeta(V.Lift(cv, ty)).splice
+
+      case S.Splice(t) => check1(t, V.Lift(cv, ty)).splice
+
+      case tm =>
+        infer(tm) match
+          case Infer0(etm, vty, vcv) =>
+            unify(vcv, cv)
+            unify(vty, ty)
+            etm
+          case Infer1(etm, vty) =>
+            val (etm2, vty2) = insert((etm, vty))
+            coeQuote(etm2, vty2, ty, cv)
+
+  private def check1(tm: S, ty: VTy)(using ctx: Ctx): T1 =
+    if !tm.isPos then debug(s"check1 $tm : ${ctx.pretty1(ty)}")
+    (tm, forceAll1(ty)) match
+      case (S.Pos(pos, tm), _) => check1(tm, ty)(using ctx.enter(pos))
+
+      case (S.Lam(x, i, ma, b), V.Pi(x2, i2, t1, t2)) if icitMatch(i, x2, i2) =>
+        ma.foreach { sty => unify(ctx.eval1(check1(sty, V.Meta)), t1) }
+        val qt1 = ctx.readback1(t1)
+        T1.Lam(
+          x,
+          i2,
+          qt1,
+          check1(b, t2(V.Var(ctx.lvl)))(using ctx.bind1(x, qt1, t1))
+        )
+
+      case (S.Var(x), V.Pi(_, Impl, _, _)) if varHasUnknownType1(x) =>
+        val Some(NameInfo.Name1(lvl, ty2)) = ctx.lookup(x): @unchecked
+        unify(ty2, ty)
+        T1.Var(lvl.toIx(using ctx.lvl))
+
+      case (tm, V.Pi(x, Impl, t1, t2)) =>
+        val qt1 = ctx.readback1(t1)
+        T1.Lam(
+          x,
+          Impl,
+          qt1,
+          check1(tm, t2(V.Var(ctx.lvl)))(using ctx.insert1(x, qt1))
+        )
+
+      case (S.Pi(DontBind, Expl, t1, t2), V.Type(cv)) =>
+        unify(cv, V.Comp)
+        val et1 = check1(t1, V.Type(V.Val))
+        val fcv = freshCV()
+        val vfcv = ctx.eval1(fcv)
+        val et2 = check1(t2, V.Type(vfcv))
+        T1.Fun(et1, fcv, et2)
+      case (S.Pi(x, i, t1, t2), V.Meta) =>
+        val et1 = check1(t1, V.Meta)
+        val et2 = check1(t2, V.Meta)(using ctx.bind1(x, et1, ctx.eval1(et1)))
+        T1.Pi(x, i, et1, et2)
+
+      case (S.Lift(tm), V.Meta) =>
+        val cv = freshCV()
+        T1.Lift(cv, check1(tm, V.Type(ctx.eval1(cv))))
+
+      case (S.Let1(x, mlty, v, b), _) =>
+        val lty = tyAnnot(mlty, V.Meta)
+        val vlty = ctx.eval1(lty)
+        val ev = check1(v, vlty)
+        val eb =
+          check1(b, ty)(using ctx.define(x, lty, vlty, ev, ctx.eval1(ev)))
+        T1.Let(x, lty, ev, eb)
+
+      case (S.Quote(tm), V.Lift(cv, ty)) => check0(tm, ty, cv).quote
+      case (tm, V.Lift(cv, ty))          => check0(tm, ty, cv).quote
+
+      case (S.Hole(_), _) => freshMeta(ty)
+
+      case (tm, _) =>
+        val (etm, vty) = insert(infer1(tm))
+        coe(etm, vty, ty)
 
   // inference
-  private def infer0(tm: S.Tm)(using ctx: Ctx): (T0, VTy, VTy) = ???
+  private def infer0(tm: S)(using ctx: Ctx): (T0, VTy, VTy) =
+    if !tm.isPos then debug(s"infer0 $tm")
+    tm match
+      case S.Pos(pos, tm) => infer0(tm)(using ctx.enter(pos))
 
-  private def infer1(tm: S.Tm)(using ctx: Ctx): (T1, VTy) = ???
+      case S.Lam(x, i, mty, b) =>
+        i match
+          case ArgInfo.Named(_)   => err(s"implicit lambda in type")
+          case ArgInfo.Icit(Impl) => err(s"implicit lambda in type")
+          case ArgInfo.Icit(Expl) =>
+            val acv = T1.Val
+            val avcv = ctx.eval1(acv)
+            val ety = tyAnnot(mty, V.Type(avcv))
+            val cv = freshCV()
+            val vcv = ctx.eval1(cv)
+            val rt = freshMeta(V.Type(vcv))
+            val vrt = ctx.eval1(rt)
+            val vty = ctx.eval1(ety)
+            val eb =
+              check0(b, vrt, vcv)(using ctx.bind0(x, ety, vty, acv, avcv))
+            (T0.Lam(x, ety, eb), V.Fun(vty, vcv, vrt), V.Comp)
 
-  private def infer(tm: S.Tm)(using ctx: Ctx): Infer = ???
+      case S.Hole(_) => err("cannot infer hole")
+
+      case tm =>
+        insert(infer(tm)) match
+          case Infer0(etm, ty, cv) => (etm, ty, cv)
+          case Infer1(etm, ty) =>
+            forceAll1(ty) match
+              case V.Lift(cv, vty) => (etm.splice, vty, cv)
+              case _ =>
+                val cv = freshCV()
+                val vcv = ctx.eval1(cv)
+                val vty = ctx.eval1(freshMeta(V.Type(vcv)))
+                val etm2 = coe(etm, ty, V.Lift(vcv, vty)).splice
+                (etm2, vty, vcv)
+
+  private def infer1(tm: S)(using ctx: Ctx): (T1, VTy) =
+    if !tm.isPos then debug(s"infer1 $tm")
+    tm match
+      case S.Pos(pos, tm) => infer1(tm)(using ctx.enter(pos))
+
+      case S.Lam(x, i, mty, b) =>
+        i match
+          case ArgInfo.Named(_) => err(s"cannot infer named lambda")
+          case ArgInfo.Icit(i) =>
+            val ety = tyAnnot(mty, V.Meta)
+            val vty = ctx.eval1(ety)
+            val ctx2 = ctx.bind1(x, ety, vty)
+            val (eb, vrt) = insert(infer1(b)(using ctx2))(using ctx2)
+            val ert = ctx2.readback1(vrt)
+            (T1.Lam(x, i, ety, eb), V.Pi(x, i, vty, Clos1.Clos(ctx.env, ert)))
+
+      case S.Hole(_) =>
+        val ty = ctx.eval1(freshMeta(V.Meta))
+        val tm = freshMeta(ty)
+        (tm, ty)
+
+      case tm =>
+        infer(tm) match
+          case Infer0(tm, ty, cv) => (tm.quote, V.Lift(cv, ty))
+          case Infer1(tm, ty)     => (tm, ty)
+
+  private val primTypes: Map[Primitive, VTy] = Map(
+    Primitive.Meta -> V.Meta,
+    Primitive.Type -> V.fun1(V.CV, V.Meta),
+    Primitive.CV -> V.Meta,
+    Primitive.Comp -> V.CV,
+    Primitive.Val -> V.CV
+  )
+
+  private inline def inferPrimType(p: Primitive): VTy = primTypes(p)
+
+  private def infer(tm: S)(using ctx: Ctx): Infer =
+    if !tm.isPos then debug(s"infer $tm")
+    tm match
+      case S.Pos(pos, tm) => infer(tm)(using ctx.enter(pos))
+
+      case S.Prim(p) => Infer1(T1.Prim(p), inferPrimType(p))
+
+      case S.Var(x) =>
+        ctx.lookup(x) match
+          case Some(NameInfo.Name0(x, ty, cv)) =>
+            Infer0(T0.Var(x.toIx(using ctx.lvl)), ty, cv)
+          case Some(NameInfo.Name1(x, ty)) =>
+            Infer1(T1.Var(x.toIx(using ctx.lvl)), ty)
+          case None =>
+            State.getGlobal(x) match
+              case None => err(s"undefined variable $x")
+              case Some(GlobalEntry.Def0(_, _, _, _, _, ty, cv)) =>
+                Infer0(T0.Global(x), ty, cv)
+              case Some(GlobalEntry.Def1(_, _, _, _, ty)) =>
+                Infer1(T1.Global(x), ty)
+
+      case S.LetRec(x, mty, v, b) =>
+        val (ety, cv2, vcv2) = (tyAnnot(mty, V.Type(V.Comp)), T1.Comp, V.Comp)
+        val vty = ctx.eval1(ety)
+        val nctx = ctx.bind0(DoBind(x), ety, vty, cv2, vcv2)
+        val ev = check0(v, vty, vcv2)(using nctx)
+        val (eb, rty, rcv) = infer0(b)(using nctx)
+        Infer0(T0.LetRec(x, ety, ev, eb), rty, rcv)
+
+      case S.Let0(x, mty, v, b) =>
+        val (ety, cv2, vcv2) =
+          val cv2 = freshCV()
+          val vcv2 = ctx.eval1(cv2)
+          val ety = tyAnnot(mty, V.Type(vcv2))
+          (ety, cv2, vcv2)
+        val vty = ctx.eval1(ety)
+        val nctx = ctx.bind0(DoBind(x), ety, vty, cv2, vcv2)
+        val ev = check0(v, vty, vcv2)(using ctx)
+        val (eb, rty, rcv) = infer0(b)(using nctx)
+        Infer0(T0.Let(x, ety, ev, eb), rty, rcv)
+
+      case S.Let1(x, mty, v, b) =>
+        val lty = tyAnnot(mty, V.Meta)
+        val vlty = ctx.eval1(lty)
+        val ev = check1(v, vlty)
+        val (eb, rty) =
+          infer1(b)(using ctx.define(x, lty, vlty, ev, ctx.eval1(ev)))
+        Infer1(T1.Let(x, lty, ev, eb), rty)
+
+      case S.Pi(DontBind, Expl, a, b) =>
+        val (ea, vta) = insert(infer1(a))
+        forceAll1(vta) match
+          case V.Type(cv) =>
+            unify(cv, V.Val)
+            val bcv = freshCV()
+            val vbcv = ctx.eval1(bcv)
+            val eb = check1(b, V.Type(vbcv))
+            Infer1(T1.Fun(ea, bcv, eb), V.Type(V.Comp))
+          case V.Meta =>
+            val eb =
+              check1(b, V.Meta)(using ctx.bind1(DontBind, ea, ctx.eval1(ea)))
+            Infer1(T1.Pi(DontBind, Expl, ea, eb), V.Meta)
+          case _ => err("expected type for Pi parameter")
+      case S.Pi(x, i, a, b) =>
+        val ea = check1(a, V.Meta)
+        val eb = check1(b, V.Meta)(using ctx.bind1(x, ea, ctx.eval1(ea)))
+        Infer1(T1.Pi(x, i, ea, eb), V.Meta)
+
+      case S.Lam(x, i, mty, b) =>
+        i match
+          case ArgInfo.Named(_)   => err("cannot infer")
+          case ArgInfo.Icit(Expl) => err("cannot infer")
+          case ArgInfo.Icit(Impl) =>
+            val ety = tyAnnot(mty, V.Meta)
+            val vty = ctx.eval1(ety)
+            val ctx2 = ctx.bind1(x, ety, vty)
+            val (eb, vrt) = insert(infer1(b)(using ctx2))(using ctx2)
+            val qrt = ctx2.readback1(vrt)
+            Infer1(
+              T1.Lam(x, Impl, ety, eb),
+              V.Pi(x, Impl, vty, Clos1.Clos(ctx.env, qrt))
+            )
+
+      case S.App(f, a, i) =>
+        i match
+          case ArgInfo.Named(x) =>
+            val (ef, fty) = insertPi(infer1(f), Until(x))
+            apply1(fty, Impl, ef, a)
+          case ArgInfo.Icit(Impl) =>
+            val (ef, fty) = infer1(f)
+            apply1(fty, Impl, ef, a)
+          case ArgInfo.Icit(Expl) =>
+            insertPi(infer(f)) match
+              case Infer0(ef, fty, fcv) =>
+                val (t1, rcv, t2) = ensureFun(fty, fcv)
+                val ea = check0(a, t1, V.Val)
+                Infer0(T0.App(ef, ea), t2, rcv)
+              case Infer1(ef, fty) => apply1(fty, Expl, ef, a)
+
+      case S.Lift(ty) =>
+        val cv = freshCV()
+        val vcv = ctx.eval1(cv)
+        Infer1(T1.Lift(cv, check1(ty, V.Type(vcv))), V.Meta)
+      case S.Quote(tm) =>
+        val (etm, vty, vcv) = infer0(tm)
+        Infer1(etm.quote, V.Lift(vcv, vty))
+      case S.Splice(tm) =>
+        val (etm, vty) = insert(infer1(tm))
+        forceAll1(vty) match
+          case V.Lift(cv, a) => Infer0(etm.splice, a, cv)
+          case vty =>
+            val cv = freshCV()
+            val vcv = ctx.eval1(cv)
+            val vty2 = ctx.eval1(freshMeta(V.Type(vcv)))
+            val etm2 = coe(etm, vty, V.Lift(vcv, vty2)).splice
+            Infer0(etm2, vty2, vcv)
+
+      case S.Hole(_) => err("cannot infer hole")
 
   // elaboration
-  private def elaborate(d: S.Def): Unit = ???
+  // TODO: use frozen metas instead of this check
+  private def checkUnsolvedMetas()(using ctx: Ctx): Unit =
+    val ums = State.unsolvedMetas()
+    if ums.nonEmpty then
+      val str =
+        ums.map((id, ty) => s"?$id : ${ctx.pretty1(ty)}").mkString("\n")
+      err(s"there are unsolved metas:\n$str")
 
-  def elaborate(d: S.Defs): Unit = d.toList.foreach(elaborate)
+  private def elaborate(d: Surface.Def): Unit =
+    debug(s"elaborate $d")
+    d match
+      case Surface.Def.Def0(pos, x, mty, v) =>
+        given ctx: Ctx = Ctx.empty(pos)
+        if State.getGlobal(x).isDefined then err(s"duplicate definition $x")
+        val (ev, ty, cv, vty, vcv) = mty match
+          case None =>
+            val (ev, vty, vcv) = infer0(v)
+            (ev, ctx.readback1(vty), ctx.readback1(vcv), vty, vcv)
+          case _ =>
+            val cv = freshCV()
+            val vcv = ctx.eval1(cv)
+            val ety = mty match
+              case None      => freshMeta(V.Type(vcv))
+              case Some(sty) => check1(sty, V.Type(vcv))
+            val vty = ctx.eval1(ety)
+            val ev = check0(v, vty, vcv)(using ctx)
+            (ev, ety, cv, vty, vcv)
+        checkUnsolvedMetas()
+        State.setGlobal(
+          GlobalEntry.Def0(x, ev, ty, cv, ctx.eval0(ev), vty, vcv)
+        )
+      case Surface.Def.Def1(pos, x, mty, v) =>
+        given ctx: Ctx = Ctx.empty(pos)
+        if State.getGlobal(x).isDefined then err(s"duplicate definition $x")
+        val (ev, ty, vv, vty) = mty match
+          case None =>
+            val (ev, vty) = infer1(v)
+            (ev, ctx.readback1(vty), ctx.eval1(ev), vty)
+          case Some(sty) =>
+            val ety = check1(sty, V.Meta)
+            val vty = ctx.eval1(ety)
+            val ev = check1(v, vty)
+            (ev, ety, ctx.eval1(ev), vty)
+        checkUnsolvedMetas()
+        State.setGlobal(GlobalEntry.Def1(x, ev, ty, vv, vty))
+
+  def elaborate(d: Surface.Defs): Unit = d.toList.foreach(elaborate)
