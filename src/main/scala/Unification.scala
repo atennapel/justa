@@ -310,7 +310,7 @@ object Unification:
     solveMetaVar(m, sol)
 
   // unification
-  def unify0(a: Val0, b: Val0)(implicit lvl: Lvl): Unit =
+  def unify0(a: Val0, b: Val0)(using lvl: Lvl): Unit =
     inline def goClos(a: Clos0, b: Clos0) =
       unify0(a(V0.Var(lvl)), b(V0.Var(lvl)))(using lvl + 1)
     debug(s"unify0 ${readback0m(a)} ~ ${readback0m(b)}")
@@ -326,7 +326,7 @@ object Unification:
       case _ =>
         throw UnifyError(s"cannot unify ${readback0n(a)} ~ ${readback0n(b)}")
 
-  private def flexFlex(m1: MetaId, sp1: Spine, m2: MetaId, sp2: Spine)(implicit
+  private def flexFlex(m1: MetaId, sp1: Spine, m2: MetaId, sp2: Spine)(using
       lvl: Lvl
   ): Unit =
     inline def go(m1: MetaId, sp1: Spine, m2: MetaId, sp2: Spine): Unit =
@@ -336,7 +336,7 @@ object Unification:
       catch case _: UnifyError => solve(m2, sp2, V1.Flex(m1, sp1))
     if sp1.size < sp2.size then go(m2, sp2, m1, sp1) else go(m1, sp1, m2, sp2)
 
-  private def intersect(m: MetaId, sp1: Spine, sp2: Spine)(implicit
+  private def intersect(m: MetaId, sp1: Spine, sp2: Spine)(using
       lvl: Lvl
   ): Unit =
     def go(sp1: Spine, sp2: Spine): Option[Pruning] =
@@ -374,7 +374,7 @@ object Unification:
       case Some(p) if p.exists(_ == PruneEntry.Skip) => pruneMeta(p, m)
       case _                                         => ()
 
-  private def unify1(top1: Val1, sp1: Spine, top2: Val1, sp2: Spine)(implicit
+  private def unify1(top1: Val1, sp1: Spine, top2: Val1, sp2: Spine)(using
       lvl: Lvl
   ): Unit =
     (sp1, sp2) match
@@ -390,7 +390,7 @@ object Unification:
           s"spine mismatch ${readback1n(top1)} ~ ${readback1n(top2)}"
         )
 
-  def unify1(a: Val1, b: Val1)(implicit lvl: Lvl): Unit =
+  def unify1(a: Val1, b: Val1)(using lvl: Lvl): Unit =
     inline def goClos(a: Clos1, b: Clos1) =
       val v = V1.Var(lvl)
       unify1(a(v), b(v))(using lvl + 1)
