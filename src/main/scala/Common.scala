@@ -4,6 +4,8 @@ object Common:
   inline def impossible(): Nothing =
     throw new RuntimeException("impossible")
 
+  type PosInfo = (Int, Int) // (line, col)
+
   // debruijn indeces
   opaque type Ix = Int
   inline def ix0: Ix = 0
