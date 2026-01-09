@@ -1,5 +1,6 @@
-import Common.*
+import Common.Primitive
 import IR.*
+
 import scala.annotation.tailrec
 
 object Simplification:
@@ -10,233 +11,156 @@ object Simplification:
   private type Subst = Map[LocalName, Tm]
 
   private def simplifyDef(d: Def): Def =
-    val params = d.ty.params.zipWithIndex
-    given Scope = (0 until params.size).toSet
-    val apps = params.foldLeft(d.value) { case (f, (ty, x)) =>
-      Tm.App(f, Tm.Local(x, CTy(ty)))
-    }
-    val tm = params.foldRight(apps) { case ((ty, x), body) =>
-      Tm.Lam(x, ty, body)
-    }
-    val simp = simplify(tm)(using Set.empty, Map.empty)
+    val expanded = Tm.Let(0, -1, d.ty, d.value, Tm.Local(0, d.ty))
+    val simp = simplify(expanded)(using Set.empty, Map.empty)
     Def(d.name, d.ty, simp)
 
-  private final case class Occ(vars: Map[LocalName, (CTy, Int)]):
-    def remove(x: LocalName): Occ = Occ(vars - x)
-    def usage(x: LocalName): Int = vars.get(x) match
-      case Some((_, n)) => n
-      case None         => 0
-    def merge(other: Occ): Occ =
-      Occ(other.vars.foldLeft(vars) { case (map, (x, (ty, u))) =>
-        map.get(x) match
-          case Some((ty2, v)) => map + (x -> (ty, v + u))
-          case None           => map + (x -> (ty, u))
-      })
-  private object Occ:
-    val empty: Occ = Occ(Map.empty)
-    def apply(x: LocalName, ty: CTy): Occ = Occ(Map(x -> (ty, 1)))
-    def apply(occs: List[Occ]): Occ = occs.foldLeft(empty)((a, b) => a.merge(b))
-
-  private enum Result:
-    case Unchanged(_occ: Occ)
-    case Changed(_occ: Occ, tm: Tm)
-
-    def occ: Occ = this match
-      case Unchanged(_occ)  => _occ
-      case Changed(_occ, _) => _occ
-
-    def get(orig: Tm): Tm = this match
-      case Unchanged(_)   => orig
-      case Changed(_, tm) => tm
-
-    def map(occf: Occ => Occ, tmf: Tm => Tm): Result = this match
-      case Unchanged(occ)   => Unchanged(occf(occ))
-      case Changed(occ, tm) => Changed(occf(occ), tmf(tm))
-
-    def mapIfChanged(
-        occf: Occ => Occ,
-        tmf: Tm => Tm,
-        isChanged: Boolean,
-        tm: Tm
-    ): Result = this match
-      case Unchanged(occ) if !isChanged => Unchanged(occf(occ))
-      case Unchanged(occ)               => Changed(occf(occ), tmf(tm))
-      case Changed(occ, tm)             => Changed(occf(occ), tmf(tm))
-
-    def changed(tm: Tm): Result = this match
-      case Unchanged(occ)   => Changed(occ, tm)
-      case Changed(occ, tm) => this
-  import Result.*
-
-  private enum ResultN:
-    case UnchangedN(_occs: List[Occ])
-    case ChangedN(_occs: List[Occ], tms: List[Tm])
-
-    def merge(
-        occsf: PartialFunction[List[Occ], Occ],
-        tmf: PartialFunction[List[Tm], Tm]
-    ): Result =
-      this match
-        case UnchangedN(occs) =>
-          Unchanged(occsf.applyOrElse(occs, _ => impossible()))
-        case ChangedN(occs, tms) =>
-          Changed(
-            occsf.applyOrElse(occs, _ => impossible()),
-            tmf.applyOrElse(tms, _ => impossible())
-          )
-
-    def mergeIfChanged(
-        occsf: PartialFunction[List[Occ], Occ],
-        tmf: PartialFunction[List[Tm], Tm],
-        isChanged: Boolean,
-        termsIfChanged: List[Tm]
-    ): Result =
-      this match
-        case UnchangedN(occs) if !isChanged =>
-          Unchanged(occsf.applyOrElse(occs, _ => impossible()))
-        case UnchangedN(occs) =>
-          Changed(
-            occsf.applyOrElse(occs, _ => impossible()),
-            tmf.applyOrElse(termsIfChanged, _ => impossible())
-          )
-        case ChangedN(occs, tms) =>
-          Changed(
-            occsf.applyOrElse(occs, _ => impossible()),
-            tmf.applyOrElse(tms, _ => impossible())
-          )
-  import ResultN.*
-
   @tailrec
-  private def simplify(tm: Tm)(using scope: Scope, subst: Subst): Tm =
-    go(tm) match
-      case Unchanged(_)      => tm
-      case Changed(_, newtm) => simplify(newtm)
+  private def simplify(t: Tm)(using scope: Scope, subst: Subst): Tm =
+    val next = go(correctUsages(t), Nil)
+    if next == t then t else simplify(next)
 
-  // TODO: inlining, eta-expansion, let-flattening
-  private def go(tm: Tm)(using scope: Scope, subst: Subst): Result =
-    println(s"go $scope $subst: $tm")
-    inline def goChanged(tm: Tm) =
-      val cache = tm
-      go(cache).changed(cache)
-    inline def goNmergeIfChanged(
-        terms: List[Tm],
-        isChanged: Boolean,
-        occsf: PartialFunction[List[Occ], Occ],
-        tmsf: PartialFunction[List[Tm], Tm]
-    )(using scope: Scope, subst: Subst) =
-      val tms = terms
-      goN(tms).mergeIfChanged(occsf, tmsf, isChanged, tms)
-    inline def goIfChanged(
-        tm: Tm,
-        isChanged: Boolean,
-        occf: Occ => Occ,
-        tmf: Tm => Tm
-    )(using scope: Scope, subst: Subst) =
-      val rtm = tm
-      go(rtm).mapIfChanged(occf, tmf, isChanged, rtm)
-    inline def inScopeExpl(
-        x: LocalName,
-        ty: CTy
-    )(inline k: (Scope, Subst, LocalName, Boolean) => Result): Result =
-      if scope.contains(x) then
-        val y = scope.size
-        k(scope + y, subst + (x -> Tm.Local(y, ty)), y, true)
-      else k(scope + x, subst - x, x, false)
-    inline def inScope(
-        x: LocalName,
-        ty: CTy
-    )(k: Scope ?=> Subst ?=> (LocalName, Boolean) => Result): Result =
-      inScopeExpl(x, ty): (scope, subst, x, isChanged) =>
-        k(using scope)(using subst)(x, isChanged)
-    tm match
+  // TODO: eta-expansion, let flattening
+  private def go(t: Tm, args: List[Tm])(using scope: Scope, subst: Subst): Tm =
+    t match
+      case Tm.Global(_) => args.foldLeft(t)(Tm.App.apply)
+      case Tm.Prim(p) =>
+        if args.size == 2 then
+          foldConstants2(p, args(0), args(1)) match
+            case Some(tm) => tm
+            case None     => args.foldLeft(t)(Tm.App.apply)
+        else args.foldLeft(t)(Tm.App.apply)
+      case Tm.BoolLit(_) => t
+      case Tm.IntLit(_)  => t
+
       case Tm.Local(x, ty) =>
         subst.get(x) match
-          case Some(tm) => goChanged(tm)
-          case None     => Unchanged(Occ(x, ty))
-      case Tm.Global(_)  => Unchanged(Occ.empty)
-      case Tm.BoolLit(_) => Unchanged(Occ.empty)
-      case Tm.IntLit(_)  => Unchanged(Occ.empty)
-      case Tm.Prim(_)    => Unchanged(Occ.empty)
+          case Some(tm) => go(tm, args)
+          case None     => args.foldLeft(t)(Tm.App.apply)
 
-      case Tm.Let(x, ty, v, b) =>
-        inScopeExpl(x, ty): (scope, subst, x, isChanged) =>
-          go(b)(using scope, subst) match
-            case Unchanged(occ) =>
-              go(v) match
-                case Unchanged(occ2) if !isChanged =>
-                  Unchanged(occ.merge(occ2.remove(x)))
-                case Unchanged(occ2) =>
-                  Changed(occ.merge(occ2.remove(x)), Tm.Let(x, ty, v, b))
-                case Changed(occ2, v) =>
-                  Changed(occ.merge(occ2.remove(x)), Tm.Let(x, ty, v, b))
-            case Changed(occ, b) =>
-              go(v) match
-                case Unchanged(occ2) =>
-                  Changed(occ.merge(occ2.remove(x)), Tm.Let(x, ty, v, b))
-                case Changed(occ2, v) =>
-                  Changed(occ.merge(occ2.remove(x)), Tm.Let(x, ty, v, b))
+      case Tm.If(_, Tm.BoolLit(b), t, f) => if b then t else f
+      case Tm.If(ty, c, t, f) if ty.params.nonEmpty =>
+        val (ps, nargs, nscope) = eta(ty)
+        val b = Tm.If(
+          CTy(ty.ret),
+          go(c, Nil),
+          go(t, args ++ nargs)(using nscope),
+          go(f, args ++ nargs)(using nscope)
+        )
+        ps.foldRight(b) { case ((x, ty), b) => Tm.Lam(x, -1, ty, b) }
+      case Tm.If(ty, c, t, f) => Tm.If(ty, go(c, Nil), go(t, args), go(f, args))
 
-      case Tm.LetRec(x, ty, v, b) =>
-        inScope(x, ty): (x, isChanged) =>
-          goNmergeIfChanged(
-            List(v, b),
-            isChanged,
-            { case List(occ, occ2) => occ.merge(occ2).remove(x) },
-            { case List(v, b) => Tm.LetRec(x, ty, v, b) }
-          )
+      case Tm.App(f, a) => go(f, go(a, Nil) :: args)
 
-      case Tm.Lam(x, ty, b) =>
-        inScope(x, CTy(ty)): (x, isChanged) =>
-          goIfChanged(b, isChanged, _.remove(x), Tm.Lam(x, ty, _))
+      case Tm.Lam(x, u, ty, b) if args.nonEmpty =>
+        go(Tm.Let(x, u, CTy(ty), args.head, b), args.tail)
+      case Tm.Lam(x, _, ty, b0) =>
+        if scope.contains(x) then
+          val y = scope.size
+          val b =
+            go(b0, Nil)(using scope + y, subst + (x -> Tm.Local(y, CTy(ty))))
+          Tm.Lam(y, -1, ty, b)
+        else
+          val b = go(b0, Nil)(using scope + x, subst - x)
+          Tm.Lam(x, -1, ty, b)
 
-      // constant folding
-      case Tm.App(Tm.App(Tm.Prim(Primitive.Add), Tm.IntLit(0)), b) => go(b)
-      case Tm.App(Tm.App(Tm.Prim(Primitive.Add), a), Tm.IntLit(0)) => go(a)
-      case Tm.App(Tm.App(Tm.Prim(Primitive.Add), Tm.IntLit(a)), Tm.IntLit(b)) =>
-        Changed(Occ.empty, Tm.IntLit(a + b))
+      case Tm.Let(_, u, _, _, b) if u == 0 => b
+      case Tm.Let(x, u, _, v, b) if u == 1 || isSmall(v) =>
+        go(b, args)(using scope, subst + (x -> v))
+      case Tm.Let(x, _, ty, v0, b0) =>
+        val v = go(v0, Nil)
+        val (y, b) = if scope.contains(x) then
+          val y = scope.size
+          (y, go(b0, args)(using scope + y, subst + (x -> Tm.Local(y, ty))))
+        else (x, go(b0, args)(using scope + x, subst - x))
+        Tm.Let(x, -1, ty, v, b)
 
-      case Tm.App(Tm.App(Tm.Prim(Primitive.Sub), a), Tm.IntLit(0)) => go(a)
-      case Tm.App(Tm.App(Tm.Prim(Primitive.Sub), Tm.IntLit(a)), Tm.IntLit(b)) =>
-        Changed(Occ.empty, Tm.IntLit(a - b))
+      case Tm.LetRec(_, u, _, _, b) if u == 0 => b
+      case Tm.LetRec(x, _, ty, v0, b0) =>
+        val (y, nscope, nsubst) = if scope.contains(x) then
+          val y = scope.size
+          (y, scope + y, subst + (x -> Tm.Local(y, ty)))
+        else (x, scope + x, subst - x)
+        val v = go(v0, Nil)(using nscope, nsubst)
+        val b = go(b0, args)(using nscope, nsubst)
+        Tm.LetRec(x, -1, ty, v, b)
 
-      case Tm.App(Tm.App(Tm.Prim(Primitive.Mul), Tm.IntLit(0)), _) =>
-        Changed(Occ.empty, Tm.Zero)
-      case Tm.App(Tm.App(Tm.Prim(Primitive.Mul), _), Tm.IntLit(0)) =>
-        Changed(Occ.empty, Tm.Zero)
-      case Tm.App(Tm.App(Tm.Prim(Primitive.Mul), Tm.IntLit(1)), b) => go(b)
-      case Tm.App(Tm.App(Tm.Prim(Primitive.Mul), a), Tm.IntLit(1)) => go(a)
-      case Tm.App(Tm.App(Tm.Prim(Primitive.Mul), Tm.IntLit(a)), Tm.IntLit(b)) =>
-        Changed(Occ.empty, Tm.IntLit(a * b))
+  private def eta(ty: CTy)(using
+      scope: Scope
+  ): (List[(LocalName, VTy)], List[Tm], Scope) =
+    val base = scope.size
+    val params = ty.params.zipWithIndex.map((t, n) => (base + n, t))
+    val args = params.map { case (x, ty) => Tm.Local(x, CTy(ty)) }
+    (params, args, scope ++ params.map(_._1))
 
-      case Tm.App(Tm.App(Tm.Prim(Primitive.Lt), Tm.IntLit(a)), Tm.IntLit(b)) =>
-        Changed(Occ.empty, Tm.bool(a < b))
+  private def isSmall(t: Tm) = t match
+    case Tm.Local(_, _)  => true
+    case Tm.Global(name) => true
+    case Tm.Prim(_)      => true
+    case Tm.BoolLit(_)   => true
+    case Tm.IntLit(_)    => true
+    case _               => false
 
-      case Tm.App(fn, arg) =>
-        fn match
-          // (\(x : t) => b) a ~> let x : t = a; b
-          case Tm.Lam(x, ty, b) => goChanged(Tm.Let(x, CTy(ty), arg, b))
-          case _ =>
-            goN(List(fn, arg))
-              .merge(Occ(_), { case List(f, a) => Tm.App(f, a) })
+  private def foldConstants2(p: Primitive, a: Tm, b: Tm): Option[Tm] =
+    (p, a, b) match
+      case (Primitive.Add, Tm.IntLit(0), t)            => Some(t)
+      case (Primitive.Add, t, Tm.IntLit(0))            => Some(t)
+      case (Primitive.Add, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.IntLit(a + b))
 
-      case Tm.If(ty, c, t, f) =>
-        c match
-          case Tm.BoolLit(b) => goChanged(if b then t else f)
-          case _ =>
-            goN(List(c, t, f))
-              .merge(Occ(_), { case List(c, t, f) => Tm.If(ty, c, t, f) })
+      case (Primitive.Sub, t, Tm.IntLit(0))            => Some(t)
+      case (Primitive.Sub, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.IntLit(a - b))
 
-  private def goN(tm: List[Tm])(using scope: Scope, subst: Subst): ResultN =
-    tm match
-      case Nil => UnchangedN(Nil)
-      case tm :: rest =>
-        val prev = goN(rest)
-        go(tm) match
-          case Unchanged(occ) =>
-            prev match
-              case UnchangedN(occs)    => UnchangedN(occ :: occs)
-              case ChangedN(occs, tms) => ChangedN(occ :: occs, tm :: tms)
-          case Changed(occ, tm) =>
-            prev match
-              case UnchangedN(occs)    => ChangedN(occ :: occs, tm :: rest)
-              case ChangedN(occs, tms) => ChangedN(occ :: occs, tm :: tms)
+      case (Primitive.Mul, Tm.IntLit(0), _)            => Some(Tm.Zero)
+      case (Primitive.Mul, _, Tm.IntLit(0))            => Some(Tm.Zero)
+      case (Primitive.Mul, Tm.IntLit(1), t)            => Some(t)
+      case (Primitive.Mul, t, Tm.IntLit(1))            => Some(t)
+      case (Primitive.Mul, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.IntLit(a * b))
+
+      case (Primitive.Lt, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.bool(a < b))
+
+      case _ => None
+
+  // compute usages
+  private type Usages = Map[LocalName, Int]
+  private def mergeUsages(a: Usages, b: Usages): Usages =
+    b.foldLeft(a) { case (map, (x, u)) =>
+      map + (x -> (map.getOrElse(x, 0) + u))
+    }
+
+  private inline def correctUsages(t: Tm): Tm = correctUsagesRec(t)._1
+
+  private def correctUsagesRec(t: Tm): (Tm, Usages) =
+    t match
+      case Tm.Global(_)  => (t, Map.empty)
+      case Tm.Prim(_)    => (t, Map.empty)
+      case Tm.BoolLit(_) => (t, Map.empty)
+      case Tm.IntLit(_)  => (t, Map.empty)
+
+      case Tm.Local(x, _) => (t, Map(x -> 1))
+
+      case Tm.Lam(x, _, ty, b0) =>
+        val (b, u) = correctUsagesRec(b0)
+        (Tm.Lam(x, u.getOrElse(x, 0), ty, b), u - x)
+
+      case Tm.App(f0, a0) =>
+        val (f, uf) = correctUsagesRec(f0)
+        val (a, ua) = correctUsagesRec(a0)
+        (Tm.App(f, a), mergeUsages(uf, ua))
+      case Tm.If(ty, c0, t0, f0) =>
+        val (c, uc) = correctUsagesRec(c0)
+        val (t, ut) = correctUsagesRec(t0)
+        val (f, uf) = correctUsagesRec(f0)
+        (Tm.If(ty, c, t, f), mergeUsages(uc, mergeUsages(ut, uf)))
+
+      case Tm.Let(x, _, ty, v0, b0) =>
+        val (v, uv) = correctUsagesRec(v0)
+        val (b, ub) = correctUsagesRec(b0)
+        (Tm.Let(x, ub.getOrElse(x, 0), ty, v, b), mergeUsages(uv, ub - x))
+
+      case Tm.LetRec(x, _, ty, v0, b0) =>
+        val (v, uv) = correctUsagesRec(v0)
+        val (b, ub) = correctUsagesRec(b0)
+        (
+          Tm.LetRec(x, uv.getOrElse(x, 0) + ub.getOrElse(x, 0), ty, v, b),
+          mergeUsages(uv, ub) - x
+        )

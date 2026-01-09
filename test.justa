@@ -25,3 +25,9 @@ def condloopacc {Acc : vtype} {Arg : vtype}
     go init arg 
 
 def fac2 := condloopacc 1 (\_ n => lt n 2) (\_ n => sub n 1) (\acc n => mul acc n)
+
+def fac3 (n : int) :=
+  let rec go (n : int) :=
+    if lt n 2 then \acc => acc
+    else \acc => go (sub n 1) (mul acc n);
+  go n 1

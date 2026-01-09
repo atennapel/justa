@@ -34,25 +34,25 @@ object IR:
     case BoolLit(value: Boolean)
     case IntLit(value: Int)
 
-    case Let(name: LocalName, ty: CTy, value: Tm, body: Tm)
-    case LetRec(name: LocalName, ty: CTy, value: Tm, body: Tm)
+    case Let(name: LocalName, usage: Int, ty: CTy, value: Tm, body: Tm)
+    case LetRec(name: LocalName, usage: Int, ty: CTy, value: Tm, body: Tm)
 
-    case Lam(name: LocalName, ty: VTy, body: Tm)
+    case Lam(name: LocalName, usage: Int, ty: VTy, body: Tm)
     case App(fn: Tm, arg: Tm)
 
     case If(rty: CTy, cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
     override def toString: String = this match
-      case Local(ix, _)        => s"'$ix"
-      case Global(x)           => s"$x"
-      case Prim(p)             => s"$p"
-      case BoolLit(v)          => s"$v"
-      case IntLit(v)           => s"$v"
-      case Let(x, ty, v, b)    => s"(let $x : $ty = $v; $b)"
-      case LetRec(x, ty, v, b) => s"(let rec $x : $ty = $v; $b)"
-      case Lam(name, ty, body) => s"(\\($name : $ty) => $body)"
-      case App(fn, arg)        => s"($fn $arg)"
-      case If(_, c, t, f)      => s"(if $c then $t else $f)"
+      case Local(ix, _)           => s"'$ix"
+      case Global(x)              => s"$x"
+      case Prim(p)                => s"$p"
+      case BoolLit(v)             => s"$v"
+      case IntLit(v)              => s"$v"
+      case Let(x, _, ty, v, b)    => s"(let $x : $ty = $v; $b)"
+      case LetRec(x, _, ty, v, b) => s"(let rec $x : $ty = $v; $b)"
+      case Lam(name, _, ty, body) => s"(\\($name : $ty) => $body)"
+      case App(fn, arg)           => s"($fn $arg)"
+      case If(_, c, t, f)         => s"(if $c then $t else $f)"
 
   object Tm:
     val True = BoolLit(true)

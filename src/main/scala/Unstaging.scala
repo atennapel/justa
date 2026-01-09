@@ -40,7 +40,7 @@ object Unstaging:
       case Tm0.Let(x, ty, v, b) =>
         val y = supply.next
         val ct = goCTy(ty)
-        Tm.Let(y, ct, go(v), go(b)(using ct :: tenv, extVEnv, y :: ren))
+        Tm.Let(y, -1, ct, go(v), go(b)(using ct :: tenv, extVEnv, y :: ren))
       case Tm0.LetRec(x, ty, v, b) =>
         val y = supply.next
         val ct = goCTy(ty)
@@ -49,6 +49,7 @@ object Unstaging:
         val nextRen = y :: ren
         Tm.LetRec(
           y,
+          -1,
           ct,
           go(v)(using nextTEnv, nextVEnv, nextRen),
           go(b)(using nextTEnv, nextVEnv, nextRen)
@@ -59,6 +60,7 @@ object Unstaging:
         val vt = goVTy(ty)
         Tm.Lam(
           y,
+          -1,
           goVTy(ty),
           go(b)(using CTy(vt) :: tenv, extVEnv, y :: ren)
         )
