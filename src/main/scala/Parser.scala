@@ -136,6 +136,7 @@ object Parser:
   private def hole(using ctx: Ctx) = Tm.Hole(ctx.pos, None)
 
   private def parseDef()(using ctx: Ctx): Option[Def] =
+    debug(s"parseDef: $ctx")
     if tryKeyword("def") then
       val (pos, isMeta, x, ty, body) = parseDefPart()
       if isMeta then Some(Def.Def1(pos, x, ty, body))
@@ -162,6 +163,7 @@ object Parser:
   private def parseDefPart()(using
       ctx: Ctx
   ): (PosInfo, Boolean, Name, Option[Tm], Tm) =
+    debug(s"parseDefPart: $ctx")
     val pos = ctx.pos
     val x = name()
     val ps = parseParams()
@@ -189,12 +191,14 @@ object Parser:
   private def parseParams()(using ctx: Ctx): List[DefParam] = list(parseParam)
 
   private def parseGrouping()(using ctx: Ctx): (List[Bind], Option[Ty]) =
+    debug(s"parseGrouping: $ctx")
     val x = bind()
     val xs = list(tryBind)
     val ty = if trySymbol(":") then Some(parseExpr()) else None
     (x :: xs, ty)
 
   private def parseParam()(using ctx: Ctx): Option[DefParam] =
+    debug(s"parseParam: $ctx")
     if trySymbol("(") then
       val pos = ctx.pos
       val (xs, ty) = parseGrouping()
@@ -276,17 +280,19 @@ object Parser:
   private def piParam()(using
       ctx: Ctx
   ): Option[(PosInfo, Icit, List[Bind], Ty)] =
+    debug(s"piParam: $ctx")
     if trySymbol("(") then
       if trySymbol(")") then None
       else
         val pos = ctx.pos
-        val x = bind()
-        val xs = list(tryBind)
-        if trySymbol(":") then
-          val ty = parseExpr()
-          symbol(")")
-          Some((pos, Expl, x :: xs, ty))
-        else None
+        tryBind().flatMap { x =>
+          val xs = list(tryBind)
+          if trySymbol(":") then
+            val ty = parseExpr()
+            symbol(")")
+            Some((pos, Expl, x :: xs, ty))
+          else None
+        }
     else if trySymbol("{") then
       val pos = ctx.pos
       val (xs, prety) = parseGrouping()
@@ -312,6 +318,7 @@ object Parser:
     else expr
 
   private def parseLet(rec: Boolean)(using ctx: Ctx): Tm =
+    debug(s"parseLet: $ctx")
     val (pos, isMeta, x, ty, value) = parseDefPart()
     symbol(";")
     val body = parseExpr()
@@ -322,6 +329,7 @@ object Parser:
     else Tm.Let0(pos, x, ty, value, body)
 
   private def parseLam()(using ctx: Ctx): Tm =
+    debug(s"parseLam: $ctx")
     val ps = parseParams()
     symbol("=>")
     val body = parseExpr()
@@ -330,6 +338,7 @@ object Parser:
     }
 
   private def parseArg()(using ctx: Ctx): Option[(Tm, ArgInfo)] =
+    debug(s"parseArg: $ctx")
     if trySymbol("{") then
       def next(arginfo: ArgInfo): Option[(Tm, ArgInfo)] =
         val a = parseExpr()

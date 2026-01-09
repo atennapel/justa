@@ -4,6 +4,9 @@ def id {A : meta} (x : A) = x
 
 def n := id 42
 
+def addtest := add 1 2
+def iftest := if true then 1 else 2
+
 def fac (n : int) :=
   let rec go (n : int) (acc : int) :=
     if lt n 2 then acc
@@ -21,4 +24,4 @@ def condloopacc {Acc : vtype} {Arg : vtype}
       else go (accChange acc arg) (argChange acc arg);
     go init arg 
 
-def fac2 := condloopacc 1 (\_ n => lt n 2) (\_ n => sub n 1) (\acc n => mul acc n) 
+def fac2 := condloopacc 1 (\_ n => lt n 2) (\_ n => sub n 1) (\acc n => mul acc n)

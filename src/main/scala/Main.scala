@@ -34,6 +34,12 @@ object Main:
             s"def $x : ${ctx.pretty1(vty)} = ${ctx.pretty1(tm)}"
           )
       }
+      println()
+      val uds = Unstaging.unstageState()
+      println(uds)
+      println()
+      val sds = Simplification.simplifyDefs(uds)
+      println(sds)
     catch
       case err: Parser.ParseError =>
         println(err.toString)
