@@ -31,3 +31,5 @@ def fac3 (n : int) :=
     if lt n 2 then \acc => acc
     else \acc => go (sub n 1) (mul acc n);
   go n 1
+
+def fac4 := fac3

@@ -1,5 +1,6 @@
 import Common.Primitive
 import IR.*
+import Debug.debug
 
 import scala.annotation.tailrec
 
@@ -11,16 +12,18 @@ object Simplification:
   private type Subst = Map[LocalName, Tm]
 
   private def simplifyDef(d: Def): Def =
-    val expanded = Tm.Let(0, -1, d.ty, d.value, Tm.Local(0, d.ty))
-    val simp = simplify(expanded)(using Set.empty, Map.empty)
+    debug(s"simplifyDef ${d.name}")
+    val (ps, nargs, nscope) = eta(d.ty)(using Set.empty)
+    val expanded = go(d.value, nargs)(using nscope, Map.empty)
+    val simp = simplify(lams(ps, expanded))
     Def(d.name, d.ty, simp)
 
   @tailrec
-  private def simplify(t: Tm)(using scope: Scope, subst: Subst): Tm =
-    val next = go(correctUsages(t), Nil)
+  private def simplify(t: Tm): Tm =
+    debug(s"simplify $t")
+    val next = go(correctUsages(t), Nil)(using Set.empty, Map.empty)
     if next == t then t else simplify(next)
 
-  // TODO: eta-expansion, let flattening
   private def go(t: Tm, args: List[Tm])(using scope: Scope, subst: Subst): Tm =
     t match
       case Tm.Global(_) => args.foldLeft(t)(Tm.App.apply)
@@ -33,10 +36,7 @@ object Simplification:
       case Tm.BoolLit(_) => t
       case Tm.IntLit(_)  => t
 
-      case Tm.Local(x, ty) =>
-        subst.get(x) match
-          case Some(tm) => go(tm, args)
-          case None     => args.foldLeft(t)(Tm.App.apply)
+      case Tm.Local(x, ty) => args.foldLeft(subst.getOrElse(x, t))(Tm.App.apply)
 
       case Tm.If(_, Tm.BoolLit(b), t, f) => if b then t else f
       case Tm.If(ty, c, t, f) if ty.params.nonEmpty =>
@@ -47,7 +47,7 @@ object Simplification:
           go(t, args ++ nargs)(using nscope),
           go(f, args ++ nargs)(using nscope)
         )
-        ps.foldRight(b) { case ((x, ty), b) => Tm.Lam(x, -1, ty, b) }
+        lams(ps, b)
       case Tm.If(ty, c, t, f) => Tm.If(ty, go(c, Nil), go(t, args), go(f, args))
 
       case Tm.App(f, a) => go(f, go(a, Nil) :: args)
@@ -64,11 +64,24 @@ object Simplification:
           val b = go(b0, Nil)(using scope + x, subst - x)
           Tm.Lam(x, -1, ty, b)
 
+      case Tm.Let(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
+        Tm.Let(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2))
+      case Tm.LetRec(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
+        Tm.LetRec(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2))
+      case Tm.Let(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
+        Tm.LetRec(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2))
+      case Tm.LetRec(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
+        Tm.Let(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2))
+
       case Tm.Let(_, u, _, _, b) if u == 0 => b
       case Tm.Let(x, u, _, v, b) if u == 1 || isSmall(v) =>
         go(b, args)(using scope, subst + (x -> v))
       case Tm.Let(x, _, ty, v0, b0) =>
-        val v = go(v0, Nil)
+        val v =
+          if isEtaExpanded(ty, v0) then go(v0, Nil)
+          else
+            val (ps, nargs, nscope) = eta(ty)
+            lams(ps, go(v0, nargs)(using nscope))
         val (y, b) = if scope.contains(x) then
           val y = scope.size
           (y, go(b0, args)(using scope + y, subst + (x -> Tm.Local(y, ty))))
@@ -81,6 +94,7 @@ object Simplification:
           val y = scope.size
           (y, scope + y, subst + (x -> Tm.Local(y, ty)))
         else (x, scope + x, subst - x)
+        // TODO: eta-expansion
         val v = go(v0, Nil)(using nscope, nsubst)
         val b = go(b0, args)(using nscope, nsubst)
         Tm.LetRec(x, -1, ty, v, b)
@@ -92,6 +106,18 @@ object Simplification:
     val params = ty.params.zipWithIndex.map((t, n) => (base + n, t))
     val args = params.map { case (x, ty) => Tm.Local(x, CTy(ty)) }
     (params, args, scope ++ params.map(_._1))
+
+  private def lams(ps: List[(LocalName, VTy)], b: Tm): Tm =
+    ps.foldRight(b) { case ((x, ty), b) => Tm.Lam(x, -1, ty, b) }
+
+  private def isEtaExpanded(ty: CTy, v: Tm): Boolean =
+    @tailrec
+    def go(ps: List[VTy], v: Tm): Boolean =
+      (ps, v) match
+        case (Nil, _)                        => true
+        case (_ :: rest, Tm.Lam(_, _, _, b)) => go(rest, b)
+        case _                               => false
+    go(ty.params, v)
 
   private def isSmall(t: Tm) = t match
     case Tm.Local(_, _)  => true
