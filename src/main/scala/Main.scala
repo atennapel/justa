@@ -40,6 +40,9 @@ object Main:
       println()
       val sds = Simplification.simplifyDefs(uds)
       println(sds)
+      println()
+      val jds = Lifting.liftDefs(sds)
+      println(jds)
     catch
       case err: Parser.ParseError =>
         println(err.toString)

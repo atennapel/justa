@@ -127,3 +127,15 @@ object Common:
       case Add   => "add"
       case Sub   => "sub"
       case Mul   => "mul"
+
+  enum RuntimePrimitive:
+    case Lt
+    case Add
+    case Sub
+    case Mul
+
+    override def toString: String = this match
+      case Lt  => "lt"
+      case Add => "add"
+      case Sub => "sub"
+      case Mul => "mul"

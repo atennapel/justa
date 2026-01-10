@@ -30,7 +30,7 @@ object IR:
   enum Tm:
     case Local(ix: LocalName, ty: CTy)
     case Global(name: Name)
-    case Prim(prim: Primitive)
+    case Prim(prim: RuntimePrimitive)
     case BoolLit(value: Boolean)
     case IntLit(value: Int)
 
@@ -50,9 +50,15 @@ object IR:
       case IntLit(v)              => s"$v"
       case Let(x, _, ty, v, b)    => s"(let $x : $ty = $v; $b)"
       case LetRec(x, _, ty, v, b) => s"(let rec $x : $ty = $v; $b)"
-      case Lam(name, _, ty, body) => s"(\\($name : $ty) => $body)"
+      case Lam(x, _, ty, b)       => s"(\\($x : $ty) => $b)"
       case App(fn, arg)           => s"($fn $arg)"
       case If(_, c, t, f)         => s"(if $c then $t else $f)"
+
+    def flattenApps: (Tm, List[Tm]) = this match
+      case App(f, a) =>
+        val (hd, args) = f.flattenApps
+        (hd, args ++ List(a))
+      case t => (t, Nil)
 
   object Tm:
     val True = BoolLit(true)

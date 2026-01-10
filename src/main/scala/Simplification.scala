@@ -1,9 +1,10 @@
-import Common.Primitive
+import Common.RuntimePrimitive
 import IR.*
 import Debug.debug
 
 import scala.annotation.tailrec
 
+// eta-expand, remove dead lets, inlining, constant folding, remove closures
 object Simplification:
   def simplifyDefs(ds: Defs): Defs =
     Defs(ds.toList.map(simplifyDef))
@@ -15,7 +16,7 @@ object Simplification:
     debug(s"simplifyDef ${d.name}")
     val (ps, nargs, nscope) = eta(d.ty)(using Set.empty)
     val expanded = go(d.value, nargs)(using nscope, Map.empty)
-    val simp = simplify(lams(ps, expanded))
+    val simp = correctUsages(simplify(lams(ps, expanded)))
     Def(d.name, d.ty, simp)
 
   @tailrec
@@ -133,22 +134,23 @@ object Simplification:
     case Tm.IntLit(_)    => true
     case _               => false
 
-  private def foldConstants2(p: Primitive, a: Tm, b: Tm): Option[Tm] =
+  private def foldConstants2(p: RuntimePrimitive, a: Tm, b: Tm): Option[Tm] =
+    import RuntimePrimitive.*
     (p, a, b) match
-      case (Primitive.Add, Tm.IntLit(0), t)            => Some(t)
-      case (Primitive.Add, t, Tm.IntLit(0))            => Some(t)
-      case (Primitive.Add, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.IntLit(a + b))
+      case (Add, Tm.IntLit(0), t)            => Some(t)
+      case (Add, t, Tm.IntLit(0))            => Some(t)
+      case (Add, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.IntLit(a + b))
 
-      case (Primitive.Sub, t, Tm.IntLit(0))            => Some(t)
-      case (Primitive.Sub, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.IntLit(a - b))
+      case (Sub, t, Tm.IntLit(0))            => Some(t)
+      case (Sub, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.IntLit(a - b))
 
-      case (Primitive.Mul, Tm.IntLit(0), _)            => Some(Tm.Zero)
-      case (Primitive.Mul, _, Tm.IntLit(0))            => Some(Tm.Zero)
-      case (Primitive.Mul, Tm.IntLit(1), t)            => Some(t)
-      case (Primitive.Mul, t, Tm.IntLit(1))            => Some(t)
-      case (Primitive.Mul, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.IntLit(a * b))
+      case (Mul, Tm.IntLit(0), _)            => Some(Tm.Zero)
+      case (Mul, _, Tm.IntLit(0))            => Some(Tm.Zero)
+      case (Mul, Tm.IntLit(1), t)            => Some(t)
+      case (Mul, t, Tm.IntLit(1))            => Some(t)
+      case (Mul, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.IntLit(a * b))
 
-      case (Primitive.Lt, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.bool(a < b))
+      case (Lt, Tm.IntLit(a), Tm.IntLit(b)) => Some(Tm.bool(a < b))
 
       case _ => None
 

@@ -17,14 +17,14 @@ object Unstaging:
   private type TEnv = List[CTy]
   private type Ren = List[LocalName]
 
-  private final case class Supply(var id: LocalName):
-    def next: LocalName =
+  private final class Supply(var id: LocalName):
+    def next(): LocalName =
       val cur = id
       id += 1
       cur
 
   private def unstage(tm: Tm0): Tm =
-    go(Evaluation.unstage(tm))(using Nil, Env.Empty, Nil, Supply(0))
+    go(Evaluation.unstage(tm))(using Nil, Env.Empty, Nil, new Supply(0))
 
   // unstaging
   private def go(
@@ -38,11 +38,11 @@ object Unstaging:
       case Tm0.Var(ix) => Tm.Local(ren(ix.expose), tenv(ix.expose))
 
       case Tm0.Let(x, ty, v, b) =>
-        val y = supply.next
+        val y = supply.next()
         val ct = goCTy(ty)
         Tm.Let(y, -1, ct, go(v), go(b)(using ct :: tenv, extVEnv, y :: ren))
       case Tm0.LetRec(x, ty, v, b) =>
-        val y = supply.next
+        val y = supply.next()
         val ct = goCTy(ty)
         val nextTEnv = ct :: tenv
         val nextVEnv = extVEnv
@@ -56,7 +56,7 @@ object Unstaging:
         )
 
       case Tm0.Lam(x, ty, b) =>
-        val y = supply.next
+        val y = supply.next()
         val vt = goVTy(ty)
         Tm.Lam(
           y,
@@ -76,10 +76,10 @@ object Unstaging:
         tm match
           case Tm1.Prim(Primitive.True)    => Tm.True
           case Tm1.Prim(Primitive.False)   => Tm.False
-          case Tm1.Prim(p @ Primitive.Lt)  => Tm.Prim(p)
-          case Tm1.Prim(p @ Primitive.Add) => Tm.Prim(p)
-          case Tm1.Prim(p @ Primitive.Sub) => Tm.Prim(p)
-          case Tm1.Prim(p @ Primitive.Mul) => Tm.Prim(p)
+          case Tm1.Prim(p @ Primitive.Lt)  => Tm.Prim(RuntimePrimitive.Lt)
+          case Tm1.Prim(p @ Primitive.Add) => Tm.Prim(RuntimePrimitive.Add)
+          case Tm1.Prim(p @ Primitive.Sub) => Tm.Prim(RuntimePrimitive.Sub)
+          case Tm1.Prim(p @ Primitive.Mul) => Tm.Prim(RuntimePrimitive.Mul)
           case _                           => impossible()
 
   // types
