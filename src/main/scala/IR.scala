@@ -12,7 +12,7 @@ object IR:
   final case class CTy(params: List[VTy], ret: VTy):
     def head: VTy = params.head
     def tail: CTy = CTy(params.tail, ret)
-
+    def drop(n: Int): CTy = CTy(params.drop(n), ret)
     override def toString: String = s"${params.mkString("(", ",", ")")} -> $ret"
   object CTy:
     def apply(ret: VTy): CTy = CTy(Nil, ret)

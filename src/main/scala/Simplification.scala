@@ -39,16 +39,18 @@ object Simplification:
       case Tm.Local(x, ty) => args.foldLeft(subst.getOrElse(x, t))(Tm.App.apply)
 
       case Tm.If(_, Tm.BoolLit(b), t, f) => if b then t else f
-      case Tm.If(ty, c, t, f) if ty.params.nonEmpty =>
-        val (ps, nargs, nscope) = eta(ty)
-        val b = Tm.If(
-          CTy(ty.ret),
-          go(c, Nil),
-          go(t, args ++ nargs)(using nscope),
-          go(f, args ++ nargs)(using nscope)
-        )
-        lams(ps, b)
-      case Tm.If(ty, c, t, f) => Tm.If(ty, go(c, Nil), go(t, args), go(f, args))
+      // TODO: is eta for elimators necessary?
+      // case Tm.If(ty, c, t, f) if ty.params.nonEmpty =>
+      //   val (ps, nargs, nscope) = eta(ty)
+      //  val b = Tm.If(
+      //    CTy(ty.ret),
+      //    go(c, Nil),
+      //    go(t, args ++ nargs)(using nscope),
+      //    go(f, args ++ nargs)(using nscope)
+      //  )
+      //  lams(ps, b)
+      case Tm.If(ty, c, t, f) =>
+        Tm.If(ty.drop(args.size), go(c, Nil), go(t, args), go(f, args))
 
       case Tm.App(f, a) => go(f, go(a, Nil) :: args)
 
@@ -94,8 +96,12 @@ object Simplification:
           val y = scope.size
           (y, scope + y, subst + (x -> Tm.Local(y, ty)))
         else (x, scope + x, subst - x)
-        // TODO: eta-expansion
-        val v = go(v0, Nil)(using nscope, nsubst)
+        val v =
+          if isEtaExpanded(ty, v0) then go(v0, Nil)(using nscope, nsubst)
+          else
+            val (ps, nargs, nscope) = eta(ty)
+            val body = go(v0, nargs)(using scope ++ nscope, nsubst)
+            lams(ps, body)
         val b = go(b0, args)(using nscope, nsubst)
         Tm.LetRec(x, -1, ty, v, b)
 
