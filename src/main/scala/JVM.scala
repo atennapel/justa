@@ -30,7 +30,6 @@ object JVM:
       case Function(x, ps, t, b) =>
         s"def $x ${ps.mkString("(", ",", ")")} : $t = $b"
 
-  // TODO: join points
   enum Tm:
     case Local(ix: LocalName, ty: Ty)
     case Global(name: Name, args: List[Tm])
@@ -40,14 +39,33 @@ object JVM:
     case Let(name: LocalName, ty: Ty, value: Tm, body: Tm)
     case If(cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
+    case Join(
+        name: LocalName,
+        params: List[(LocalName, Ty)],
+        value: Tm,
+        body: Tm
+    )
+    case JoinRec(
+        name: LocalName,
+        params: List[(LocalName, Ty)],
+        value: Tm,
+        body: Tm
+    )
+    case Jump(name: LocalName, args: List[Tm])
+
     override def toString: String = this match
       case Local(ix, _)     => s"'$ix"
       case Global(x, args)  => s"$x${args.mkString("(", ",", ")")}"
       case Prim(p, args)    => s"$p${args.mkString("(", ",", ")")}"
       case BoolLit(v)       => s"$v"
       case IntLit(v)        => s"$v"
-      case Let(x, ty, v, b) => s"(let $x : $ty = $v; $b)"
+      case Let(x, ty, v, b) => s"(let '$x : $ty = $v; $b)"
       case If(c, t, f)      => s"(if $c then $t else $f)"
+      case Join(x, ps, v, b) =>
+        s"(join $x ${ps.map((x, t) => s"('$x : $t)").mkString(" ")}) = $v; $b"
+      case JoinRec(x, ps, v, b) =>
+        s"(join rec $x ${ps.map((x, t) => s"('$x : $t)").mkString(" ")}) = $v; $b"
+      case Jump(x, args) => s"'$x${args.mkString("(", ",", ")")}"
 
   object Tm:
     val True = BoolLit(true)

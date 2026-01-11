@@ -1,3 +1,35 @@
-def test n :=
-  let f x := add x n;
-  add (f 42) (f 1)
+def vtype = type val
+
+def id {A : meta} (x : A) = x
+
+def n := id 42
+
+def addtest := add 1 2
+def iftest := if true then 1 else 2
+
+def fac (n : int) :=
+  let rec go (n : int) (acc : int) :=
+    if lt n 2 then acc
+    else go (sub n 1) (mul acc n);
+  go n 1
+
+def condloopacc {Acc : vtype} {Arg : vtype}
+  (init : Acc)
+  (cond : Acc -> Arg -> bool)
+  (argChange : Acc -> Arg -> Arg)
+  (accChange : Acc -> Arg -> Acc) : Arg -> Acc =
+  \arg =>
+    let rec go (acc : Acc) (arg : Arg) :=
+      if cond acc arg then acc
+      else go (accChange acc arg) (argChange acc arg);
+    go init arg 
+
+def fac2 := condloopacc 1 (\_ n => lt n 2) (\_ n => sub n 1) (\acc n => mul acc n)
+
+def fac3 (n : int) :=
+  let rec go (n : int) :=
+    if lt n 2 then \acc => acc
+    else \acc => go (sub n 1) (mul acc n);
+  go n 1
+
+def fac4 := fac2

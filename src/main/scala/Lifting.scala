@@ -31,7 +31,7 @@ object Lifting:
   private type Ren = Map[LocalName, RenEntry]
   private enum RenEntry:
     case RenVar(newname: LocalName)
-    case LiftedFun(name: Name, extraParams: List[LocalName])
+    case LiftedFun(name: Name, extraArgs: List[(LocalName, CTy)])
   import RenEntry.*
 
   private def liftDef(d: Def): List[JVM.Def] =
@@ -39,7 +39,8 @@ object Lifting:
     given emit: Emit = new Emit(d.name)
     given Supply = new Supply(0)
     given Ren = renParams(d.ty)
-    val value = go(removeLams(d.ty, d.value))
+    given Name = d.name
+    val value = go(removeLams(d.ty, d.value), Some(lamTypes(d.value)))
     val retty = goVTy(d.ty.ret)
     val cdef =
       if d.ty.params.isEmpty then JVM.Def.Value(d.name, retty, value)
@@ -48,28 +49,32 @@ object Lifting:
         JVM.Def.Function(d.name, ps, retty, value)
     emit.toList ++ List(cdef)
 
-  private def renParams(ty: CTy, ren: Ren = Map.empty)(using
+  private inline def renParams(ty: CTy, ren: Ren = Map.empty)(using
+      supply: Supply
+  ): Ren = renParamsN(ty.params.size, ren)
+
+  @tailrec
+  private def renParamsN(n: Int, ren: Ren = Map.empty, start: Int = 0)(using
       supply: Supply
   ): Ren =
-    @tailrec
-    def go(ps: List[VTy], i: Int, ren: Ren): Ren =
-      ps match
-        case Nil       => ren
-        case _ :: rest => go(rest, i + 1, ren + (i -> RenVar(supply.next())))
-    go(ty.params, 0, ren)
+    start match
+      case _ if start >= n => ren
+      case start =>
+        renParamsN(n, ren + (start -> RenVar(supply.next())), start + 1)
 
-  private def go(t: Tm)(using
+  // TODO: detect join points
+  private def go(t: Tm, toplevel: Option[List[(Int, CTy)]] = None)(using
       ren: Ren,
       emit: Emit,
-      supply: Supply
+      supply: Supply,
+      defName: Name
   ): JVM.Tm =
     t match
       case Tm.Lam(_, _, _, _) => impossible()
       case Tm.Local(ix, ty) =>
         ren(ix) match
-          case RenVar(x) => JVM.Tm.Local(x, goCTy(ty))
-          case LiftedFun(_, _) =>
-            impossible() // TODO: is this really impossible?
+          case RenVar(x)       => JVM.Tm.Local(x, goCTy(ty))
+          case LiftedFun(_, _) => impossible()
       case Tm.Global(x)      => JVM.Tm.Global(x, Nil)
       case Tm.Prim(p)        => JVM.Tm.Prim(p, Nil)
       case Tm.BoolLit(v)     => JVM.Tm.bool(v)
@@ -79,31 +84,107 @@ object Lifting:
       case Tm.App(_, _) =>
         val (f, a) = t.flattenApps
         f match
-          // case Tm.Local(ix, ty) => ??? // TODO: join point or lifted function
-          case Tm.Global(x) => JVM.Tm.Global(x, a.map(go))
-          case Tm.Prim(p)   => JVM.Tm.Prim(p, a.map(go))
-          case _            => impossible()
+          case Tm.Global(x) => JVM.Tm.Global(x, a.map(a => go(a)))
+          case Tm.Prim(p)   => JVM.Tm.Prim(p, a.map(a => go(a)))
+          case Tm.Local(ix, ty) =>
+            ren(ix) match
+              case RenVar(x) => impossible()
+              case LiftedFun(x, args) =>
+                val extraArgs = args.map((x, ty) => go(Tm.Local(x, ty)))
+                JVM.Tm.Global(x, extraArgs ++ a.map(a => go(a)))
+          case _ => impossible()
 
       case Tm.Let(x, _, CTy(Nil, ty), v, b) =>
         val y = supply.next()
-        JVM.Tm.Let(y, goVTy(ty), go(v), go(b)(using ren = ren + (x -> y)))
+        JVM.Tm.Let(
+          y,
+          goVTy(ty),
+          go(v),
+          go(b)(using ren = ren + (x -> RenVar(y)))
+        )
 
       case Tm.Let(x, _, ty, v, b) =>
         val freeps = free(v)
-        val freen = freeps.size
         val y = emit.emit { y =>
+          val freen = freeps.size
           val ps = freeps.map((x, ty) =>
             (x, goCTy(ty))
           ) ++ ty.params.zipWithIndex.map((ty, x) => (x + freen, goVTy(ty)))
-          println(ps)
-          val renamed = v
-          val body = go(removeLams(ty, renamed))
+          given Supply = new Supply(0)
+          given ren: Ren = renLifted(freeps ++ lamTypes(v))
+          given Name = y
+          val body = go(removeLams(ty, v))
           JVM.Def.Function(y, ps, goVTy(ty.ret), body)
         }
-        // TODO: replace var refs with call to lifted function
-        go(b)(using ren = ren + (x -> LiftedFun(y, ???)))
+        go(b)(using ren = ren + (x -> LiftedFun(y, freeps)))
+
+      case Tm.LetRec(x, _, ty, v, b) if shouldNotBeLifted(toplevel, x, b) =>
+        val newbody = removeLams(ty, v)
+        given Ren = renToplevel(
+          lamTypes(v),
+          toplevel.get,
+          ren + (x -> LiftedFun(defName, Nil))
+        )
+        go(newbody)
       case Tm.LetRec(x, _, ty, v, b) =>
-        ???
+        val freeps = free(v).filterNot((y, _) => x == y)
+        val y = emit.emit { y =>
+          val freen = freeps.size
+          val ps = freeps.map((x, ty) =>
+            (x, goCTy(ty))
+          ) ++ ty.params.zipWithIndex.map((ty, x) => (x + freen, goVTy(ty)))
+          given Supply = new Supply(0)
+          given ren: Ren =
+            renLifted(freeps ++ lamTypes(v)) + (x -> LiftedFun(y, freeps))
+          given Name = y
+          val body = go(removeLams(ty, v))
+          JVM.Def.Function(y, ps, goVTy(ty.ret), body)
+        }
+        go(b)(using ren = ren + (x -> LiftedFun(y, freeps)))
+
+  @tailrec
+  private def renLifted(ps: List[(Int, CTy)], ren: Ren = Map.empty)(using
+      supply: Supply
+  ): Ren =
+    ps match
+      case Nil            => ren
+      case (i, _) :: rest => renLifted(rest, ren + (i -> RenVar(supply.next())))
+
+  private def lamTypes(tm: Tm): List[(Int, CTy)] =
+    tm match
+      case Tm.Lam(x, _, ty, b) => (x, CTy(ty)) :: lamTypes(b)
+      case _                   => Nil
+
+  private def renToplevel(
+      lams: List[(Int, CTy)],
+      top: List[(Int, CTy)],
+      ren: Ren
+  ): Ren =
+    (lams, top) match
+      case ((x, _) :: rest1, (y, _) :: rest2) =>
+        renToplevel(rest1, rest2, ren + (x -> RenVar(y)))
+      case _ => impossible()
+
+  private def shouldNotBeLifted(
+      toplevel: Option[List[(Int, CTy)]],
+      x: LocalName,
+      body: Tm
+  ): Boolean =
+    toplevel match
+      case Some(ps) =>
+        body match
+          case Tm.Local(y, _) => x == y
+          case Tm.App(_, _) =>
+            val (f, args) = body.flattenApps
+            f match
+              case Tm.Local(y, _) if x == y && args.size == ps.size =>
+                ps.zip(args).forall {
+                  case ((x, _), Tm.Local(y, _)) => x == y
+                  case _                        => false
+                }
+              case _ => false
+          case _ => false
+      case _ => false
 
   private inline def goCTy(t: CTy): JVM.Ty =
     if t.params.nonEmpty then impossible() else goVTy(t.ret)

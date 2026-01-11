@@ -48,9 +48,9 @@ object IR:
       case Prim(p)                => s"$p"
       case BoolLit(v)             => s"$v"
       case IntLit(v)              => s"$v"
-      case Let(x, _, ty, v, b)    => s"(let $x : $ty = $v; $b)"
-      case LetRec(x, _, ty, v, b) => s"(let rec $x : $ty = $v; $b)"
-      case Lam(x, _, ty, b)       => s"(\\($x : $ty) => $b)"
+      case Let(x, _, ty, v, b)    => s"(let '$x : $ty = $v; $b)"
+      case LetRec(x, _, ty, v, b) => s"(let rec '$x : $ty = $v; $b)"
+      case Lam(x, _, ty, b)       => s"(\\('$x : $ty) => $b)"
       case App(fn, arg)           => s"($fn $arg)"
       case If(_, c, t, f)         => s"(if $c then $t else $f)"
 
