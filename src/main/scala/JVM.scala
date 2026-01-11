@@ -13,12 +13,24 @@ object JVM:
     override def toString: String = defs.mkString("\n")
     def toList: List[Def] = defs
 
-  final case class Def(name: Name, params: List[Ty], retty: Ty, value: Tm):
-    override def toString: String =
-      s"def $name ${params.mkString("(", ",", ")")} : $retty = $value"
+  type LocalName = Int
+
+  enum Def:
+    case Value(name: Name, ty: Ty, value: Tm)
+    case Function(
+        name: Name,
+        params: List[(LocalName, Ty)],
+        retty: Ty,
+        body: Tm
+    )
+
+    override def toString: String = this match
+      case Value(x, t, v) =>
+        s"def $x : $t = $v"
+      case Function(x, ps, t, b) =>
+        s"def $x ${ps.mkString("(", ",", ")")} : $t = $b"
 
   // TODO: join points
-  type LocalName = Int
   enum Tm:
     case Local(ix: LocalName, ty: Ty)
     case Global(name: Name, args: List[Tm])
