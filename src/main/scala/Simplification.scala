@@ -13,11 +13,14 @@ object Simplification:
   private type Subst = Map[LocalName, Tm]
 
   private def simplifyDef(d: Def): Def =
-    debug(s"simplifyDef ${d.name}")
-    val (ps, nargs, nscope) = eta(d.ty)(using Set.empty)
-    val expanded = go(d.value, nargs)(using nscope, Map.empty)
-    val simp = correctUsages(simplify(lams(ps, expanded)))
-    Def(d.name, d.ty, simp)
+    d match
+      case Def.Value(name, ty, value) =>
+        debug(s"simplifyDef ${name}")
+        val (ps, nargs, nscope) = eta(ty)(using Set.empty)
+        val expanded = go(value, nargs)(using nscope, Map.empty)
+        val simp = correctUsages(simplify(lams(ps, expanded)))
+        Def.Value(name, ty, simp)
+      case d => d
 
   @tailrec
   private def simplify(t: Tm): Tm =
@@ -36,6 +39,9 @@ object Simplification:
         else args.foldLeft(t)(Tm.App.apply)
       case Tm.BoolLit(_) => t
       case Tm.IntLit(_)  => t
+
+      case Tm.Con(dx, cx, ix, args) =>
+        Tm.Con(dx, cx, ix, args.map(a => go(a, Nil)))
 
       case Tm.Local(x, ty) => args.foldLeft(subst.getOrElse(x, t))(Tm.App.apply)
 
@@ -117,12 +123,13 @@ object Simplification:
     go(ty.params, v)
 
   private def isSmall(t: Tm) = t match
-    case Tm.Local(_, _)  => true
-    case Tm.Global(name) => true
-    case Tm.Prim(_)      => true
-    case Tm.BoolLit(_)   => true
-    case Tm.IntLit(_)    => true
-    case _               => false
+    case Tm.Local(_, _)       => true
+    case Tm.Global(name)      => true
+    case Tm.Prim(_)           => true
+    case Tm.BoolLit(_)        => true
+    case Tm.IntLit(_)         => true
+    case Tm.Con(_, _, _, Nil) => true
+    case _                    => false
 
   private def foldConstants2(p: RuntimePrimitive, a: Tm, b: Tm): Option[Tm] =
     import RuntimePrimitive.*
@@ -175,6 +182,14 @@ object Simplification:
         val (t, ut) = correctUsagesRec(t0)
         val (f, uf) = correctUsagesRec(f0)
         (Tm.If(ty, c, t, f), mergeUsages(uc, mergeUsages(ut, uf)))
+      case Tm.Con(dx, cx, ix, args) =>
+        val (cargs, usages) =
+          args.foldLeft[(List[Tm], Usages)]((Nil, Map.empty)) {
+            case ((cargs, usages), arg) =>
+              val (a, ua) = correctUsagesRec(arg)
+              (cargs ++ List(a), mergeUsages(usages, ua))
+          }
+        (Tm.Con(dx, cx, ix, cargs), usages)
 
       case Tm.Let(x, _, ty, v0, b0) =>
         val (v, uv) = correctUsagesRec(v0)

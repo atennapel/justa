@@ -286,7 +286,9 @@ object Unification:
     inline def goClos0(c: Clos1) =
       psubst1(c(V0.Var(psub.cod)))(using psub.lift1)
     forceMetas1(v) match
-      case V.Rigid(Head.Prim(p), sp) => goSp(T1.Prim(p), sp)
+      case V.Rigid(Head.Prim(p), sp)     => goSp(T1.Prim(p), sp)
+      case V.Rigid(Head.TypeCon(x), sp)  => goSp(T1.TypeCon(x), sp)
+      case V.Rigid(Head.Con(dx, cx), sp) => goSp(T1.Con(dx, cx), sp)
       case V.Rigid(Head.Var(x), sp) =>
         psub.sub.get(x.expose) match
           case None         => err(s"out of scope $x")

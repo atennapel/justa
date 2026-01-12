@@ -77,6 +77,8 @@ object Pretty:
       case T1.Var(_)                => pretty1(tm)
       case T1.Global(_)             => pretty1(tm)
       case T1.Prim(_)               => pretty1(tm)
+      case T1.TypeCon(_)            => pretty1(tm)
+      case T1.Con(_, _)             => pretty1(tm)
       case T1.Meta(_)               => pretty1(tm)
       case T1.Lift(_, _)            => pretty1(tm)
       case T1.Quote(_)              => pretty1(tm)
@@ -130,8 +132,10 @@ object Pretty:
         case DoBind(x) if ns.take(ix.expose).contains(DoBind(x)) =>
           s"$x@${ns.size - ix.expose - 1}"
         case DoBind(x) => s"$x"
-    case T1.Global(x) => s"$x"
-    case T1.Prim(p)   => s"$p"
+    case T1.Global(x)  => s"$x"
+    case T1.Prim(p)    => s"$p"
+    case T1.TypeCon(x) => s"$x"
+    case T1.Con(_, cx) => s"$cx"
     case T1.Let(x, t, v, b) =>
       s"let $x : ${pretty1(t)} = ${pretty1(v)}; ${prettyLift1(x.toBind, b)}"
 

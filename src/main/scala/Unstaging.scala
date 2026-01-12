@@ -2,17 +2,24 @@ import Common.*
 import Core.{Env, Val1 as V, Val0 as V0, Tm0, Tm1}
 import IR.*
 import State.GlobalEntry
-import Evaluation.{eval1, forceAll1}
+import Evaluation.{eval1, forceAll1, unstageUnder}
+
+import scala.annotation.tailrec
+import scala.collection.mutable
 
 object Unstaging:
   def unstageState(): Defs =
-    Defs(State.allGlobals.flatMap {
+    monoStore.clear()
+    newDefs.clear()
+    val ds = State.allGlobals.flatMap {
       case GlobalEntry.Def0(x, tm, _, _, _, vty, _) =>
         val nty = goCTy(vty)
         val ntm = unstage(tm)
-        Some(Def(x, nty, ntm))
+        Some(Def.Value(x, nty, ntm))
       case _ => None
-    })
+    }
+    val extraDefs = newDefs.toList
+    Defs(extraDefs ++ ds)
 
   private type TEnv = List[CTy]
   private type Ren = List[LocalName]
@@ -80,8 +87,33 @@ object Unstaging:
           case Tm1.Prim(p @ Primitive.Add) => Tm.Prim(RuntimePrimitive.Add)
           case Tm1.Prim(p @ Primitive.Sub) => Tm.Prim(RuntimePrimitive.Sub)
           case Tm1.Prim(p @ Primitive.Mul) => Tm.Prim(RuntimePrimitive.Mul)
-          case _                           => impossible()
-
+          case _ =>
+            @tailrec
+            def apps(
+                tm: Tm1,
+                args: List[(Tm1, Icit)] = Nil
+            ): (Tm1, List[(Tm1, Icit)]) =
+              tm match
+                case Tm1.App(f, a, i) => apps(f, (a, i) :: args)
+                case Tm1.Prim(_)      => (tm, args)
+                case Tm1.Con(_, _)    => (tm, args)
+                case _                => impossible()
+            def takeImpl(args: List[(Tm1, Icit)]): List[Tm1] =
+              args match
+                case (a, Icit.Impl) :: tl => a :: takeImpl(tl)
+                case _                    => Nil
+            def stWithEnv(t: Tm1, e: Env) = unstageUnder(t.splice, e)
+            inline def st(t: Tm1) = stWithEnv(t, venv)
+            inline def stgo(t: Tm1) = go(st(t))
+            apps(tm) match
+              case (Tm1.Con(dx, cx), args) =>
+                val ps = takeImpl(args).map(eval1)
+                val as = args.drop(ps.size).map((t, _) => stgo(t))
+                monomorphize(dx, ps) match
+                  case IR.VTy.Data(mx) =>
+                    IR.Tm.Con(mx, cx, conIndex(dx, cx), as)
+                  case _ => impossible()
+              case _ => impossible()
   // types
   private def goCTy(ty: Tm1, env: Env = Env.Empty): CTy =
     goCTy(eval1(ty)(using env))
@@ -95,6 +127,56 @@ object Unstaging:
 
   private def goVTy(ty: V): VTy =
     forceAll1(ty) match
-      case V.Bool => VTy.Bool
-      case V.Int  => VTy.Int
-      case _      => impossible()
+      case V.Bool             => VTy.Bool
+      case V.Int              => VTy.Int
+      case V.TypeCon(x, args) => monomorphize(x, args.map((a, _) => a))
+      case _                  => impossible()
+
+  // monomorphization
+  private type MonoKey = (Name, List[IR.VTy])
+  private var currentModule: Option[Name] = None
+  private val monoStore = mutable.Map.empty[MonoKey, Name]
+  private val monoRecStore = mutable.Map.empty[Assoc[IR.VTy], Name]
+  private val newDefs = mutable.ArrayBuffer.empty[IR.Def]
+
+  private def conIndex(dx: Name, cx: Name): Int =
+    State.getGlobal(dx) match
+      case Some(GlobalEntry.Data(_, _, xs, _, _, _)) => xs.indexOf(cx)
+      case _                                         => impossible()
+
+  private def monomorphize(mx: Name, ps: List[V]): IR.VTy =
+    val xs = State.getGlobal(mx) match
+      case Some(GlobalEntry.Data(_, _, xs, _, _, _)) => xs
+      case _                                         => impossible()
+    val eps = ps.map(goVTy)
+    val (nx, alreadyDone) = monomorphize(mx, eps)
+    if !alreadyDone then
+      val cons = xs.map { cx =>
+        State.getGlobal(cx) match
+          case Some(GlobalEntry.Con(_, _, ps, _, _, _, _, _)) => cx -> ps
+          case _                                              => impossible()
+      }
+      val env = Env(ps)
+      val ecs = cons.map { (cx, ts) =>
+        val ets = ts.map((x, t) => (x.toOption, goVTy(t, env)))
+        IR.Constructor(cx, ets)
+      }
+      newDefs += IR.Def.Data(nx, ecs)
+    IR.VTy.Data(nx)
+
+  private def monomorphize(name: Name, ps: List[IR.VTy]): (Name, Boolean) =
+    val k = (name, ps)
+    monoStore.get(k) match
+      case Some(x) => (x, true)
+      case None =>
+        val x = createName(name, ps)
+        monoStore += k -> x
+        (x, false)
+
+  private def createName(name: Name, ps: List[IR.VTy]): Name =
+    def paramStr(p: IR.VTy): String = p match
+      case VTy.Bool    => "bool"
+      case VTy.Int     => "int"
+      case VTy.Data(x) => s"$x"
+    if ps.isEmpty then name
+    else Name(s"${name}_${ps.map(paramStr).mkString("_")}")

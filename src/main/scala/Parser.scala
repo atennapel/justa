@@ -29,6 +29,7 @@ object Parser:
   private val keywords: Set[String] =
     Set(
       "def",
+      "data",
       "let",
       "rec",
       "if",
@@ -49,7 +50,7 @@ object Parser:
       "mul"
     )
   private val symbols1: Set[Char] =
-    Set(':', ';', '=', '\\', '(', ')', '{', '}', '^', '`', '$')
+    Set(':', ';', '|', '=', '\\', '(', ')', '{', '}', '^', '`', '$')
   private val symbols2: Map[Char, Set[Char]] =
     Map(':' -> Set('='), '-' -> Set('>'), '=' -> Set('>'))
 
@@ -141,6 +142,7 @@ object Parser:
       val (pos, isMeta, x, ty, body) = parseDefPart()
       if isMeta then Some(Def.Def1(pos, x, ty, body))
       else Some(Def.Def0(pos, x, ty, body))
+    else if tryKeyword("data") then Some(parseDataDef())
     else None
 
   private def createPi(ps: List[DefParam], rty: Ty, isMeta: Boolean)(using
@@ -212,6 +214,38 @@ object Parser:
       val arginfo = named.map(ArgInfo.Named.apply).getOrElse(ArgInfo.Icit(Impl))
       Some((pos, arginfo, xs, ty))
     else tryBind().map(x => (ctx.pos, ArgInfo.Icit(Expl), List(x), None))
+
+  private def parseDataDef()(using ctx: Ctx): Def =
+    val pos = ctx.pos
+    val dx = name()
+    val ps = list(tryName)
+    val continue = if trySymbol(":=") then { trySymbol("|"); true }
+    else trySymbol("|")
+    val cons = if continue then
+      val hd = parseDataCon()
+      val tl = mutable.ArrayBuffer.empty[Constructor]
+      while trySymbol("|") do tl += parseDataCon()
+      hd :: tl.toList
+    else Nil
+    Def.Data(pos, dx, ps, cons)
+
+  private def parseDataCon()(using ctx: Ctx): Constructor =
+    val cx = name()
+    val pos = ctx.pos
+    val ps = list(parseDataParam).flatten
+    Constructor(pos, cx, ps)
+
+  private def parseDataParam()(using
+      ctx: Ctx
+  ): Option[List[(Bind, Ty)]] =
+    if trySymbol("(") then
+      val x = bind()
+      val xs = list(tryBind)
+      symbol(":")
+      val ty = parseExpr()
+      symbol(")")
+      Some((x :: xs).map(x => (x, ty)))
+    else tryParseAtom().map(t => List((DontBind, t)))
 
   // expressions
   private def tryParseAtom()(using ctx: Ctx): Option[Tm] =

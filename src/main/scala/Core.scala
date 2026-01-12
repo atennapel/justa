@@ -53,6 +53,8 @@ object Core:
     case Var(ix: Ix)
     case Global(name: Name)
     case Prim(prim: Primitive)
+    case TypeCon(name: Name)
+    case Con(dx: Name, cx: Name)
     case Let(name: Name, ty: Ty, value: Tm1, body: Tm1)
 
     case Pi(name: Bind, icit: Icit, ty: Ty, body: Ty)
@@ -92,8 +94,10 @@ object Core:
 
     override def toString: String = this match
       case Var(ix)                 => s"'$ix"
-      case Global(x)               => x.toString
-      case Prim(p)                 => p.toString
+      case Global(x)               => s"$x"
+      case Prim(p)                 => s"$p"
+      case TypeCon(x)              => s"$x"
+      case Con(_, x)               => s"$x"
       case Let(x, ty, v, b)        => s"(let $x : $ty = $v; $b)"
       case Pi(x, i, ty, b)         => s"(${i.wrap(s"$x : $ty")} -> $b)"
       case Lam(x, i, ty, b)        => s"(\\${i.wrap(s"$x : $ty")} => $b)"
@@ -117,6 +121,8 @@ object Core:
     val CV = Prim(Primitive.CV)
     val Val = Prim(Primitive.Val)
     val Comp = Prim(Primitive.Comp)
+    val TypeV = App(Prim(Primitive.Type), Val, Icit.Expl)
+    val TypeC = App(Prim(Primitive.Type), Comp, Icit.Expl)
 
   enum Locals:
     case Empty
@@ -179,6 +185,8 @@ object Core:
   enum Head:
     case Var(lvl: Lvl)
     case Prim(prim: Primitive)
+    case TypeCon(name: Name)
+    case Con(dx: Name, cx: Name)
 
   enum UnfoldHead:
     case Global(name: Name)
@@ -211,6 +219,15 @@ object Core:
       case Empty => true
       case _     => false
 
+    def toList: List[(Val1, Icit)] = this match
+      case Spine.App(sp, arg, i) => sp.toList ++ List((arg, i))
+      case Spine.Empty           => Nil
+      case _                     => impossible()
+
+  object Spine:
+    def apps(args: List[(Val1, Icit)]): Spine =
+      args.foldLeft(Spine.Empty) { case (s, (a, i)) => Spine.App(s, a, i) }
+
   type VTy = Val1
   enum Val1:
     case Rigid(head: Head, spine: Spine)
@@ -242,6 +259,21 @@ object Core:
       def unapply(value: Val1): Option[Primitive] = value match
         case Rigid(Head.Prim(hd), Spine.Empty) => Some(hd)
         case _                                 => None
+
+    object TypeCon:
+      def apply(name: Name, args: List[(VTy, Icit)] = Nil): Val1 =
+        Rigid(Head.TypeCon(name), Spine.apps(args))
+      def unapply(value: Val1): Option[(Name, List[(VTy, Icit)])] = value match
+        case Rigid(Head.TypeCon(hd), spine) => Some((hd, spine.toList))
+        case _                              => None
+
+    object Con:
+      def apply(dx: Name, cx: Name, args: List[(VTy, Icit)] = Nil): Val1 =
+        Rigid(Head.Con(dx, cx), Spine.apps(args))
+      def unapply(value: Val1): Option[(Name, Name, List[(VTy, Icit)])] =
+        value match
+          case Rigid(Head.Con(dx, cx), spine) => Some((dx, cx, spine.toList))
+          case _                              => None
 
     object Type:
       def apply(cv: Val1): Val1 =

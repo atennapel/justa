@@ -36,19 +36,27 @@ object Lifting:
   import RenEntry.*
 
   private def liftDef(d: Def): List[JVM.Def] =
-    debug(s"liftDef ${d.name}")
-    given emit: Emit = new Emit(d.name)
-    given Supply = new Supply(0)
-    given Ren = renParams(d.ty)
-    given Name = d.name
-    val value = go(removeLams(d.ty, d.value), true, Some(lamTypes(d.value)))
-    val retty = goVTy(d.ty.ret)
-    val cdef =
-      if d.ty.params.isEmpty then JVM.Def.Value(d.name, retty, value)
-      else
-        val ps = d.ty.params.zipWithIndex.map((ty, ix) => (ix, goVTy(ty)))
-        JVM.Def.Function(d.name, ps, retty, value)
-    emit.toList ++ List(cdef)
+    d match
+      case Def.Value(name, ty, v) =>
+        debug(s"liftDef ${name}")
+        given emit: Emit = new Emit(name)
+        given Supply = new Supply(0)
+        given Ren = renParams(ty)
+        given Name = name
+        val value = go(removeLams(ty, v), true, Some(lamTypes(v)))
+        val retty = goVTy(ty.ret)
+        val cdef =
+          if ty.params.isEmpty then JVM.Def.Value(name, retty, value)
+          else
+            val ps = ty.params.zipWithIndex.map((ty, ix) => (ix, goVTy(ty)))
+            JVM.Def.Function(name, ps, retty, value)
+        emit.toList ++ List(cdef)
+      case Def.Data(x, cs) =>
+        debug(s"liftDef ${x}")
+        val ecs = cs.map { case Constructor(x, ps) =>
+          JVM.Constructor(x, ps.map((x, ty) => (x, goVTy(ty))))
+        }
+        List(JVM.Def.Data(x, ecs))
 
   private inline def renParams(ty: CTy, ren: Ren = Map.empty)(using
       supply: Supply
@@ -84,8 +92,11 @@ object Lifting:
       case Tm.Prim(p)    => JVM.Tm.Prim(p, Nil)
       case Tm.BoolLit(v) => JVM.Tm.bool(v)
       case Tm.IntLit(v)  => JVM.Tm.IntLit(v)
+
       case Tm.If(_, c, t, f) =>
         JVM.Tm.If(go(c, false), go(t, tail), go(f, tail))
+      case Tm.Con(dx, cx, ix, args) =>
+        JVM.Tm.Con(dx, cx, ix, args.map(go(_, false)))
 
       case Tm.App(_, _) =>
         val (f, a) = t.flattenApps
@@ -234,8 +245,9 @@ object Lifting:
 
   private def goVTy(t: VTy): JVM.Ty =
     t match
-      case VTy.Bool => JVM.Ty.Bool
-      case VTy.Int  => JVM.Ty.Int
+      case VTy.Bool    => JVM.Ty.Bool
+      case VTy.Int     => JVM.Ty.Int
+      case VTy.Data(x) => JVM.Ty.Data(x)
 
   private def removeLams(ty: CTy, t: Tm): Tm =
     @tailrec
@@ -293,6 +305,8 @@ object Lifting:
         isUsedInTailOnly(x, false, c) &&
         isUsedInTailOnly(x, tail, t) &&
         isUsedInTailOnly(x, tail, f)
+      case Tm.Con(_, _, _, args) =>
+        args.forall(isUsedInTailOnly(x, false, _))
 
       case Tm.Local(y, ty) => if x == y then tail else true
 

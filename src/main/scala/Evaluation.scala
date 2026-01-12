@@ -116,6 +116,8 @@ object Evaluation:
     case T1.Var(ix)          => var1(ix)
     case T1.Global(x)        => vglobal1(x)
     case T1.Prim(p)          => V1.Prim(p)
+    case T1.TypeCon(x)       => V1.TypeCon(x)
+    case T1.Con(dx, cx)      => V1.Con(dx, cx)
     case T1.Let(x, ty, v, b) => eval1(b)(using Env.Ext1(env, eval1(v)))
     case T1.Pi(x, i, ty, b)  => V1.Pi(x, i, eval1(ty), Clos1(b))
     case T1.Lam(x, i, ty, b) => V1.Lam(x, i, eval1(ty), Clos1(b))
@@ -223,8 +225,10 @@ object Evaluation:
     force(v) match
       case V1.Rigid(hd, sp) =>
         hd match
-          case Head.Var(lvl) => goSp(T1.Var(lvl.toIx), sp)
-          case Head.Prim(p)  => goSp(T1.Prim(p), sp)
+          case Head.Var(lvl)    => goSp(T1.Var(lvl.toIx), sp)
+          case Head.Prim(p)     => goSp(T1.Prim(p), sp)
+          case Head.TypeCon(x)  => goSp(T1.TypeCon(x), sp)
+          case Head.Con(dx, cx) => goSp(T1.Con(dx, cx), sp)
       case V1.Flex(id, sp)                        => goSp(T1.Meta(id), sp)
       case V1.Unfold(UnfoldHead.Global(x), sp, _) => goSp(T1.Global(x), sp)
       case V1.Pi(x, i, ty, b)   => T1.Pi(x, i, go1(ty), goClos(b))

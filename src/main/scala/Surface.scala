@@ -6,15 +6,38 @@ object Surface:
     override def toString: String = defs.mkString("\n")
     def toList: List[Def] = defs
 
+  final case class Constructor(
+      pos: PosInfo,
+      name: Name,
+      params: List[(Bind, Ty)]
+  ):
+    override def toString: String =
+      params match
+        case Nil => s"$name"
+        case _ =>
+          val ps = params
+            .map((x, t) => s"($x : $t)")
+            .mkString(" ")
+          s"$name $ps"
+
   enum Def:
     case Def0(pos: PosInfo, name: Name, ty: Option[Ty], value: Tm)
     case Def1(pos: PosInfo, name: Name, ty: Option[Ty], value: Tm)
+    case Data(
+        pos: PosInfo,
+        name: Name,
+        params: List[Name],
+        cons: List[Constructor]
+    )
 
     override def toString: String = this match
       case Def0(_, x, t, v) =>
         s"def $x${t.map(t => s" : $t").getOrElse("")} := $v"
       case Def1(_, x, t, v) =>
         s"def $x${t.map(t => s" : $t").getOrElse("")} = $v"
+      case Data(_, x, ps, cs) =>
+        val css = cs.mkString(" | ")
+        s"data $x ${ps.mkString(" ")} := $css"
 
   enum ArgInfo:
     case Named(name: Name)

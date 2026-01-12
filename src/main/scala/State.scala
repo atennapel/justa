@@ -74,13 +74,33 @@ object State:
         value: Val1,
         vty: VTy
     )
+    case Data(
+        x: Name,
+        params: List[Name],
+        cons: List[Name],
+        tm: Tm1,
+        ty: Val1,
+        unitCon: Option[Name]
+    )
+    case Con(
+        x: Name,
+        typarams: List[Name],
+        params: List[(Bind, Ty)],
+        dx: Name,
+        ix: Int,
+        tm: Tm1,
+        ty: Ty,
+        vty: VTy
+    )
     def name: Name = this match
-      case Def0(x, _, _, _, _, _, _) => x
-      case Def1(x, _, _, _, _)       => x
+      case Def0(x, _, _, _, _, _, _)   => x
+      case Def1(x, _, _, _, _)         => x
+      case Data(x, _, _, _, _, _)      => x
+      case Con(x, _, _, _, _, _, _, _) => x
 
   private val globals: ArrayBuffer[GlobalEntry] = ArrayBuffer.empty
 
-  def setGlobal(entry: GlobalEntry): Unit = globals += entry
+  def addGlobal(entry: GlobalEntry): Unit = globals += entry
   def getGlobal(x: Name): Option[GlobalEntry] =
     globals.findLast(e => e.name == x)
 

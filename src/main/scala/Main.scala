@@ -1,4 +1,4 @@
-import Common.PosInfo
+import Common.{PosInfo, Bind}
 import Debug.*
 
 import scala.io.Source
@@ -14,6 +14,8 @@ object Main:
     }.get
     try
       val sdefs = Parser.parse(text)
+      println(sdefs)
+      println()
       Elaboration.elaborate(sdefs)
       println()
       given ctx: Ctx = Ctx.empty(PosInfo.start)
@@ -25,13 +27,22 @@ object Main:
       }
       println()
       State.allGlobals.foreach {
-        case State.GlobalEntry.Def0(x, tm, ty, cv, vv, vty, vcv) =>
+        case State.GlobalEntry.Def0(x, tm, _, _, _, vty, _) =>
           println(
             s"def $x : ${ctx.pretty1(vty)} := ${ctx.pretty0(Evaluation.unstage(tm))}"
           )
-        case State.GlobalEntry.Def1(x, tm, ty, vv, vty) =>
+        case State.GlobalEntry.Def1(x, tm, _, _, vty) =>
           println(
             s"def $x : ${ctx.pretty1(vty)} = ${ctx.pretty1(tm)}"
+          )
+        case State.GlobalEntry.Data(x, Nil, _, _, _, _) => println(s"data $x")
+        case State.GlobalEntry.Data(x, ps, _, _, _, _) =>
+          println(s"data $x ${ps.mkString(" ")}")
+        case State.GlobalEntry.Con(x, _, Nil, _, _, _, _, _) => println(s"| $x")
+        case State.GlobalEntry.Con(x, tps0, ps, _, _, _, _, _) =>
+          val tps = tps0.map(x => Bind.DoBind(x))
+          println(
+            s"| $x ${ps.map((x, t) => s"($x : ${Pretty.pretty1(t)(using tps)})").mkString(" ")}"
           )
       }
       println()

@@ -4,16 +4,30 @@ object JVM:
   enum Ty:
     case Bool
     case Int
+    case Data(name: Name)
 
     override def toString: String = this match
-      case Bool => "bool"
-      case Int  => "int"
+      case Bool    => "bool"
+      case Int     => "int"
+      case Data(x) => s"$x"
 
   final case class Defs(defs: List[Def]):
     override def toString: String = defs.mkString("\n")
     def toList: List[Def] = defs
 
   type LocalName = Int
+
+  final case class Constructor(
+      name: Name,
+      params: List[(Option[Name], Ty)]
+  ):
+    override def toString: String = params match
+      case Nil => s"$name"
+      case _ =>
+        val ps = params
+          .map((x, t) => s"($x : $t)")
+          .mkString(" ")
+        s"$name $ps"
 
   enum Def:
     case Value(name: Name, ty: Ty, value: Tm)
@@ -23,6 +37,7 @@ object JVM:
         retty: Ty,
         body: Tm
     )
+    case Data(name: Name, constructors: List[Constructor])
 
     override def toString: String = this match
       case Value(x, t, v) =>
@@ -31,6 +46,8 @@ object JVM:
         s"def $x () : $t = $b"
       case Function(x, ps, t, b) =>
         s"def $x ${ps.map((x, ty) => s"('$x : $ty)").mkString(" ")} : $t = $b"
+      case Data(x, Nil) => s"data $x"
+      case Data(x, cs)  => s"data $x = ${cs.mkString(" | ")}"
 
   enum Tm:
     case Local(ix: LocalName, ty: Ty)
@@ -55,6 +72,8 @@ object JVM:
     )
     case Jump(name: LocalName, args: List[Tm])
 
+    case Con(dx: Name, cx: Name, ix: Int, args: List[Tm])
+
     override def toString: String = this match
       case Local(ix, _)     => s"'$ix"
       case Global(x, args)  => s"$x${args.mkString("(", ",", ")")}"
@@ -71,8 +90,10 @@ object JVM:
         s"(join rec '$x = $v; $b"
       case JoinRec(x, ps, v, b) =>
         s"(join rec '$x ${ps.map((x, t) => s"('$x : $t)").mkString(" ")} = $v; $b"
-      case Jump(x, Nil)  => s"(jump '$x)"
-      case Jump(x, args) => s"(jump '$x${args.mkString("(", ",", ")")})"
+      case Jump(x, Nil)        => s"(jump '$x)"
+      case Jump(x, args)       => s"(jump '$x${args.mkString("(", ",", ")")})"
+      case Con(_, cx, _, Nil)  => s"$cx"
+      case Con(_, cx, _, args) => s"($cx ${args.mkString(" ")})"
 
   object Tm:
     val True = BoolLit(true)

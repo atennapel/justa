@@ -500,6 +500,10 @@ object Elaboration:
                   Infer0(T0.Global(x), ty, cv)
                 case Some(GlobalEntry.Def1(_, _, _, _, ty)) =>
                   Infer1(T1.Global(x), ty)
+                case Some(GlobalEntry.Data(_, _, _, tm, ty, _)) =>
+                  Infer1(tm, ty)
+                case Some(GlobalEntry.Con(_, _, _, _, _, tm, _, ty)) =>
+                  Infer1(tm, ty)
 
         case S.LetRec(_, x, mty, v, b) =>
           val (ety, cv2, vcv2) = (tyAnnot(mty, V.TypeC), T1.Comp, V.Comp)
@@ -634,7 +638,7 @@ object Elaboration:
             val ev = check0(v, vty, vcv)(using ctx)
             (ev, ety, cv, vty, vcv)
         checkUnsolvedMetas()
-        State.setGlobal(
+        State.addGlobal(
           GlobalEntry.Def0(x, ev, ty, cv, ctx.eval0(ev), vty, vcv)
         )
       case Surface.Def.Def1(pos, x, mty, v) =>
@@ -650,6 +654,48 @@ object Elaboration:
             val ev = check1(v, vty)
             (ev, ety, ctx.eval1(ev), vty)
         checkUnsolvedMetas()
-        State.setGlobal(GlobalEntry.Def1(x, ev, ty, vv, vty))
+        State.addGlobal(GlobalEntry.Def1(x, ev, ty, vv, vty))
+      case Surface.Def.Data(pos, x, ps, cs) =>
+        given ctx: Ctx = Ctx.empty(pos)
+        if State.getGlobal(x).isDefined then err(s"duplicate definition $x")
+        val unitCons = cs.filter(c => c.params.isEmpty)
+        val unitCon =
+          if unitCons.size == 1 then Some(unitCons.head.name) else None
+        val ty = T1.TypeCon(x)
+        val vty = ps.foldRight(V.TypeV)((_, rt) => V.fun1(V.TypeV, rt))
+        State.addGlobal(
+          GlobalEntry.Data(x, ps, cs.map(_.name), ty, vty, unitCon)
+        )
+        val datactx =
+          ps.foldLeft(ctx)((ctx, x) => ctx.bind1(DoBind(x), T1.TypeV, V.TypeV))
+        cs.zipWithIndex.foreach {
+          case (Surface.Constructor(pos, cx, cps), ix) =>
+            given conctx: Ctx = datactx.enter(pos)
+            if State.getGlobal(cx).isDefined then err(s"duplicate name $cx")
+            val tyapp = ps.indices.foldRight(ty)((i, ty) =>
+              T1.App(ty, T1.Var(mkIx(i)), Expl)
+            )
+            val eps = cps.map((x, t) => (x, check1(t, V.TypeV)))
+            val cty0 = eps.foldRight(T1.Lift(T1.Val, tyapp)) {
+              case ((x, pty), rty) =>
+                T1.Pi(x, Expl, T1.Lift(T1.Val, pty), T1.Wk1(rty))
+            }
+            val cty = ps.foldRight(cty0)((x, rty) =>
+              T1.Pi(DoBind(x), Impl, T1.TypeV, rty)
+            )
+            val vcty = conctx.eval1(cty)
+            State.addGlobal(
+              GlobalEntry.Con(
+                cx,
+                ps,
+                eps,
+                x,
+                ix,
+                T1.Con(x, cx),
+                cty,
+                vcty
+              )
+            )
+        }
 
   def elaborate(d: Surface.Defs): Unit = d.toList.foreach(elaborate)
