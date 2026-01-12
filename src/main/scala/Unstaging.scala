@@ -76,6 +76,48 @@ object Unstaging:
 
       case Tm0.If(rty, c, t, f) => Tm.If(goCTy(rty), go(c), go(t), go(f))
 
+      case Tm0.Case(rty, dty, s, cs) =>
+        val dx = goVTy(dty) match
+          case VTy.Data(dx) => dx
+          case _            => impossible()
+        def goCases(cs: Core.Cases): Cases =
+          cs match
+            case Core.Cases.Empty        => Cases.Empty
+            case Core.Cases.Otherwise(b) => Cases.Otherwise(go(b))
+            case Core.Cases.Ext(x, ps, b, r) =>
+              @tailrec
+              def addParamsRec(
+                  ps: List[(Bind, Tm1)],
+                  newps: List[(LocalName, VTy, Int)],
+                  tenv: TEnv,
+                  env: Env,
+                  ren: Ren
+              ): (List[(LocalName, VTy, Int)], TEnv, Env, Ren) =
+                ps match
+                  case Nil => (newps, tenv, env, ren)
+                  case (_, ty) :: rest =>
+                    val x = supply.next()
+                    val vt = goVTy(ty)
+                    addParamsRec(
+                      rest,
+                      newps ++ List((x, vt, -1)),
+                      CTy(vt) :: tenv,
+                      extVEnv,
+                      x :: ren
+                    )
+              inline def addParams(
+                  ps: List[(Bind, Tm1)]
+              )(using
+                  tenv: TEnv,
+                  env: Env,
+                  ren: Ren
+              ): (List[(LocalName, VTy, Int)], TEnv, Env, Ren) =
+                addParamsRec(ps, Nil, tenv, env, ren)
+              val (newps, innertenv, innerenv, innerren) = addParams(ps)
+              val body = go(b)(using innertenv, innerenv, innerren)
+              Cases.Ext(x, newps, body, goCases(r))
+        Tm.Case(goCTy(rty), dx, go(s), goCases(cs))
+
       case Tm0.Wk1(tm) => go(tm)(using tenv, venv.wk1)
       case Tm0.Wk0(tm) => go(tm)(using tenv.tail, venv.wk0, ren.tail)
 

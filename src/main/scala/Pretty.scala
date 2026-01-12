@@ -125,6 +125,17 @@ object Pretty:
     case T0.Wk1(tm) => pretty0(tm)(using ns.tail)
     case T0.Wk0(tm) => pretty0(tm)(using ns.tail)
 
+    case T0.Case(_, _, s, Cases.Empty) => s"match $s {}"
+    case T0.Case(_, _, s, cs) =>
+      def go(c: Cases): String =
+        c match
+          case Cases.Ext(x, Nil, b, r) => s"$x => $b | ${go(r)}"
+          case Cases.Ext(x, ps, b, r) =>
+            s"$x ${ps.mkString(" ")} => $b | ${go(r)}"
+          case Cases.Otherwise(b) => s"_ => $b"
+          case Cases.Empty        => s""
+      s"match $s { ${go(cs)} }"
+
   def pretty1(tm: Tm1)(using ns: List[Bind]): String = tm match
     case T1.Var(ix) =>
       ns(ix.expose) match

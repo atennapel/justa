@@ -1,8 +1,9 @@
-import Common.RuntimePrimitive
+import Common.{Name, RuntimePrimitive}
 import IR.*
 import Debug.debug
 
 import scala.annotation.tailrec
+import Common.impossible
 
 // eta-expand, remove dead lets, inlining, constant folding, remove closures
 object Simplification:
@@ -45,7 +46,8 @@ object Simplification:
 
       case Tm.Local(x, ty) => args.foldLeft(subst.getOrElse(x, t))(Tm.App.apply)
 
-      case Tm.If(_, Tm.BoolLit(b), t, f) => if b then t else f
+      case Tm.If(_, Tm.BoolLit(b), t, f) =>
+        if b then go(t, args) else go(f, args)
       case Tm.If(ty, c, t, f) =>
         Tm.If(ty.drop(args.size), go(c, Nil), go(t, args), go(f, args))
 
@@ -64,15 +66,15 @@ object Simplification:
           Tm.Lam(x, -1, ty, b)
 
       case Tm.Let(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
-        Tm.Let(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2))
+        go(Tm.Let(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2)), args)
       case Tm.LetRec(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
-        Tm.LetRec(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2))
+        go(Tm.LetRec(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2)), args)
       case Tm.Let(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
-        Tm.LetRec(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2))
+        go(Tm.LetRec(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2)), args)
       case Tm.LetRec(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
-        Tm.Let(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2))
+        go(Tm.Let(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2)), args)
 
-      case Tm.Let(_, u, _, _, b) if u == 0 => b
+      case Tm.Let(_, u, _, _, b) if u == 0 => go(b, args)
       case Tm.Let(x, u, _, v, b) if u == 1 || isSmall(v) =>
         go(b, args)(using scope, subst + (x -> v))
       case Tm.Let(x, _, ty, v0, b0) =>
@@ -87,7 +89,7 @@ object Simplification:
         else (x, go(b0, args)(using scope + x, subst - x))
         Tm.Let(x, -1, ty, v, b)
 
-      case Tm.LetRec(_, u, _, _, b) if u == 0 => b
+      case Tm.LetRec(_, u, _, _, b) if u == 0 => go(b, args)
       case Tm.LetRec(x, _, ty, v0, b0) =>
         val (y, nscope, nsubst) = if scope.contains(x) then
           val y = scope.size
@@ -101,6 +103,65 @@ object Simplification:
             lams(ps, body)
         val b = go(b0, args)(using nscope, nsubst)
         Tm.LetRec(x, -1, ty, v, b)
+
+      case Tm.Case(_, _, Tm.Con(_, cx, _, args), cs) =>
+        @tailrec
+        def lookup(
+            cx: Name,
+            cs: Cases
+        ): Either[Tm, (List[(LocalName, VTy, Int)], Tm)] =
+          cs match
+            case Cases.Empty                           => impossible()
+            case Cases.Otherwise(b)                    => Left(b)
+            case Cases.Ext(cx2, ps, b, r) if cx == cx2 => Right((ps, b))
+            case Cases.Ext(_, _, _, r)                 => lookup(cx, r)
+        lookup(cx, cs) match
+          case Left(b) => go(b, args)
+          case Right((ps, b)) =>
+            val lets = ps.zipWithIndex.foldRight(b) {
+              case (((x, ty, u), i), b) =>
+                Tm.Let(x, u, CTy(ty), args(i), b)
+            }
+            go(lets, args)
+      case Tm.Case(rty, dty, s, cs) =>
+        @tailrec
+        def goParamsRec(
+            ps: List[(LocalName, VTy, Int)],
+            newps: List[(LocalName, VTy, Int)],
+            scope: Scope,
+            subst: Subst
+        ): (List[(LocalName, VTy, Int)], Scope, Subst) =
+          ps match
+            case Nil => (newps, scope, subst)
+            case (x, ty, _) :: rest =>
+              if scope.contains(x) then
+                val y = scope.size
+                goParamsRec(
+                  rest,
+                  newps ++ List((y, ty, -1)),
+                  scope + y,
+                  subst + (x -> Tm.Local(y, CTy(ty)))
+                )
+              else
+                goParamsRec(
+                  rest,
+                  newps ++ List((x, ty, -1)),
+                  scope + x,
+                  subst - x
+                )
+        inline def goParams(
+            ps: List[(LocalName, VTy, Int)]
+        )(using scope: Scope, subst: Subst) =
+          goParamsRec(ps, Nil, scope, subst)
+        def goCases(cs: Cases): Cases =
+          cs match
+            case Cases.Ext(x, ps, b, r) =>
+              val (nps, innerscope, innersubst) = goParams(ps)
+              val nb = go(b, args)(using innerscope, innersubst)
+              Cases.Ext(x, nps, nb, goCases(r))
+            case Cases.Otherwise(b) => Cases.Otherwise(go(b, args))
+            case Cases.Empty        => Cases.Empty
+        Tm.Case(rty, dty, go(s, Nil), goCases(cs))
 
   private def eta(ty: CTy)(using
       scope: Scope
@@ -190,6 +251,23 @@ object Simplification:
               (cargs ++ List(a), mergeUsages(usages, ua))
           }
         (Tm.Con(dx, cx, ix, cargs), usages)
+
+      case Tm.Case(rt, dt, s, cs) =>
+        def go(cs: Cases): (Cases, Usages) =
+          cs match
+            case Cases.Empty => (Cases.Empty, Map.empty)
+            case Cases.Otherwise(b) =>
+              val (cb, ub) = correctUsagesRec(b)
+              (Cases.Otherwise(cb), ub)
+            case Cases.Ext(x, ps, b, r) =>
+              val (cb, ub) = correctUsagesRec(b)
+              val nps = ps.map((x, ty, _) => (x, ty, ub.getOrElse(x, 0)))
+              val ub2 = ub -- ps.map((x, _, _) => x)
+              val (cr, ur) = go(r)
+              (Cases.Ext(x, nps, cb, cr), mergeUsages(ub2, ur))
+        val (scrut, us) = correctUsagesRec(s)
+        val (ccs, ucs) = go(cs)
+        (Tm.Case(rt, dt, scrut, ccs), mergeUsages(us, ucs))
 
       case Tm.Let(x, _, ty, v0, b0) =>
         val (v, uv) = correctUsagesRec(v0)

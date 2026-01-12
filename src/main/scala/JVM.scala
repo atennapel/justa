@@ -49,6 +49,19 @@ object JVM:
       case Data(x, Nil) => s"data $x"
       case Data(x, cs)  => s"data $x = ${cs.mkString(" | ")}"
 
+  enum Cases:
+    case Ext(x: Name, ps: List[(LocalName, Ty, Int)], body: Tm, rest: Cases)
+    case Otherwise(body: Tm)
+    case Empty
+
+    override def toString: String =
+      this match
+        case Cases.Ext(x, Nil, b, r) => s"$x => $b | $r"
+        case Cases.Ext(x, ps, b, r) =>
+          s"$x ${ps.map((x, _, _) => s"'$x").mkString(" ")} => $b | $r"
+        case Cases.Otherwise(b) => s"_ => $b"
+        case Cases.Empty        => s""
+
   enum Tm:
     case Local(ix: LocalName, ty: Ty)
     case Global(name: Name, args: List[Tm])
@@ -73,6 +86,7 @@ object JVM:
     case Jump(name: LocalName, args: List[Tm])
 
     case Con(dx: Name, cx: Name, ix: Int, args: List[Tm])
+    case Case(dty: Name, scrut: Tm, cases: Cases)
 
     override def toString: String = this match
       case Local(ix, _)     => s"'$ix"
@@ -94,6 +108,8 @@ object JVM:
       case Jump(x, args)       => s"(jump '$x${args.mkString("(", ",", ")")})"
       case Con(_, cx, _, Nil)  => s"$cx"
       case Con(_, cx, _, args) => s"($cx ${args.mkString(" ")})"
+      case Case(_, s, Cases.Empty) => s"(match $s)"
+      case Case(_, s, cs)          => s"(match $s { $cs })"
 
   object Tm:
     val True = BoolLit(true)

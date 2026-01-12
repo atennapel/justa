@@ -61,6 +61,11 @@ object Surface:
     case Splice(_pos: PosInfo, tm: Tm)
 
     case If(_pos: PosInfo, cond: Tm, ifTrue: Tm, ifFalse: Tm)
+    case Match(
+        _pos: PosInfo,
+        scrut: Option[Tm],
+        cases: List[(PosInfo, Bind, List[Bind], Tm)]
+    )
 
     case Hole(_pos: PosInfo, name: Option[Name])
 
@@ -78,6 +83,7 @@ object Surface:
       case Quote(_pos, _)           => _pos
       case Splice(_pos, _)          => _pos
       case If(_pos, _, _, _)        => _pos
+      case Match(_pos, _, _)        => _pos
       case Hole(_pos, _)            => _pos
 
     override def toString: String = this match
@@ -101,9 +107,17 @@ object Surface:
       case App(_, fn, arg, ArgInfo.Icit(Impl)) => s"($fn ${Impl.wrap(arg)})"
       case App(_, fn, arg, ArgInfo.Named(x)) =>
         s"($fn ${Impl.wrap(s"$x = $arg")})"
-      case Lift(_, ty)      => s"^$ty"
-      case Quote(_, tm)     => s"`$tm"
-      case Splice(_, tm)    => s"$$$tm"
-      case If(_, c, t, f)   => s"(if $c then $t else $f)"
-      case Hole(_, None)    => s"_"
-      case Hole(_, Some(x)) => s"_$x"
+      case Lift(_, ty)            => s"^$ty"
+      case Quote(_, tm)           => s"`$tm"
+      case Splice(_, tm)          => s"$$$tm"
+      case If(_, c, t, f)         => s"(if $c then $t else $f)"
+      case Hole(_, None)          => s"_"
+      case Hole(_, Some(x))       => s"_$x"
+      case Match(_, None, Nil)    => s"(match {})"
+      case Match(_, Some(s), Nil) => s"(match $s {})"
+      case Match(_, s, cs) =>
+        inline def show(c: (PosInfo, Bind, List[Bind], Tm)) =
+          c._3 match
+            case Nil => s"${c._2} => ${c._4}"
+            case ps  => s"${c._2} ${ps.mkString(" ")} => ${c._4}"
+        s"(match ${s.map(t => s"$t ").getOrElse("")}{ ${cs.map(show).mkString(" | ")} })"

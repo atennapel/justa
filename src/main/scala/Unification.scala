@@ -12,12 +12,15 @@ import Core.{
   Val1 as V,
   Val0 as V0,
   Tm1 as T1,
-  Tm0 as T0
+  Tm0 as T0,
+  Cases,
+  ClosCases
 }
 import Evaluation.*
 import Debug.debug
 
 import scala.collection.immutable.IntMap
+import scala.annotation.tailrec
 
 object Unification:
   class UnifyError(msg: String) extends RuntimeException(msg)
@@ -270,6 +273,29 @@ object Unification:
       case V0.App(f, a)           => T0.App(go0(f), go0(a))
       case V0.If(ty, c, t, f)     => T0.If(go1(ty), go0(c), go0(t), go0(f))
       case V0.Splice(v)           => go1(v).splice
+      case V0.Case(rty, dty, s, cs) =>
+        def addParams(
+            ps: List[(Bind, Ty)]
+        )(using psub: PSub, env: Env): (PSub, Env) =
+          def go(n: Int, psub: PSub, env: Env): (PSub, Env) =
+            n match
+              case 0 => (psub, env)
+              case n => go(n - 1, psub.lift0, Env.Ext0(env, V0.Var(psub.cod)))
+          go(ps.size, psub, env)
+        def goCases(cs: Cases)(using env: Env): Cases =
+          cs match
+            case Cases.Ext(x, ps, b, r) =>
+              val (innerpsub, innerenv) = addParams(ps)
+              val rb = psubst0(eval0(b)(using innerenv))(using innerpsub)
+              Cases.Ext(x, ps, rb, goCases(r))
+            case Cases.Otherwise(b) => Cases.Otherwise(go0(eval0(b)))
+            case Cases.Empty        => Cases.Empty
+        T0.Case(
+          go1(rty),
+          go1(dty),
+          go0(s),
+          goCases(cs.cases)(using cs.env)
+        )
 
   private def psubstSpine(h: T1, sp: Spine)(using psub: PSub): T1 =
     sp match
@@ -329,7 +355,32 @@ object Unification:
     solveMetaVar(m, sol)
 
   // unification
-  def unify0(a: V0, b: V0)(using lvl: Lvl): Unit =
+  private def unify0(a: ClosCases, b: ClosCases, topa: V0, topb: V0)(using
+      lvl: Lvl
+  ): Unit =
+    val env1 = a.env
+    val env2 = b.env
+    @tailrec
+    def go(a: Cases, b: Cases): Unit =
+      (a, b) match
+        case (Cases.Empty, Cases.Empty) => ()
+        case (Cases.Otherwise(b1), Cases.Otherwise(b2)) =>
+          unify0(eval0(b1)(using env1), eval0(b2)(using env2))
+        case (Cases.Ext(cx1, ps1, b1, rest1), Cases.Ext(cx2, ps2, b2, rest2))
+            if cx1 == cx2 && ps1.size == ps2.size =>
+          val (innerlvl, innerenv1) = addParams(ps1)(using env = env1)
+          val (_, innerenv2) = addParams(ps2)(using env = env2)
+          val vb1 = eval0(b1)(using innerenv1)
+          val vb2 = eval0(b2)(using innerenv2)
+          unify0(vb1, vb2)(using innerlvl)
+          go(rest1, rest2)
+        case _ =>
+          err(
+            s"cannot unify ${readback0n(topa)} ~ ${readback0n(topb)}: case mismatch"
+          )
+    go(a.cases, b.cases)
+
+  private def unify0(a: V0, b: V0)(using lvl: Lvl): Unit =
     inline def goClos(a: Clos0, b: Clos0) =
       unify0(a(V0.Var(lvl)), b(V0.Var(lvl)))(using lvl + 1)
     debug(s"unify0 ${readback0m(a)} ~ ${readback0m(b)}")
@@ -346,6 +397,9 @@ object Unification:
       case (V0.App(f1, a1), V0.App(f2, a2)) => unify0(f1, f2); unify0(a1, a2)
       case (V0.If(ty1, c1, t1, f1), V0.If(ty2, c2, t2, f2)) =>
         unify1(ty1, ty2); unify0(c1, c2); unify0(t1, t2); unify0(f1, f2)
+      case (V0.Case(rty1, dty1, s1, cases1), V0.Case(rty2, dty2, s2, cases2)) =>
+        unify1(rty1, rty2); unify1(dty1, dty2); unify0(s1, s2)
+        unify0(cases1, cases2, a, b)
       case _ => err(s"cannot unify ${readback0n(a)} ~ ${readback0n(b)}")
 
   private def flexFlex(m1: MetaId, sp1: Spine, m2: MetaId, sp2: Spine)(using

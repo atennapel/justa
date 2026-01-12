@@ -38,10 +38,9 @@ data List A := Nil | Cons (head : A) (tail : List A)
 
 def myList := Cons 1 (Cons 2 (Cons 3 Nil))
 
---def map {A B : vtype} (f : A -> B) (l : List A) : List B =
---  let rec go (l : List A) : List B :=
---    match l {
---    | Nil => Nil
---    | Cons hd tl => Cons (f hd) (go tl)
---    };
---  go l
+def map {A B : vtype} (f : A -> B) (l : List A) : List B =
+  let rec go (l : List A) : List B :=
+    match l
+    | Nil => Nil
+    | Cons hd tl => Cons (f hd) (go tl);
+  go l

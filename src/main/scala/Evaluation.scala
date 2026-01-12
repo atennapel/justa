@@ -109,8 +109,10 @@ object Evaluation:
     case T0.App(f, a)       => V0.App(eval0(f), eval0(a))
     case T0.Splice(tm)      => vsplice(eval1(tm))
     case T0.If(ty, c, t, f) => V0.If(eval1(ty), eval0(c), eval0(t), eval0(f))
-    case T0.Wk1(t)          => eval0(t)(using env.wk1)
-    case T0.Wk0(t)          => eval0(t)(using env.wk0)
+    case T0.Case(rty, dty, s, cs) =>
+      V0.Case(eval1(rty), eval1(dty), eval0(s), ClosCases(cs))
+    case T0.Wk1(t) => eval0(t)(using env.wk1)
+    case T0.Wk0(t) => eval0(t)(using env.wk0)
 
   def eval1(t: T1)(using env: Env): V1 = t match
     case T1.Var(ix)          => var1(ix)
@@ -262,6 +264,28 @@ object Evaluation:
       case V0.App(f, a)       => T0.App(go0(f), go0(a))
       case V0.If(ty, c, t, f) => T0.If(go1(ty), go0(c), go0(t), go0(f))
       case V0.Splice(tm)      => go1(tm).splice
+      case V0.Case(rty, dty, s, cs) =>
+        def goCases(cs: Cases)(using env: Env): Cases =
+          cs match
+            case Cases.Ext(x, ps, b, r) =>
+              val (innerlvl, innerenv) = addParams(ps)
+              val rb = readback0(eval0(b)(using innerenv))(using innerlvl)
+              Cases.Ext(x, ps, rb, goCases(r))
+            case Cases.Otherwise(b) => Cases.Otherwise(go0(eval0(b)))
+            case Cases.Empty        => Cases.Empty
+        T0.Case(
+          go1(rty),
+          go1(dty),
+          go0(s),
+          goCases(cs.cases)(using cs.env)
+        )
+
+  def addParams(ps: List[(Bind, Ty)])(using lvl: Lvl, env: Env): (Lvl, Env) =
+    def go(n: Int, lvl: Lvl, env: Env): (Lvl, Env) =
+      n match
+        case 0 => (lvl, env)
+        case n => go(n - 1, lvl + 1, Env.Ext0(env, V0.Var(lvl)))
+    go(ps.size, lvl, env)
 
   // helpers
   inline def readback1m(v: V1)(using lvl: Lvl): T1 =

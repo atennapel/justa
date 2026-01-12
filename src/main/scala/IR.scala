@@ -46,6 +46,19 @@ object IR:
       case Data(x, Nil)    => s"data $x"
       case Data(x, cs)     => s"data $x = ${cs.mkString(" | ")}"
 
+  enum Cases:
+    case Ext(x: Name, ps: List[(LocalName, VTy, Int)], body: Tm, rest: Cases)
+    case Otherwise(body: Tm)
+    case Empty
+
+    override def toString: String =
+      this match
+        case Cases.Ext(x, Nil, b, r) => s"$x => $b | $r"
+        case Cases.Ext(x, ps, b, r) =>
+          s"$x ${ps.map((x, _, _) => s"'$x").mkString(" ")} => $b | $r"
+        case Cases.Otherwise(b) => s"_ => $b"
+        case Cases.Empty        => s""
+
   type LocalName = Int
   enum Tm:
     case Local(ix: LocalName, ty: CTy)
@@ -63,20 +76,23 @@ object IR:
     case If(rty: CTy, cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
     case Con(dx: Name, cx: Name, ix: Int, args: List[Tm])
+    case Case(rty: CTy, dty: Name, scrut: Tm, cases: Cases)
 
     override def toString: String = this match
-      case Local(ix, _)           => s"'$ix"
-      case Global(x)              => s"$x"
-      case Prim(p)                => s"$p"
-      case BoolLit(v)             => s"$v"
-      case IntLit(v)              => s"$v"
-      case Let(x, _, ty, v, b)    => s"(let '$x : $ty = $v; $b)"
-      case LetRec(x, _, ty, v, b) => s"(let rec '$x : $ty = $v; $b)"
-      case Lam(x, _, ty, b)       => s"(\\('$x : $ty) => $b)"
-      case App(fn, arg)           => s"($fn $arg)"
-      case If(_, c, t, f)         => s"(if $c then $t else $f)"
-      case Con(_, cx, _, Nil)     => s"$cx"
-      case Con(_, cx, _, args)    => s"($cx ${args.mkString(" ")})"
+      case Local(ix, _)               => s"'$ix"
+      case Global(x)                  => s"$x"
+      case Prim(p)                    => s"$p"
+      case BoolLit(v)                 => s"$v"
+      case IntLit(v)                  => s"$v"
+      case Let(x, _, ty, v, b)        => s"(let '$x : $ty = $v; $b)"
+      case LetRec(x, _, ty, v, b)     => s"(let rec '$x : $ty = $v; $b)"
+      case Lam(x, _, ty, b)           => s"(\\('$x : $ty) => $b)"
+      case App(fn, arg)               => s"($fn $arg)"
+      case If(_, c, t, f)             => s"(if $c then $t else $f)"
+      case Con(_, cx, _, Nil)         => s"$cx"
+      case Con(_, cx, _, args)        => s"($cx ${args.mkString(" ")})"
+      case Case(_, _, s, Cases.Empty) => s"(match $s)"
+      case Case(_, _, s, cs)          => s"(match $s { $cs })"
 
     def flattenApps: (Tm, List[Tm]) = this match
       case App(f, a) =>

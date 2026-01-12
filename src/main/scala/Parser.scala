@@ -32,6 +32,7 @@ object Parser:
       "data",
       "let",
       "rec",
+      "match",
       "if",
       "then",
       "else",
@@ -292,6 +293,7 @@ object Parser:
       val rec = tryKeyword("rec")
       parseLet(rec)
     else if trySymbol("\\") then parseLam()
+    else if tryKeyword("match") then parseMatch()
     else if tryKeyword("if") then
       val pos = ctx.pos
       val c = parseExpr()
@@ -342,6 +344,7 @@ object Parser:
     val tl = list(parseArg)
     val optLam =
       if trySymbol("\\") then List((parseLam(), ArgInfo.Icit(Expl)))
+      else if tryKeyword("match") then List((parseMatch(), ArgInfo.Icit(Expl)))
       else Nil
     val expr = (tl ++ optLam).foldLeft(hd) { case (f, (a, i)) =>
       Tm.App(a.pos, f, a, i)
@@ -386,6 +389,38 @@ object Parser:
             else None
       }.getOrElse(next(ArgInfo.Icit(Impl)))
     else tryParseAtom().map(a => (a, ArgInfo.Icit(Expl)))
+
+  private def parseMatch()(using ctx: Ctx): Tm =
+    val pos = ctx.pos
+    var startedWithBracket = false
+    val scrut =
+      if trySymbol("{") then
+        startedWithBracket = true
+        None
+      else if trySymbol("|") then None
+      else
+        val scrut = parseExpr()
+        if trySymbol("{") then startedWithBracket = true
+        else symbol("|")
+        Some(scrut)
+    val cs =
+      if startedWithBracket && trySymbol("}") then Nil
+      else
+        if startedWithBracket then trySymbol("|")
+        val hd = parseCase()
+        val tl = mutable.ArrayBuffer.empty[(PosInfo, Bind, List[Bind], Tm)]
+        while trySymbol("|") do tl += parseCase()
+        hd :: tl.toList
+    if startedWithBracket then symbol("}")
+    Tm.Match(pos, scrut, cs)
+
+  private def parseCase()(using ctx: Ctx): (PosInfo, Bind, List[Bind], Tm) =
+    val pos = ctx.pos
+    val cx = bind()
+    val ps = list(tryBind)
+    symbol("=>")
+    val b = parseExpr()
+    (pos, cx, ps, b)
 
   // parsers
   private def keyword(kw: String)(using ctx: Ctx): Unit =

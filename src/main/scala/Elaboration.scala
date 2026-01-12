@@ -609,6 +609,8 @@ object Elaboration:
 
         case S.Hole(_, _) => err("cannot infer hole")
 
+        case S.Match(_, s, cs) => ???
+
   // elaboration
   // TODO: use frozen metas instead of this check
   private def checkUnsolvedMetas()(using ctx: Ctx): Unit =

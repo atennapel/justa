@@ -3,6 +3,19 @@ import Common.*
 import scala.annotation.tailrec
 
 object Core:
+  enum Cases:
+    case Ext(x: Name, ps: List[(Bind, Ty)], body: Tm0, rest: Cases)
+    case Otherwise(body: Tm0)
+    case Empty
+
+    override def toString: String =
+      this match
+        case Cases.Ext(x, Nil, b, r) => s"$x => $b | $r"
+        case Cases.Ext(x, ps, b, r) =>
+          s"$x ${ps.map((x, _) => x).mkString(" ")} => $b | $r"
+        case Cases.Otherwise(b) => s"_ => $b"
+        case Cases.Empty        => s""
+
   enum Tm0:
     case Var(ix: Ix)
     case Global(name: Name)
@@ -16,6 +29,7 @@ object Core:
     case Splice(tm: Tm1)
 
     case If(rty: Ty, cond: Tm0, ifTrue: Tm0, ifFalse: Tm0)
+    case Case(rty: Ty, dty: Ty, scrut: Tm0, cases: Cases)
 
     case Wk1(tm: Tm0)
     case Wk0(tm: Tm0)
@@ -36,17 +50,19 @@ object Core:
       case t => (t, Nil)
 
     override def toString: String = this match
-      case Var(ix)             => s"'$ix"
-      case Global(x)           => s"$x"
-      case IntLit(v)           => s"$v"
-      case Let(x, ty, v, b)    => s"(let $x : $ty := $v; $b)"
-      case LetRec(x, ty, v, b) => s"(let rec $x : $ty := $v; $b)"
-      case Lam(x, ty, b)       => s"(\\($x : $ty) => $b)"
-      case App(fn, arg)        => s"($fn $arg)"
-      case Splice(tm)          => s"$$$tm"
-      case If(_, c, t, f)      => s"(if $c then $t else $f)"
-      case Wk1(tm)             => s"Wk10($tm)"
-      case Wk0(tm)             => s"Wk00($tm)"
+      case Var(ix)                    => s"'$ix"
+      case Global(x)                  => s"$x"
+      case IntLit(v)                  => s"$v"
+      case Let(x, ty, v, b)           => s"(let $x : $ty := $v; $b)"
+      case LetRec(x, ty, v, b)        => s"(let rec $x : $ty := $v; $b)"
+      case Lam(x, ty, b)              => s"(\\($x : $ty) => $b)"
+      case App(fn, arg)               => s"($fn $arg)"
+      case Splice(tm)                 => s"$$$tm"
+      case If(_, c, t, f)             => s"(if $c then $t else $f)"
+      case Wk1(tm)                    => s"Wk10($tm)"
+      case Wk0(tm)                    => s"Wk00($tm)"
+      case Case(_, _, s, Cases.Empty) => s"(match $s)"
+      case Case(_, _, s, cs)          => s"(match $s { $cs })"
 
   type Ty = Tm1
   enum Tm1:
@@ -165,6 +181,10 @@ object Core:
   object Clos0:
     def apply(tm: Tm0)(using env: Env): Clos0 = Clos(env, tm)
 
+  final case class ClosCases(env: Env, cases: Cases)
+  object ClosCases:
+    def apply(cases: Cases)(using env: Env): ClosCases = ClosCases(env, cases)
+
   enum Clos1:
     case Clos(env: Env, tm: Tm1)
     case Fun(fn: Val1 => Val1)
@@ -180,6 +200,7 @@ object Core:
     case Lam(name: Bind, ty: VTy, body: Clos0)
     case App(fn: Val0, arg: Val0)
     case If(rty: VTy, cond: Val0, ifTrue: Val0, ifFalse: Val0)
+    case Case(rty: VTy, dty: VTy, scrut: Val0, cases: ClosCases)
     case Splice(tm: Val1)
 
   enum Head:

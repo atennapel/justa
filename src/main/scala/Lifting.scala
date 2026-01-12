@@ -186,6 +186,8 @@ object Lifting:
         }
         go(b, tail)(using ren = ren + (x -> LiftedFun(y, freeps)))
 
+      case Tm.Case(rty, dty, s, cs) => ???
+
   @tailrec
   private def renLifted(ps: List[(Int, CTy)], ren: Ren = Map.empty)(using
       supply: Supply
@@ -274,6 +276,11 @@ object Lifting:
     ): List[(LocalName, CTy)] =
       a.filterNot((y, _) => x == y)
     t match
+      case Tm.Global(_)  => Nil
+      case Tm.Prim(_)    => Nil
+      case Tm.BoolLit(_) => Nil
+      case Tm.IntLit(_)  => Nil
+
       case Tm.Local(ix, ty) => List(ix -> ty)
 
       case Tm.App(f, a)      => merge(free(f), free(a))
@@ -285,7 +292,10 @@ object Lifting:
       case Tm.LetRec(x, _, _, v, b) =>
         merge(remove(x, free(v)), remove(x, free(b)))
 
-      case _ => Nil
+      case Tm.Con(_, _, _, args) =>
+        args.map(free).foldLeft(Nil)(merge)
+
+      case Tm.Case(_, _, s, cs) => ???
 
   private def isUsedInTailOnly(x: LocalName, tail: Boolean, t: Tm): Boolean =
     t match
@@ -316,3 +326,5 @@ object Lifting:
         fn match
           case Tm.Local(y, ty) if x == y => tail && safeInArgs
           case fn => safeInArgs && isUsedInTailOnly(x, tail, fn)
+
+      case Tm.Case(_, _, s, cs) => ???
