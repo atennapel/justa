@@ -27,8 +27,10 @@ object JVM:
     override def toString: String = this match
       case Value(x, t, v) =>
         s"def $x : $t = $v"
+      case Function(x, Nil, t, b) =>
+        s"def $x () : $t = $b"
       case Function(x, ps, t, b) =>
-        s"def $x ${ps.mkString("(", ",", ")")} : $t = $b"
+        s"def $x ${ps.map((x, ty) => s"('$x : $ty)").mkString(" ")} : $t = $b"
 
   enum Tm:
     case Local(ix: LocalName, ty: Ty)
@@ -61,11 +63,16 @@ object JVM:
       case IntLit(v)        => s"$v"
       case Let(x, ty, v, b) => s"(let '$x : $ty = $v; $b)"
       case If(c, t, f)      => s"(if $c then $t else $f)"
+      case Join(x, Nil, v, b) =>
+        s"(join '$x = $v; $b"
       case Join(x, ps, v, b) =>
-        s"(join $x ${ps.map((x, t) => s"('$x : $t)").mkString(" ")}) = $v; $b"
+        s"(join '$x ${ps.map((x, t) => s"('$x : $t)").mkString(" ")} = $v; $b"
+      case JoinRec(x, Nil, v, b) =>
+        s"(join rec '$x = $v; $b"
       case JoinRec(x, ps, v, b) =>
-        s"(join rec $x ${ps.map((x, t) => s"('$x : $t)").mkString(" ")}) = $v; $b"
-      case Jump(x, args) => s"'$x${args.mkString("(", ",", ")")}"
+        s"(join rec '$x ${ps.map((x, t) => s"('$x : $t)").mkString(" ")} = $v; $b"
+      case Jump(x, Nil)  => s"(jump '$x)"
+      case Jump(x, args) => s"(jump '$x${args.mkString("(", ",", ")")})"
 
   object Tm:
     val True = BoolLit(true)

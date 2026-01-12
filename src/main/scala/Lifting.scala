@@ -30,7 +30,8 @@ object Lifting:
 
   private type Ren = Map[LocalName, RenEntry]
   private enum RenEntry:
-    case RenVar(newname: LocalName)
+    case RenVar(name: LocalName)
+    case JoinPoint(name: LocalName)
     case LiftedFun(name: Name, extraArgs: List[(LocalName, CTy)])
   import RenEntry.*
 
@@ -40,7 +41,7 @@ object Lifting:
     given Supply = new Supply(0)
     given Ren = renParams(d.ty)
     given Name = d.name
-    val value = go(removeLams(d.ty, d.value), Some(lamTypes(d.value)))
+    val value = go(removeLams(d.ty, d.value), true, Some(lamTypes(d.value)))
     val retty = goVTy(d.ty.ret)
     val cdef =
       if d.ty.params.isEmpty then JVM.Def.Value(d.name, retty, value)
@@ -62,8 +63,11 @@ object Lifting:
       case start =>
         renParamsN(n, ren + (start -> RenVar(supply.next())), start + 1)
 
-  // TODO: detect join points
-  private def go(t: Tm, toplevel: Option[List[(Int, CTy)]] = None)(using
+  private def go(
+      t: Tm,
+      tail: Boolean,
+      toplevel: Option[List[(Int, CTy)]] = None
+  )(using
       ren: Ren,
       emit: Emit,
       supply: Supply,
@@ -74,33 +78,48 @@ object Lifting:
       case Tm.Local(ix, ty) =>
         ren(ix) match
           case RenVar(x)       => JVM.Tm.Local(x, goCTy(ty))
+          case JoinPoint(x)    => JVM.Tm.Jump(x, Nil)
           case LiftedFun(_, _) => impossible()
-      case Tm.Global(x)      => JVM.Tm.Global(x, Nil)
-      case Tm.Prim(p)        => JVM.Tm.Prim(p, Nil)
-      case Tm.BoolLit(v)     => JVM.Tm.bool(v)
-      case Tm.IntLit(v)      => JVM.Tm.IntLit(v)
-      case Tm.If(_, c, t, f) => JVM.Tm.If(go(c), go(t), go(f))
+      case Tm.Global(x)  => JVM.Tm.Global(x, Nil)
+      case Tm.Prim(p)    => JVM.Tm.Prim(p, Nil)
+      case Tm.BoolLit(v) => JVM.Tm.bool(v)
+      case Tm.IntLit(v)  => JVM.Tm.IntLit(v)
+      case Tm.If(_, c, t, f) =>
+        JVM.Tm.If(go(c, false), go(t, tail), go(f, tail))
 
       case Tm.App(_, _) =>
         val (f, a) = t.flattenApps
         f match
-          case Tm.Global(x) => JVM.Tm.Global(x, a.map(a => go(a)))
-          case Tm.Prim(p)   => JVM.Tm.Prim(p, a.map(a => go(a)))
+          case Tm.Global(x) => JVM.Tm.Global(x, a.map(a => go(a, false)))
+          case Tm.Prim(p)   => JVM.Tm.Prim(p, a.map(a => go(a, false)))
           case Tm.Local(ix, ty) =>
             ren(ix) match
-              case RenVar(x) => impossible()
+              case RenVar(x)    => impossible()
+              case JoinPoint(x) => JVM.Tm.Jump(x, a.map(a => go(a, false)))
               case LiftedFun(x, args) =>
-                val extraArgs = args.map((x, ty) => go(Tm.Local(x, ty)))
-                JVM.Tm.Global(x, extraArgs ++ a.map(a => go(a)))
+                val extraArgs = args.map((x, ty) => go(Tm.Local(x, ty), false))
+                JVM.Tm.Global(x, extraArgs ++ a.map(a => go(a, false)))
           case _ => impossible()
+
+      case Tm.Let(x, _, ty, v, b) if tail && isUsedInTailOnly(x, true, b) =>
+        val y = supply.next()
+        val lams = lamTypes(v)
+        val valueRen = renLifted(lams, ren)
+        val newLamTypes = renameLamTypes(lams, valueRen)
+        JVM.Tm.Join(
+          y,
+          newLamTypes,
+          go(removeLams(ty, v), false)(using ren = valueRen),
+          go(b, tail)(using ren = ren + (x -> JoinPoint(y)))
+        )
 
       case Tm.Let(x, _, CTy(Nil, ty), v, b) =>
         val y = supply.next()
         JVM.Tm.Let(
           y,
           goVTy(ty),
-          go(v),
-          go(b)(using ren = ren + (x -> RenVar(y)))
+          go(v, false),
+          go(b, tail)(using ren = ren + (x -> RenVar(y)))
         )
 
       case Tm.Let(x, _, ty, v, b) =>
@@ -113,10 +132,24 @@ object Lifting:
           given Supply = new Supply(0)
           given ren: Ren = renLifted(freeps ++ lamTypes(v))
           given Name = y
-          val body = go(removeLams(ty, v))
+          val body = go(removeLams(ty, v), true)
           JVM.Def.Function(y, ps, goVTy(ty.ret), body)
         }
-        go(b)(using ren = ren + (x -> LiftedFun(y, freeps)))
+        go(b, tail)(using ren = ren + (x -> LiftedFun(y, freeps)))
+
+      case Tm.LetRec(x, _, ty, v, b)
+          if tail && isUsedInTailOnly(x, true, b) &&
+            isUsedInTailOnly(x, true, b) =>
+        val y = supply.next()
+        val lams = lamTypes(v)
+        val valueRen = renLifted(lams, ren) + (x -> JoinPoint(y))
+        val newLamTypes = renameLamTypes(lams, valueRen)
+        JVM.Tm.JoinRec(
+          y,
+          newLamTypes,
+          go(removeLams(ty, v), false)(using ren = valueRen),
+          go(b, tail)(using ren = ren + (x -> JoinPoint(y)))
+        )
 
       case Tm.LetRec(x, _, ty, v, b) if shouldNotBeLifted(toplevel, x, b) =>
         val newbody = removeLams(ty, v)
@@ -125,7 +158,7 @@ object Lifting:
           toplevel.get,
           ren + (x -> LiftedFun(defName, Nil))
         )
-        go(newbody)
+        go(newbody, tail)
       case Tm.LetRec(x, _, ty, v, b) =>
         val freeps = free(v).filterNot((y, _) => x == y)
         val y = emit.emit { y =>
@@ -137,10 +170,10 @@ object Lifting:
           given ren: Ren =
             renLifted(freeps ++ lamTypes(v)) + (x -> LiftedFun(y, freeps))
           given Name = y
-          val body = go(removeLams(ty, v))
+          val body = go(removeLams(ty, v), true)
           JVM.Def.Function(y, ps, goVTy(ty.ret), body)
         }
-        go(b)(using ren = ren + (x -> LiftedFun(y, freeps)))
+        go(b, tail)(using ren = ren + (x -> LiftedFun(y, freeps)))
 
   @tailrec
   private def renLifted(ps: List[(Int, CTy)], ren: Ren = Map.empty)(using
@@ -154,6 +187,16 @@ object Lifting:
     tm match
       case Tm.Lam(x, _, ty, b) => (x, CTy(ty)) :: lamTypes(b)
       case _                   => Nil
+
+  private def renameLamTypes(
+      ps: List[(Int, CTy)],
+      ren: Ren
+  ): List[(Int, JVM.Ty)] =
+    ps.map { (x, ty) =>
+      ren(x) match
+        case RenVar(y) => (y, goCTy(ty))
+        case _         => impossible()
+    }
 
   private def renToplevel(
       lams: List[(Int, CTy)],
@@ -231,3 +274,31 @@ object Lifting:
         merge(remove(x, free(v)), remove(x, free(b)))
 
       case _ => Nil
+
+  private def isUsedInTailOnly(x: LocalName, tail: Boolean, t: Tm): Boolean =
+    t match
+      case Tm.Global(_)  => true
+      case Tm.Prim(_)    => true
+      case Tm.BoolLit(_) => true
+      case Tm.IntLit(_)  => true
+
+      case Tm.Lam(_, _, _, body) => isUsedInTailOnly(x, false, body)
+
+      case Tm.Let(_, _, _, v, b) =>
+        isUsedInTailOnly(x, false, v) && isUsedInTailOnly(x, tail, b)
+      case Tm.LetRec(y, _, ty, v, b) =>
+        isUsedInTailOnly(x, false, v) && isUsedInTailOnly(x, tail, b)
+
+      case Tm.If(_, c, t, f) =>
+        isUsedInTailOnly(x, false, c) &&
+        isUsedInTailOnly(x, tail, t) &&
+        isUsedInTailOnly(x, tail, f)
+
+      case Tm.Local(y, ty) => if x == y then tail else true
+
+      case Tm.App(_, _) =>
+        val (fn, args) = t.flattenApps
+        val safeInArgs = args.forall(isUsedInTailOnly(x, false, _))
+        fn match
+          case Tm.Local(y, ty) if x == y => tail && safeInArgs
+          case fn => safeInArgs && isUsedInTailOnly(x, tail, fn)
