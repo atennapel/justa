@@ -1,7 +1,17 @@
 import Common.*
 import Common.Icit.*
 import Common.Bind.*
-import Core.{VTy, Ty, Clos1, Locals, Env, Val1 as V, Tm1 as T1, Tm0 as T0}
+import Core.{
+  VTy,
+  Ty,
+  Clos1,
+  Locals,
+  Env,
+  Val1 as V,
+  Tm1 as T1,
+  Tm0 as T0,
+  Cases
+}
 import Evaluation.*
 import Surface.Tm as S
 import Surface.ArgInfo
@@ -118,7 +128,7 @@ object Elaboration:
       DoBind(y),
       Expl,
       T1.Lift(T1.Val, ctx.readback1(a)),
-      T1.Quote(T0.App(T0.Wk0(t.splice), T0.Splice(T1.Var(ix0))))
+      T1.Quote(T0.App(T0.Wk1(t.splice), T0.Splice(T1.Var(ix0))))
     )
 
   private def spliceFun(x: Bind, a: VTy, t: T1)(using ctx: Ctx): T1 =
@@ -323,6 +333,10 @@ object Elaboration:
         case S.Hole(_, _) => freshMeta(V.Lift(cv, ty)).splice
 
         case S.Splice(_, t) => check1(t, V.Lift(cv, ty)).splice
+
+        case S.Match(_, None, cs) => ???
+
+        case S.Match(_, Some(s), cs) => checkMatch(s, cs, ty, cv)
 
         case tm =>
           infer(tm) match
@@ -609,7 +623,84 @@ object Elaboration:
 
         case S.Hole(_, _) => err("cannot infer hole")
 
-        case S.Match(_, s, cs) => ???
+        case S.Match(_, None, _) => err("cannot infer lambda match")
+        case S.Match(_, Some(s), cs) =>
+          val cv = freshCV()
+          val excv = ctx.eval1(cv)
+          val exty = ctx.eval1(freshMeta(V.Type(excv)))
+          val etm = checkMatch(s, cs, exty, excv)
+          Infer0(etm, exty, excv)
+
+  private def checkMatch(
+      scrut: S,
+      cs: List[(PosInfo, Bind, List[Bind], S)],
+      exty: VTy,
+      excv: VTy
+  )(using
+      ctx: Ctx
+  ): T0 =
+    debug(
+      s"checkMatch $scrut { ${cs.map((_, cx, ps, b) => s"$cx ${ps.mkString(" ")} => $b").mkString(" | ")} } : ${ctx.pretty1(exty)}"
+    )
+    val (escrut, vscrutty, vscrutcv) = infer0(scrut)
+    unify(vscrutcv, V.Val)
+    val (dx, ps) = forceAll1(vscrutty) match
+      case V.TypeCon(dx, ps) => (dx, ps.map((t, _) => t))
+      case _ =>
+        err(s"expected datatype in match but got ${ctx.pretty1(vscrutty)}")
+    val (dps, cons) = State.getGlobal(dx) match
+      case Some(GlobalEntry.Data(_, dps, cs, _, _, _)) => (dps, cs.toSet)
+      case _                                           => impossible()
+    val psenv = Env(ps)
+    inline def conTypes(cx: Name): List[VTy] =
+      State.getGlobal(cx) match
+        case Some(GlobalEntry.Con(_, _, params, _, _, _, _, _)) =>
+          params.map((_, ty) => eval1(ty)(using psenv))
+        case _ => impossible()
+    inline def goBranch(cx: Name, ps: List[Bind], b: S)(using
+        ctx: Ctx
+    ): (List[(Bind, Ty)], T0) =
+      val (innerctx, nps) =
+        ps.zip(conTypes(cx)).foldLeft[(Ctx, List[(Bind, Ty)])]((ctx, Nil)) {
+          case ((innerctx, nps), (x, ty)) =>
+            val rty = ctx.readback1(ty)
+            (
+              innerctx.bind0(x, rty, ty, T1.Val, V.Val),
+              nps ++ List((x, rty))
+            )
+        }
+      val nb = check0(b, exty, excv)(using innerctx)
+      (nps, nb)
+    def goCases(
+        cs: List[(PosInfo, Bind, List[Bind], S)],
+        cons: Set[Name],
+        seen: Set[Name]
+    ): Cases =
+      cs match
+        case Nil =>
+          if cons.nonEmpty then
+            err(
+              s"match is not exhaustive, constructors left: ${cons.mkString(", ")}"
+            )
+          Cases.Empty
+        case (pos, cx, ps, b) :: r =>
+          enter(pos):
+            cx match
+              case DontBind =>
+                if r.nonEmpty then err(s"otherwise branch must be the last one")
+                if ps.nonEmpty then
+                  err(s"otherwise branch cannot have parameters")
+                Cases.Otherwise(check0(b, exty, excv))
+              case DoBind(cx) =>
+                if !cons.contains(cx) then
+                  err(s"constructor not part of datatype in match: $cx")
+                if seen.contains(cx) then
+                  err(s"duplicate constructor in match: $cx")
+                val (eps, eb) = goBranch(cx, ps, b)
+                val er = goCases(r, cons - cx, seen + cx)
+                Cases.Ext(cx, eps, eb, er)
+    val ecs = goCases(cs, cons, Set.empty)
+    T0.Case(ctx.readback1(exty), ctx.readback1(vscrutty), escrut, ecs)
 
   // elaboration
   // TODO: use frozen metas instead of this check

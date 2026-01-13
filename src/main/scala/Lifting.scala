@@ -15,7 +15,7 @@ object Lifting:
       name: Name,
       private val defs: mutable.ArrayBuffer[JVM.Def] = mutable.ArrayBuffer.empty
   ):
-    def emit(k: Name => JVM.Def): Name =
+    inline def emit(inline k: Name => JVM.Def): Name =
       val x = Name(s"${name}$$${defs.size}")
       defs += k(x)
       x
@@ -149,7 +149,7 @@ object Lifting:
         go(b, tail)(using ren = ren + (x -> LiftedFun(y, freeps)))
 
       case Tm.LetRec(x, _, ty, v, b)
-          if tail && isUsedInTailOnly(x, true, b) &&
+          if tail && isUsedInTailOnly(x, true, v) &&
             isUsedInTailOnly(x, true, b) =>
         val y = supply.next()
         val lams = lamTypes(v)
@@ -186,7 +186,35 @@ object Lifting:
         }
         go(b, tail)(using ren = ren + (x -> LiftedFun(y, freeps)))
 
-      case Tm.Case(rty, dty, s, cs) => ???
+      case Tm.Case(_, dty, s, cs) =>
+        def goCases(cs: Cases): JVM.Cases =
+          cs match
+            case Cases.Empty        => JVM.Cases.Empty
+            case Cases.Otherwise(b) => JVM.Cases.Otherwise(go(b, tail))
+            case Cases.Ext(cx, ps, b, r) =>
+              @tailrec
+              def goParamsRec(
+                  ps: List[(LocalName, VTy, Int)],
+                  newps: List[(LocalName, JVM.Ty, Int)],
+                  ren: Ren
+              ): (List[(LocalName, JVM.Ty, Int)], Ren) =
+                ps match
+                  case Nil => (newps, ren)
+                  case (x, ty, u) :: rest =>
+                    val y = supply.next()
+                    goParamsRec(
+                      rest,
+                      newps ++ List((y, goVTy(ty), u)),
+                      ren + (x -> RenVar(y))
+                    )
+              inline def goParams(
+                  ps: List[(LocalName, VTy, Int)]
+              )(using ren: Ren): (List[(LocalName, JVM.Ty, Int)], Ren) =
+                goParamsRec(ps, Nil, ren)
+              val (newps, innerren) = goParams(ps)
+              val newb = go(b, tail)(using innerren)
+              JVM.Cases.Ext(cx, newps, newb, goCases(r))
+        JVM.Tm.Case(dty, go(s, false), goCases(cs))
 
   @tailrec
   private def renLifted(ps: List[(Int, CTy)], ren: Ren = Map.empty)(using
@@ -295,7 +323,17 @@ object Lifting:
       case Tm.Con(_, _, _, args) =>
         args.map(free).foldLeft(Nil)(merge)
 
-      case Tm.Case(_, _, s, cs) => ???
+      case Tm.Case(_, _, s, cs) =>
+        def go(cs: Cases): List[(LocalName, CTy)] =
+          cs match
+            case Cases.Empty        => Nil
+            case Cases.Otherwise(b) => free(b)
+            case Cases.Ext(_, ps, b, r) =>
+              merge(
+                ps.foldLeft(free(b)) { case (f, (x, _, _)) => remove(x, f) },
+                go(r)
+              )
+        merge(free(s), go(cs))
 
   private def isUsedInTailOnly(x: LocalName, tail: Boolean, t: Tm): Boolean =
     t match
@@ -304,7 +342,7 @@ object Lifting:
       case Tm.BoolLit(_) => true
       case Tm.IntLit(_)  => true
 
-      case Tm.Lam(_, _, _, body) => isUsedInTailOnly(x, false, body)
+      case Tm.Lam(_, _, _, b) => isUsedInTailOnly(x, tail, b)
 
       case Tm.Let(_, _, _, v, b) =>
         isUsedInTailOnly(x, false, v) && isUsedInTailOnly(x, tail, b)
@@ -327,4 +365,11 @@ object Lifting:
           case Tm.Local(y, ty) if x == y => tail && safeInArgs
           case fn => safeInArgs && isUsedInTailOnly(x, tail, fn)
 
-      case Tm.Case(_, _, s, cs) => ???
+      case Tm.Case(_, _, s, cs) =>
+        @tailrec
+        def go(cs: Cases): Boolean =
+          cs match
+            case Cases.Empty           => true
+            case Cases.Otherwise(b)    => isUsedInTailOnly(x, tail, b)
+            case Cases.Ext(_, _, b, r) => isUsedInTailOnly(x, tail, b) && go(r)
+        isUsedInTailOnly(x, false, s) && go(cs)

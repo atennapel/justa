@@ -98,45 +98,47 @@ object Evaluation:
         vmetaapp0(vappPruning(v, p)(using env), u)
       case _ => impossible()
 
-  def eval0(t: T0)(using env: Env): V0 = t match
-    case T0.Var(ix)          => var0(ix)
-    case T0.Global(x)        => V0.Global(x)
-    case T0.IntLit(v)        => V0.IntLit(v)
-    case T0.Let(x, ty, v, b) => V0.Let(x, eval1(ty), eval0(v), Clos0(b))
-    case T0.LetRec(x, ty, v, b) =>
-      V0.LetRec(x, eval1(ty), Clos0(v), Clos0(b))
-    case T0.Lam(x, ty, b)   => V0.Lam(x, eval1(ty), Clos0(b))
-    case T0.App(f, a)       => V0.App(eval0(f), eval0(a))
-    case T0.Splice(tm)      => vsplice(eval1(tm))
-    case T0.If(ty, c, t, f) => V0.If(eval1(ty), eval0(c), eval0(t), eval0(f))
-    case T0.Case(rty, dty, s, cs) =>
-      V0.Case(eval1(rty), eval1(dty), eval0(s), ClosCases(cs))
-    case T0.Wk1(t) => eval0(t)(using env.wk1)
-    case T0.Wk0(t) => eval0(t)(using env.wk0)
+  def eval0(t: T0)(using env: Env): V0 =
+    t match
+      case T0.Var(ix)          => var0(ix)
+      case T0.Global(x)        => V0.Global(x)
+      case T0.IntLit(v)        => V0.IntLit(v)
+      case T0.Let(x, ty, v, b) => V0.Let(x, eval1(ty), eval0(v), Clos0(b))
+      case T0.LetRec(x, ty, v, b) =>
+        V0.LetRec(x, eval1(ty), Clos0(v), Clos0(b))
+      case T0.Lam(x, ty, b)   => V0.Lam(x, eval1(ty), Clos0(b))
+      case T0.App(f, a)       => V0.App(eval0(f), eval0(a))
+      case T0.Splice(tm)      => vsplice(eval1(tm))
+      case T0.If(ty, c, t, f) => V0.If(eval1(ty), eval0(c), eval0(t), eval0(f))
+      case T0.Case(rty, dty, s, cs) =>
+        V0.Case(eval1(rty), eval1(dty), eval0(s), ClosCases(cs))
+      case T0.Wk1(t) => eval0(t)(using env.wk1)
+      case T0.Wk0(t) => eval0(t)(using env.wk0)
 
-  def eval1(t: T1)(using env: Env): V1 = t match
-    case T1.Var(ix)          => var1(ix)
-    case T1.Global(x)        => vglobal1(x)
-    case T1.Prim(p)          => V1.Prim(p)
-    case T1.TypeCon(x)       => V1.TypeCon(x)
-    case T1.Con(dx, cx)      => V1.Con(dx, cx)
-    case T1.Let(x, ty, v, b) => eval1(b)(using Env.Ext1(env, eval1(v)))
-    case T1.Pi(x, i, ty, b)  => V1.Pi(x, i, eval1(ty), Clos1(b))
-    case T1.Lam(x, i, ty, b) => V1.Lam(x, i, eval1(ty), Clos1(b))
-    case T1.App(f, a, i)     => vapp1(eval1(f), eval1(a), i)
-    case T1.Fun(p, cv, r)    => V1.Fun(eval1(p), eval1(cv), eval1(r))
-    case T1.Lift(cv, ty)     => V1.Lift(eval1(cv), eval1(ty))
-    case T1.Quote(tm)        => vquote(eval0(tm))
-    case T1.Wk0(tm)          => eval1(tm)(using env.wk0)
-    case T1.Wk1(tm)          => eval1(tm)(using env.wk1)
-    case T1.Meta(id)         => vmeta(id)
-    case T1.MetaPi1(t, b)    => V1.MetaPi1(eval1(t), Clos1(b))
-    case T1.MetaPi0(t, b)    => V1.MetaPi0(eval1(t), Clos1(b))
-    case T1.MetaLam1(b)      => V1.MetaLam1(Clos1(b))
-    case T1.MetaLam0(b)      => V1.MetaLam0(Clos1(b))
-    case T1.MetaApp1(f, a)   => vmetaapp1(eval1(f), eval1(a))
-    case T1.MetaApp0(f, a)   => vmetaapp0(eval1(f), eval0(a))
-    case T1.AppPruning(m, p) => vappPruning(vmeta(m), p)
+  def eval1(t: T1)(using env: Env): V1 =
+    t match
+      case T1.Var(ix)          => var1(ix)
+      case T1.Global(x)        => vglobal1(x)
+      case T1.Prim(p)          => V1.Prim(p)
+      case T1.TypeCon(x)       => V1.TypeCon(x)
+      case T1.Con(dx, cx)      => V1.Con(dx, cx)
+      case T1.Let(x, ty, v, b) => eval1(b)(using Env.Ext1(env, eval1(v)))
+      case T1.Pi(x, i, ty, b)  => V1.Pi(x, i, eval1(ty), Clos1(b))
+      case T1.Lam(x, i, ty, b) => V1.Lam(x, i, eval1(ty), Clos1(b))
+      case T1.App(f, a, i)     => vapp1(eval1(f), eval1(a), i)
+      case T1.Fun(p, cv, r)    => V1.Fun(eval1(p), eval1(cv), eval1(r))
+      case T1.Lift(cv, ty)     => V1.Lift(eval1(cv), eval1(ty))
+      case T1.Quote(tm)        => vquote(eval0(tm))
+      case T1.Wk0(tm)          => eval1(tm)(using env.wk0)
+      case T1.Wk1(tm)          => eval1(tm)(using env.wk1)
+      case T1.Meta(id)         => vmeta(id)
+      case T1.MetaPi1(t, b)    => V1.MetaPi1(eval1(t), Clos1(b))
+      case T1.MetaPi0(t, b)    => V1.MetaPi0(eval1(t), Clos1(b))
+      case T1.MetaLam1(b)      => V1.MetaLam1(Clos1(b))
+      case T1.MetaLam0(b)      => V1.MetaLam0(Clos1(b))
+      case T1.MetaApp1(f, a)   => vmetaapp1(eval1(f), eval1(a))
+      case T1.MetaApp0(f, a)   => vmetaapp0(eval1(f), eval0(a))
+      case T1.AppPruning(m, p) => vappPruning(vmeta(m), p)
 
   // forcing
   def force1(v: V1): V1 = v match
@@ -269,8 +271,9 @@ object Evaluation:
           cs match
             case Cases.Ext(x, ps, b, r) =>
               val (innerlvl, innerenv) = addParams(ps)
+              val nps = ps.map((x, ty) => (x, go1(eval1(ty))))
               val rb = readback0(eval0(b)(using innerenv))(using innerlvl)
-              Cases.Ext(x, ps, rb, goCases(r))
+              Cases.Ext(x, nps, rb, goCases(r))
             case Cases.Otherwise(b) => Cases.Otherwise(go0(eval0(b)))
             case Cases.Empty        => Cases.Empty
         T0.Case(

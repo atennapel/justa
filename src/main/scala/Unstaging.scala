@@ -102,7 +102,7 @@ object Unstaging:
                       rest,
                       newps ++ List((x, vt, -1)),
                       CTy(vt) :: tenv,
-                      extVEnv,
+                      Env.Ext0(env, V0.Var(mkLvl(env.size))),
                       x :: ren
                     )
               inline def addParams(

@@ -53,11 +53,18 @@ object IR:
 
     override def toString: String =
       this match
-        case Cases.Ext(x, Nil, b, r) => s"$x => $b | $r"
+        case Cases.Ext(x, Nil, b, r) =>
+          val next = if r.isEmpty then "" else s" | $r}"
+          s"$x => $b$next"
         case Cases.Ext(x, ps, b, r) =>
-          s"$x ${ps.map((x, _, _) => s"'$x").mkString(" ")} => $b | $r"
+          val next = if r.isEmpty then "" else s" | $r}"
+          s"$x ${ps.map((x, _, _) => s"'$x").mkString(" ")} => $b$next"
         case Cases.Otherwise(b) => s"_ => $b"
         case Cases.Empty        => s""
+
+    def isEmpty: Boolean = this match
+      case Empty => true
+      case _     => false
 
   type LocalName = Int
   enum Tm:

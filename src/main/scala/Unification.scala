@@ -286,8 +286,9 @@ object Unification:
           cs match
             case Cases.Ext(x, ps, b, r) =>
               val (innerpsub, innerenv) = addParams(ps)
+              val nps = ps.map((x, ty) => (x, go1(eval1(ty))))
               val rb = psubst0(eval0(b)(using innerenv))(using innerpsub)
-              Cases.Ext(x, ps, rb, goCases(r))
+              Cases.Ext(x, nps, rb, goCases(r))
             case Cases.Otherwise(b) => Cases.Otherwise(go0(eval0(b)))
             case Cases.Empty        => Cases.Empty
         T0.Case(

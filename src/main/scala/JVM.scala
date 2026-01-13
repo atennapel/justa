@@ -56,11 +56,18 @@ object JVM:
 
     override def toString: String =
       this match
-        case Cases.Ext(x, Nil, b, r) => s"$x => $b | $r"
+        case Cases.Ext(x, Nil, b, r) =>
+          val next = if r.isEmpty then "" else s" | $r}"
+          s"$x => $b$next"
         case Cases.Ext(x, ps, b, r) =>
-          s"$x ${ps.map((x, _, _) => s"'$x").mkString(" ")} => $b | $r"
+          val next = if r.isEmpty then "" else s" | $r}"
+          s"$x ${ps.map((x, _, _) => s"'$x").mkString(" ")} => $b$next"
         case Cases.Otherwise(b) => s"_ => $b"
         case Cases.Empty        => s""
+
+    def isEmpty: Boolean = this match
+      case Empty => true
+      case _     => false
 
   enum Tm:
     case Local(ix: LocalName, ty: Ty)
@@ -90,7 +97,9 @@ object JVM:
 
     override def toString: String = this match
       case Local(ix, _)     => s"'$ix"
+      case Global(x, Nil)   => s"$x"
       case Global(x, args)  => s"$x${args.mkString("(", ",", ")")}"
+      case Prim(p, Nil)     => s"$p"
       case Prim(p, args)    => s"$p${args.mkString("(", ",", ")")}"
       case BoolLit(v)       => s"$v"
       case IntLit(v)        => s"$v"

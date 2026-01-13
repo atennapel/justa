@@ -29,7 +29,7 @@ object Main:
       State.allGlobals.foreach {
         case State.GlobalEntry.Def0(x, tm, _, _, _, vty, _) =>
           println(
-            s"def $x : ${ctx.pretty1(vty)} := ${ctx.pretty0(Evaluation.unstage(tm))}"
+            s"def $x : ${ctx.pretty1(vty)} := ${ctx.pretty0(tm)}"
           )
         case State.GlobalEntry.Def1(x, tm, _, _, vty) =>
           println(
@@ -57,17 +57,21 @@ object Main:
     catch
       case err: Parser.ParseError =>
         println(err.toString)
+        showPos(err.pos, filename)
         if isDebug then err.printStackTrace()
       case err: Elaboration.ElaborateError =>
         println(err.getMessage)
-        val PosInfo(line, col) = err.pos
-        if line > 0 && col > 0 then
-          val stream = Source.fromFile(filename)
-          val lineSrc = stream.getLines.toSeq(line - 1)
-          stream.close()
-          println(lineSrc)
-          println(s"${" " * (col - 1)}^")
-          println(s"in ${filename}:$line:$col")
+        showPos(err.pos, filename)
         if isDebug then err.printStackTrace()
     val etime = System.nanoTime() - etimeStart
     println(s"elaboration time: ${etime / 1000000}ms (${etime}ns)")
+
+  private def showPos(pos: PosInfo, filename: String): Unit =
+    val PosInfo(line, col) = pos
+    if line > 0 && col > 0 then
+      val stream = Source.fromFile(filename)
+      val lineSrc = stream.getLines.toSeq(line - 1)
+      stream.close()
+      println(lineSrc)
+      println(s"${" " * (col - 1)}^")
+      println(s"in ${filename}:$line:$col")

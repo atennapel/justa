@@ -9,7 +9,8 @@ https://github.com/AndrasKovacs/staged
 https://github.com/AndrasKovacs/cctt
 
 # TODO:
-- Data types
-- IO
-- Mutual recursion
-- Pattern matching
+- [x] Data types
+- [ ] Lambda match
+- [ ] IO (World token + move monomorphization to lifting + erasure of World token during lifting)
+- [ ] Mutual recursion
+- [ ] Pattern matching

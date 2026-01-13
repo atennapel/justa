@@ -129,12 +129,16 @@ object Pretty:
     case T0.Case(_, _, s, cs) =>
       def go(c: Cases): String =
         c match
-          case Cases.Ext(x, Nil, b, r) => s"$x => $b | ${go(r)}"
+          case Cases.Ext(x, Nil, b, r) =>
+            val next = if r.isEmpty then "" else s" | ${go(r)}"
+            s"$x => ${pretty0(b)}$next"
           case Cases.Ext(x, ps, b, r) =>
-            s"$x ${ps.mkString(" ")} => $b | ${go(r)}"
-          case Cases.Otherwise(b) => s"_ => $b"
+            val innerns = ps.map((x, _) => x).reverse ++ ns
+            val next = if r.isEmpty then "" else s" | ${go(r)}"
+            s"$x ${ps.map((x, _) => x).mkString(" ")} => ${pretty0(b)(using innerns)}$next"
+          case Cases.Otherwise(b) => s"_ => ${pretty0(b)}"
           case Cases.Empty        => s""
-      s"match $s { ${go(cs)} }"
+      s"match ${pretty0(s)} { ${go(cs)} }"
 
   def pretty1(tm: Tm1)(using ns: List[Bind]): String = tm match
     case T1.Var(ix) =>

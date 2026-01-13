@@ -10,11 +10,18 @@ object Core:
 
     override def toString: String =
       this match
-        case Cases.Ext(x, Nil, b, r) => s"$x => $b | $r"
+        case Cases.Ext(x, Nil, b, r) =>
+          val next = if r.isEmpty then "" else s" | $r}"
+          s"$x => $b$next"
         case Cases.Ext(x, ps, b, r) =>
-          s"$x ${ps.map((x, _) => x).mkString(" ")} => $b | $r"
+          val next = if r.isEmpty then "" else s" | $r}"
+          s"$x ${ps.map((x, _) => x).mkString(" ")} => $b$next"
         case Cases.Otherwise(b) => s"_ => $b"
         case Cases.Empty        => s""
+
+    def isEmpty: Boolean = this match
+      case Empty => true
+      case _     => false
 
   enum Tm0:
     case Var(ix: Ix)

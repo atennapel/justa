@@ -44,3 +44,14 @@ def map {A B : vtype} (f : A -> B) (l : List A) : List B =
     | Nil => Nil
     | Cons hd tl => Cons (f hd) (go tl);
   go l
+
+def myList2 := map (add 1) myList
+
+def reverse {A : vtype} (l : List A) : List A =
+  let rec go (l : List A) (acc : List A) :=
+    match l
+    | Nil => acc
+    | Cons hd tl => go tl (Cons hd acc);
+  go l Nil
+
+def myList3 := reverse myList
