@@ -14,14 +14,11 @@ object Simplification:
   private type Subst = Map[LocalName, Tm]
 
   private def simplifyDef(d: Def): Def =
-    d match
-      case Def.Value(name, ty, value) =>
-        debug(s"simplifyDef ${name}")
-        val (ps, nargs, nscope) = eta(ty)(using Set.empty)
-        val expanded = go(value, nargs)(using nscope, Map.empty)
-        val simp = correctUsages(simplify(lams(ps, expanded)))
-        Def.Value(name, ty, simp)
-      case d => d
+    debug(s"simplifyDef ${d.name}")
+    val (ps, nargs, nscope) = eta(d.ty)(using Set.empty)
+    val expanded = go(d.value, nargs)(using nscope, Map.empty)
+    val simp = correctUsages(simplify(lams(ps, expanded)))
+    Def(d.name, d.ty, simp)
 
   @tailrec
   private def simplify(t: Tm): Tm =
@@ -41,8 +38,8 @@ object Simplification:
       case Tm.BoolLit(_) => t
       case Tm.IntLit(_)  => t
 
-      case Tm.Con(dx, cx, ix, args) =>
-        Tm.Con(dx, cx, ix, args.map(a => go(a, Nil)))
+      case Tm.Con(dx, cx, ix, dty, args) =>
+        Tm.Con(dx, cx, ix, dty, args.map(a => go(a, Nil)))
 
       case Tm.Local(x, ty) => args.foldLeft(subst.getOrElse(x, t))(Tm.App.apply)
 
@@ -104,7 +101,7 @@ object Simplification:
         val b = go(b0, args)(using nscope, nsubst)
         Tm.LetRec(x, -1, ty, v, b)
 
-      case Tm.Case(_, _, Tm.Con(_, cx, _, args), cs) =>
+      case Tm.Case(_, _, Tm.Con(_, cx, _, _, args), cs) =>
         @tailrec
         def lookup(
             cx: Name,
@@ -184,13 +181,13 @@ object Simplification:
     go(ty.params, v)
 
   private def isSmall(t: Tm) = t match
-    case Tm.Local(_, _)       => true
-    case Tm.Global(name)      => true
-    case Tm.Prim(_)           => true
-    case Tm.BoolLit(_)        => true
-    case Tm.IntLit(_)         => true
-    case Tm.Con(_, _, _, Nil) => true
-    case _                    => false
+    case Tm.Local(_, _)          => true
+    case Tm.Global(name)         => true
+    case Tm.Prim(_)              => true
+    case Tm.BoolLit(_)           => true
+    case Tm.IntLit(_)            => true
+    case Tm.Con(_, _, _, _, Nil) => true
+    case _                       => false
 
   private def foldConstants2(p: RuntimePrimitive, a: Tm, b: Tm): Option[Tm] =
     import RuntimePrimitive.*
@@ -243,14 +240,14 @@ object Simplification:
         val (t, ut) = correctUsagesRec(t0)
         val (f, uf) = correctUsagesRec(f0)
         (Tm.If(ty, c, t, f), mergeUsages(uc, mergeUsages(ut, uf)))
-      case Tm.Con(dx, cx, ix, args) =>
+      case Tm.Con(dx, cx, ix, dty, args) =>
         val (cargs, usages) =
           args.foldLeft[(List[Tm], Usages)]((Nil, Map.empty)) {
             case ((cargs, usages), arg) =>
               val (a, ua) = correctUsagesRec(arg)
               (cargs ++ List(a), mergeUsages(usages, ua))
           }
-        (Tm.Con(dx, cx, ix, cargs), usages)
+        (Tm.Con(dx, cx, ix, dty, cargs), usages)
 
       case Tm.Case(rt, dt, s, cs) =>
         def go(cs: Cases): (Cases, Usages) =

@@ -1,6 +1,7 @@
 import Common.*
 import Core.*
 
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 object State:
@@ -105,3 +106,24 @@ object State:
     globals.findLast(e => e.name == x)
 
   def allGlobals: List[GlobalEntry] = globals.toList
+
+  def conIndex(dx: Name, cx: Name): Int =
+    getGlobal(dx) match
+      case Some(GlobalEntry.Data(_, _, xs, _, _, _)) => xs.indexOf(cx)
+      case _                                         => impossible()
+
+  // monomorphization
+  type MonoEnv = Map[Lvl, IR.VTy]
+  private val monomap
+      : mutable.Map[(Name, Name), MonoEnv => List[(Bind, IR.VTy)]] =
+    mutable.Map.empty
+
+  def setMono(dx: Name, cx: Name)(k: MonoEnv => List[(Bind, IR.VTy)]): Unit =
+    monomap += ((dx, cx) -> k)
+
+  def getMonoConParams(
+      dx: Name,
+      cx: Name,
+      menv: MonoEnv
+  ): List[(Bind, IR.VTy)] =
+    monomap((dx, cx))(menv)

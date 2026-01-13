@@ -1,5 +1,6 @@
 import Common.*
 import IR.*
+import State.*
 import Debug.debug
 
 import scala.annotation.tailrec
@@ -36,27 +37,20 @@ object Lifting:
   import RenEntry.*
 
   private def liftDef(d: Def): List[JVM.Def] =
-    d match
-      case Def.Value(name, ty, v) =>
-        debug(s"liftDef ${name}")
-        given emit: Emit = new Emit(name)
-        given Supply = new Supply(0)
-        given Ren = renParams(ty)
-        given Name = name
-        val value = go(removeLams(ty, v), true, Some(lamTypes(v)))
-        val retty = goVTy(ty.ret)
-        val cdef =
-          if ty.params.isEmpty then JVM.Def.Value(name, retty, value)
-          else
-            val ps = ty.params.zipWithIndex.map((ty, ix) => (ix, goVTy(ty)))
-            JVM.Def.Function(name, ps, retty, value)
-        emit.toList ++ List(cdef)
-      case Def.Data(x, cs) =>
-        debug(s"liftDef ${x}")
-        val ecs = cs.map { case Constructor(x, ps) =>
-          JVM.Constructor(x, ps.map((x, ty) => (x, goVTy(ty))))
-        }
-        List(JVM.Def.Data(x, ecs))
+    debug(s"liftDef ${d.name}")
+    newDefs.clear()
+    given emit: Emit = new Emit(d.name)
+    given Supply = new Supply(0)
+    given Ren = renParams(d.ty)
+    given Name = d.name
+    val value = go(removeLams(d.ty, d.value), true, Some(lamTypes(d.value)))
+    val retty = goVTy(d.ty.ret)
+    val cdef =
+      if d.ty.params.isEmpty then JVM.Def.Value(d.name, retty, value)
+      else
+        val ps = d.ty.params.zipWithIndex.map((ty, ix) => (ix, goVTy(ty)))
+        JVM.Def.Function(d.name, ps, retty, value)
+    newDefs.toList ++ emit.toList ++ List(cdef)
 
   private inline def renParams(ty: CTy, ren: Ren = Map.empty)(using
       supply: Supply
@@ -95,8 +89,8 @@ object Lifting:
 
       case Tm.If(_, c, t, f) =>
         JVM.Tm.If(go(c, false), go(t, tail), go(f, tail))
-      case Tm.Con(dx, cx, ix, args) =>
-        JVM.Tm.Con(dx, cx, ix, args.map(go(_, false)))
+      case Tm.Con(_, cx, ix, dty, args) =>
+        JVM.Tm.Con(goData(dty), cx, ix, args.map(go(_, false)))
 
       case Tm.App(_, _) =>
         val (f, a) = t.flattenApps
@@ -214,7 +208,7 @@ object Lifting:
               val (newps, innerren) = goParams(ps)
               val newb = go(b, tail)(using innerren)
               JVM.Cases.Ext(cx, newps, newb, goCases(r))
-        JVM.Tm.Case(dty, go(s, false), goCases(cs))
+        JVM.Tm.Case(goData(dty), go(s, false), goCases(cs))
 
   @tailrec
   private def renLifted(ps: List[(Int, CTy)], ren: Ren = Map.empty)(using
@@ -275,9 +269,14 @@ object Lifting:
 
   private def goVTy(t: VTy): JVM.Ty =
     t match
-      case VTy.Bool    => JVM.Ty.Bool
-      case VTy.Int     => JVM.Ty.Int
-      case VTy.Data(x) => JVM.Ty.Data(x)
+      case VTy.Bool          => JVM.Ty.Bool
+      case VTy.Int           => JVM.Ty.Int
+      case VTy.Data(x, args) => monomorphize(x, args)
+
+  private def goData(dty: VTy): Name =
+    goVTy(dty) match
+      case JVM.Ty.Data(dx) => dx
+      case _               => impossible()
 
   private def removeLams(ty: CTy, t: Tm): Tm =
     @tailrec
@@ -320,7 +319,7 @@ object Lifting:
       case Tm.LetRec(x, _, _, v, b) =>
         merge(remove(x, free(v)), remove(x, free(b)))
 
-      case Tm.Con(_, _, _, args) =>
+      case Tm.Con(_, _, _, _, args) =>
         args.map(free).foldLeft(Nil)(merge)
 
       case Tm.Case(_, _, s, cs) =>
@@ -353,7 +352,7 @@ object Lifting:
         isUsedInTailOnly(x, false, c) &&
         isUsedInTailOnly(x, tail, t) &&
         isUsedInTailOnly(x, tail, f)
-      case Tm.Con(_, _, _, args) =>
+      case Tm.Con(_, _, _, _, args) =>
         args.forall(isUsedInTailOnly(x, false, _))
 
       case Tm.Local(y, ty) => if x == y then tail else true
@@ -373,3 +372,44 @@ object Lifting:
             case Cases.Otherwise(b)    => isUsedInTailOnly(x, tail, b)
             case Cases.Ext(_, _, b, r) => isUsedInTailOnly(x, tail, b) && go(r)
         isUsedInTailOnly(x, false, s) && go(cs)
+
+  // monomorphization
+  private type MonoKey = (Name, List[IR.VTy])
+  private val monoStore = mutable.Map.empty[MonoKey, Name]
+  private val newDefs = mutable.ArrayBuffer.empty[JVM.Def]
+
+  private def monomorphize(dx: Name, ps: List[IR.VTy]): JVM.Ty =
+    val xs = State.getGlobal(dx) match
+      case Some(GlobalEntry.Data(_, _, xs, _, _, _)) => xs
+      case _                                         => impossible()
+    val (nx, alreadyDone) = tryMonomorphize(dx, ps)
+    if !alreadyDone then
+      val menv: State.MonoEnv =
+        ps.zipWithIndex.map((ty, i) => (mkLvl(i), ty)).toMap
+      val ecs = xs.map { cx =>
+        val ets =
+          State
+            .getMonoConParams(dx, cx, menv)
+            .map((x, ty) => (x.toOption, goVTy(ty)))
+        JVM.Constructor(cx, ets)
+      }
+      newDefs += JVM.Def.Data(nx, ecs)
+    JVM.Ty.Data(nx)
+
+  private def tryMonomorphize(name: Name, ps: List[IR.VTy]): (Name, Boolean) =
+    val k = (name, ps)
+    monoStore.get(k) match
+      case Some(x) => (x, true)
+      case None =>
+        val x = createName(name, ps)
+        monoStore += k -> x
+        (x, false)
+
+  private def createName(name: Name, ps: List[IR.VTy]): Name =
+    def paramStr(p: IR.VTy): String = p match
+      case VTy.Bool          => "bool"
+      case VTy.Int           => "int"
+      case VTy.Data(x, Nil)  => s"$x"
+      case VTy.Data(x, args) => s"${x}_${args.map(paramStr).mkString("_")}"
+    if ps.isEmpty then name
+    else Name(s"${name}_${ps.map(paramStr).mkString("_")}")

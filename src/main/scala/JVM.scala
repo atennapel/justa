@@ -25,7 +25,7 @@ object JVM:
       case Nil => s"$name"
       case _ =>
         val ps = params
-          .map((x, t) => s"($x : $t)")
+          .map((x, t) => s"(${x.getOrElse("_")} : $t)")
           .mkString(" ")
         s"$name $ps"
 

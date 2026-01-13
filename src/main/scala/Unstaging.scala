@@ -5,21 +5,31 @@ import State.GlobalEntry
 import Evaluation.{eval1, forceAll1, unstageUnder}
 
 import scala.annotation.tailrec
-import scala.collection.mutable
 
 object Unstaging:
   def unstageState(): Defs =
-    monoStore.clear()
-    newDefs.clear()
     val ds = State.allGlobals.flatMap {
       case GlobalEntry.Def0(x, tm, _, _, _, vty, _) =>
         val nty = goCTy(vty)
         val ntm = unstage(tm)
-        Some(Def.Value(x, nty, ntm))
-      case _ => None
+        Some(Def(x, nty, ntm))
+      case GlobalEntry.Con(cx, typarams, params, dx, _, _, _, _) =>
+        State.setMono(dx, cx) { menv =>
+          val env =
+            Env(
+              (0 until typarams.size).reverse.map(i => V.Var(mkLvl(i))).toList
+            )
+          params.map { case (x, ty) =>
+            val vty = eval1(ty)(using env)
+            val ty2 = goVTy(vty, menv)
+            (x, ty2)
+          }
+        }
+        None
+      case _ =>
+        None
     }
-    val extraDefs = newDefs.toList
-    Defs(extraDefs ++ ds)
+    Defs(ds)
 
   private type TEnv = List[CTy]
   private type Ren = List[LocalName]
@@ -64,11 +74,11 @@ object Unstaging:
 
       case Tm0.Lam(x, ty, b) =>
         val y = supply.next()
-        val vt = goVTy(ty)
+        val vt = goTy(ty)
         Tm.Lam(
           y,
           -1,
-          goVTy(ty),
+          goTy(ty),
           go(b)(using CTy(vt) :: tenv, extVEnv, y :: ren)
         )
 
@@ -77,9 +87,6 @@ object Unstaging:
       case Tm0.If(rty, c, t, f) => Tm.If(goCTy(rty), go(c), go(t), go(f))
 
       case Tm0.Case(rty, dty, s, cs) =>
-        val dx = goVTy(dty) match
-          case VTy.Data(dx) => dx
-          case _            => impossible()
         def goCases(cs: Core.Cases): Cases =
           cs match
             case Core.Cases.Empty        => Cases.Empty
@@ -97,7 +104,7 @@ object Unstaging:
                   case Nil => (newps, tenv, env, ren)
                   case (_, ty) :: rest =>
                     val x = supply.next()
-                    val vt = goVTy(ty)
+                    val vt = goTy(ty)
                     addParamsRec(
                       rest,
                       newps ++ List((x, vt, -1)),
@@ -116,7 +123,7 @@ object Unstaging:
               val (newps, innertenv, innerenv, innerren) = addParams(ps)
               val body = go(b)(using innertenv, innerenv, innerren)
               Cases.Ext(x, newps, body, goCases(r))
-        Tm.Case(goCTy(rty), dx, go(s), goCases(cs))
+        Tm.Case(goCTy(rty), goTy(dty), go(s), goCases(cs))
 
       case Tm0.Wk1(tm) => go(tm)(using tenv, venv.wk1)
       case Tm0.Wk0(tm) => go(tm)(using tenv.tail, venv.wk0, ren.tail)
@@ -150,16 +157,14 @@ object Unstaging:
             apps(tm) match
               case (Tm1.Con(dx, cx), args) =>
                 val ps = takeImpl(args).map(eval1)
+                val dty = VTy.Data(dx, ps.map(t => goVTy(t)))
                 val as = args.drop(ps.size).map((t, _) => stgo(t))
-                monomorphize(dx, ps) match
-                  case IR.VTy.Data(mx) =>
-                    IR.Tm.Con(mx, cx, conIndex(dx, cx), as)
-                  case _ => impossible()
+                IR.Tm.Con(dx, cx, State.conIndex(dx, cx), dty, as)
               case _ => impossible()
   // types
   private def goCTy(ty: Tm1, env: Env = Env.Empty): CTy =
     goCTy(eval1(ty)(using env))
-  private def goVTy(ty: Tm1, env: Env = Env.Empty): VTy =
+  private def goTy(ty: Tm1, env: Env = Env.Empty): VTy =
     goVTy(eval1(ty)(using env))
 
   private def goCTy(ty: V): CTy =
@@ -167,58 +172,10 @@ object Unstaging:
       case V.Fun(pty, _, rty) => CTy(goVTy(pty), goCTy(rty))
       case _                  => CTy(goVTy(ty))
 
-  private def goVTy(ty: V): VTy =
+  private def goVTy(ty: V, menv: State.MonoEnv = Map.empty): VTy =
     forceAll1(ty) match
       case V.Bool             => VTy.Bool
       case V.Int              => VTy.Int
-      case V.TypeCon(x, args) => monomorphize(x, args.map((a, _) => a))
+      case V.TypeCon(x, args) => VTy.Data(x, args.map((a, _) => goVTy(a, menv)))
+      case V.Var(lvl)         => menv(lvl)
       case _                  => impossible()
-
-  // monomorphization
-  private type MonoKey = (Name, List[IR.VTy])
-  private var currentModule: Option[Name] = None
-  private val monoStore = mutable.Map.empty[MonoKey, Name]
-  private val monoRecStore = mutable.Map.empty[Assoc[IR.VTy], Name]
-  private val newDefs = mutable.ArrayBuffer.empty[IR.Def]
-
-  private def conIndex(dx: Name, cx: Name): Int =
-    State.getGlobal(dx) match
-      case Some(GlobalEntry.Data(_, _, xs, _, _, _)) => xs.indexOf(cx)
-      case _                                         => impossible()
-
-  private def monomorphize(mx: Name, ps: List[V]): IR.VTy =
-    val xs = State.getGlobal(mx) match
-      case Some(GlobalEntry.Data(_, _, xs, _, _, _)) => xs
-      case _                                         => impossible()
-    val eps = ps.map(goVTy)
-    val (nx, alreadyDone) = monomorphize(mx, eps)
-    if !alreadyDone then
-      val cons = xs.map { cx =>
-        State.getGlobal(cx) match
-          case Some(GlobalEntry.Con(_, _, ps, _, _, _, _, _)) => cx -> ps
-          case _                                              => impossible()
-      }
-      val env = Env(ps)
-      val ecs = cons.map { (cx, ts) =>
-        val ets = ts.map((x, t) => (x.toOption, goVTy(t, env)))
-        IR.Constructor(cx, ets)
-      }
-      newDefs += IR.Def.Data(nx, ecs)
-    IR.VTy.Data(nx)
-
-  private def monomorphize(name: Name, ps: List[IR.VTy]): (Name, Boolean) =
-    val k = (name, ps)
-    monoStore.get(k) match
-      case Some(x) => (x, true)
-      case None =>
-        val x = createName(name, ps)
-        monoStore += k -> x
-        (x, false)
-
-  private def createName(name: Name, ps: List[IR.VTy]): Name =
-    def paramStr(p: IR.VTy): String = p match
-      case VTy.Bool    => "bool"
-      case VTy.Int     => "int"
-      case VTy.Data(x) => s"$x"
-    if ps.isEmpty then name
-    else Name(s"${name}_${ps.map(paramStr).mkString("_")}")

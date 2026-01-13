@@ -4,12 +4,13 @@ object IR:
   enum VTy:
     case Bool
     case Int
-    case Data(name: Name)
+    case Data(name: Name, args: List[VTy])
 
     override def toString: String = this match
-      case Bool    => "bool"
-      case Int     => "int"
-      case Data(x) => s"$x"
+      case Bool          => "bool"
+      case Int           => "int"
+      case Data(x, Nil)  => s"$x"
+      case Data(x, args) => s"$x ${args.mkString(" ")}"
 
   final case class CTy(params: List[VTy], ret: VTy):
     def head: VTy = params.head
@@ -25,26 +26,8 @@ object IR:
     override def toString: String = defs.mkString("\n")
     def toList: List[Def] = defs
 
-  final case class Constructor(
-      name: Name,
-      params: List[(Option[Name], VTy)]
-  ):
-    override def toString: String = params match
-      case Nil => s"$name"
-      case _ =>
-        val ps = params
-          .map((x, t) => s"($x : $t)")
-          .mkString(" ")
-        s"$name $ps"
-
-  enum Def:
-    case Value(name: Name, ty: CTy, value: Tm)
-    case Data(name: Name, constructors: List[Constructor])
-
-    override def toString: String = this match
-      case Value(x, ty, v) => s"def $x : $ty = $v"
-      case Data(x, Nil)    => s"data $x"
-      case Data(x, cs)     => s"data $x = ${cs.mkString(" | ")}"
+  final case class Def(name: Name, ty: CTy, value: Tm):
+    override def toString: String = s"def $name : $ty = $value"
 
   enum Cases:
     case Ext(x: Name, ps: List[(LocalName, VTy, Int)], body: Tm, rest: Cases)
@@ -82,8 +65,8 @@ object IR:
 
     case If(rty: CTy, cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
-    case Con(dx: Name, cx: Name, ix: Int, args: List[Tm])
-    case Case(rty: CTy, dty: Name, scrut: Tm, cases: Cases)
+    case Con(dx: Name, cx: Name, ix: Int, ty: VTy, args: List[Tm])
+    case Case(rty: CTy, dty: VTy, scrut: Tm, cases: Cases)
 
     override def toString: String = this match
       case Local(ix, _)               => s"'$ix"
@@ -96,8 +79,8 @@ object IR:
       case Lam(x, _, ty, b)           => s"(\\('$x : $ty) => $b)"
       case App(fn, arg)               => s"($fn $arg)"
       case If(_, c, t, f)             => s"(if $c then $t else $f)"
-      case Con(_, cx, _, Nil)         => s"$cx"
-      case Con(_, cx, _, args)        => s"($cx ${args.mkString(" ")})"
+      case Con(_, cx, _, _, Nil)      => s"$cx"
+      case Con(_, cx, _, _, args)     => s"($cx ${args.mkString(" ")})"
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
 
