@@ -7,8 +7,8 @@ object JVM:
     case Data(name: Name)
 
     override def toString: String = this match
-      case Bool    => "bool"
-      case Int     => "int"
+      case Bool    => "Bool"
+      case Int     => "Int"
       case Data(x) => s"$x"
 
   final case class Defs(defs: List[Def]):

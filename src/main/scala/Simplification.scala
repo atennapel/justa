@@ -41,7 +41,10 @@ object Simplification:
       case Tm.Con(dx, cx, ix, dty, args) =>
         Tm.Con(dx, cx, ix, dty, args.map(a => go(a, Nil)))
 
-      case Tm.Local(x, ty) => args.foldLeft(subst.getOrElse(x, t))(Tm.App.apply)
+      case Tm.Local(x, ty) =>
+        subst.get(x) match
+          case Some(tm) if tm != t => go(tm, args)
+          case _                   => args.foldLeft(t)(Tm.App.apply)
 
       case Tm.If(_, Tm.BoolLit(b), t, f) =>
         if b then go(t, args) else go(f, args)
@@ -101,7 +104,7 @@ object Simplification:
         val b = go(b0, args)(using nscope, nsubst)
         Tm.LetRec(x, -1, ty, v, b)
 
-      case Tm.Case(_, _, Tm.Con(_, cx, _, _, args), cs) =>
+      case Tm.Case(_, _, Tm.Con(_, cx, _, _, cargs), cs) =>
         @tailrec
         def lookup(
             cx: Name,
@@ -117,7 +120,7 @@ object Simplification:
           case Right((ps, b)) =>
             val lets = ps.zipWithIndex.foldRight(b) {
               case (((x, ty, u), i), b) =>
-                Tm.Let(x, u, CTy(ty), args(i), b)
+                Tm.Let(x, u, CTy(ty), cargs(i), b)
             }
             go(lets, args)
       case Tm.Case(rty, dty, s, cs) =>

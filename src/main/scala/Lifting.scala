@@ -118,7 +118,7 @@ object Lifting:
           go(b, tail)(using ren = ren + (x -> JoinPoint(y)))
         )
 
-      case Tm.Let(x, _, CTy(Nil, ty), v, b) =>
+      case Tm.Let(x, _, CTy(Nil, false, ty), v, b) => // TODO: IO
         val y = supply.next()
         JVM.Tm.Let(
           y,
@@ -407,8 +407,8 @@ object Lifting:
 
   private def createName(name: Name, ps: List[IR.VTy]): Name =
     def paramStr(p: IR.VTy): String = p match
-      case VTy.Bool          => "bool"
-      case VTy.Int           => "int"
+      case VTy.Bool          => "Bool"
+      case VTy.Int           => "Int"
       case VTy.Data(x, Nil)  => s"$x"
       case VTy.Data(x, args) => s"${x}_${args.map(paramStr).mkString("_")}"
     if ps.isEmpty then name

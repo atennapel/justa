@@ -1,7 +1,7 @@
 import Common.*
 import Common.Icit.*
 import Common.Bind.*
-import Debug.debug
+// import Debug.debug
 import Surface.*
 
 import scala.collection.mutable
@@ -41,14 +41,17 @@ object Parser:
       "cv",
       "val",
       "comp",
-      "bool",
-      "true",
-      "false",
-      "int",
+      "Bool",
+      "True",
+      "False",
+      "Int",
       "lt",
       "add",
       "sub",
-      "mul"
+      "mul",
+      "IO",
+      "returnIO",
+      "bindIO"
     )
   private val symbols1: Set[Char] =
     Set(':', ';', '|', '=', '\\', '(', ')', '{', '}', '^', '`', '$')
@@ -138,7 +141,7 @@ object Parser:
   private def hole(using ctx: Ctx) = Tm.Hole(ctx.pos, None)
 
   private def parseDef()(using ctx: Ctx): Option[Def] =
-    debug(s"parseDef: $ctx")
+    // // debug(s"parseDef: $ctx")
     if tryKeyword("def") then
       val (pos, isMeta, x, ty, body) = parseDefPart()
       if isMeta then Some(Def.Def1(pos, x, ty, body))
@@ -166,7 +169,7 @@ object Parser:
   private def parseDefPart()(using
       ctx: Ctx
   ): (PosInfo, Boolean, Name, Option[Tm], Tm) =
-    debug(s"parseDefPart: $ctx")
+    // debug(s"parseDefPart: $ctx")
     val pos = ctx.pos
     val x = name()
     val ps = parseParams()
@@ -194,14 +197,14 @@ object Parser:
   private def parseParams()(using ctx: Ctx): List[DefParam] = list(parseParam)
 
   private def parseGrouping()(using ctx: Ctx): (List[Bind], Option[Ty]) =
-    debug(s"parseGrouping: $ctx")
+    // debug(s"parseGrouping: $ctx")
     val x = bind()
     val xs = list(tryBind)
     val ty = if trySymbol(":") then Some(parseExpr()) else None
     (x :: xs, ty)
 
   private def parseParam()(using ctx: Ctx): Option[DefParam] =
-    debug(s"parseParam: $ctx")
+    // debug(s"parseParam: $ctx")
     if trySymbol("(") then
       val pos = ctx.pos
       val (xs, ty) = parseGrouping()
@@ -270,25 +273,30 @@ object Parser:
         else if tryKeyword("cv") then Some(Tm.Prim(ctx.pos, Primitive.CV))
         else if tryKeyword("comp") then Some(Tm.Prim(ctx.pos, Primitive.Comp))
         else if tryKeyword("val") then Some(Tm.Prim(ctx.pos, Primitive.Val))
-        else if tryKeyword("bool") then Some(Tm.Prim(ctx.pos, Primitive.Bool))
-        else if tryKeyword("true") then Some(Tm.Prim(ctx.pos, Primitive.True))
-        else if tryKeyword("false") then Some(Tm.Prim(ctx.pos, Primitive.False))
-        else if tryKeyword("int") then Some(Tm.Prim(ctx.pos, Primitive.Int))
+        else if tryKeyword("Bool") then Some(Tm.Prim(ctx.pos, Primitive.Bool))
+        else if tryKeyword("True") then Some(Tm.Prim(ctx.pos, Primitive.True))
+        else if tryKeyword("False") then Some(Tm.Prim(ctx.pos, Primitive.False))
+        else if tryKeyword("Int") then Some(Tm.Prim(ctx.pos, Primitive.Int))
         else if tryKeyword("lt") then Some(Tm.Prim(ctx.pos, Primitive.Lt))
         else if tryKeyword("add") then Some(Tm.Prim(ctx.pos, Primitive.Add))
         else if tryKeyword("sub") then Some(Tm.Prim(ctx.pos, Primitive.Sub))
         else if tryKeyword("mul") then Some(Tm.Prim(ctx.pos, Primitive.Mul))
+        else if tryKeyword("IO") then Some(Tm.Prim(ctx.pos, Primitive.IO))
+        else if tryKeyword("returnIO") then
+          Some(Tm.Prim(ctx.pos, Primitive.ReturnIO))
+        else if tryKeyword("bindIO") then
+          Some(Tm.Prim(ctx.pos, Primitive.BindIO))
         else
           tryNumber() match
             case None    => None
             case Some(v) => Some(Tm.IntLit(ctx.pos, v))
 
   private def parseAtom()(using ctx: Ctx): Tm =
-    debug(s"parseAtom: $ctx")
+    // debug(s"parseAtom: $ctx")
     tryParseAtom().getOrElse(err("expected an expression"))
 
   private def parseExpr()(using ctx: Ctx): Tm =
-    debug(s"parseExpr: $ctx")
+    // debug(s"parseExpr: $ctx")
     if tryKeyword("let") then
       val rec = tryKeyword("rec")
       parseLet(rec)
@@ -316,7 +324,7 @@ object Parser:
   private def piParam()(using
       ctx: Ctx
   ): Option[(PosInfo, Icit, List[Bind], Ty)] =
-    debug(s"piParam: $ctx")
+    // debug(s"piParam: $ctx")
     if trySymbol("(") then
       if trySymbol(")") then None
       else
@@ -338,7 +346,7 @@ object Parser:
     else None
 
   private def apps()(using ctx: Ctx): Tm =
-    debug(s"apps: $ctx")
+    // debug(s"apps: $ctx")
     val pos = ctx.pos
     val hd = parseAtom()
     val tl = list(parseArg)
@@ -355,7 +363,7 @@ object Parser:
     else expr
 
   private def parseLet(rec: Boolean)(using ctx: Ctx): Tm =
-    debug(s"parseLet: $ctx")
+    // debug(s"parseLet: $ctx")
     val (pos, isMeta, x, ty, value) = parseDefPart()
     symbol(";")
     val body = parseExpr()
@@ -366,7 +374,7 @@ object Parser:
     else Tm.Let0(pos, x, ty, value, body)
 
   private def parseLam()(using ctx: Ctx): Tm =
-    debug(s"parseLam: $ctx")
+    // debug(s"parseLam: $ctx")
     val ps = parseParams()
     symbol("=>")
     val body = parseExpr()
@@ -375,7 +383,7 @@ object Parser:
     }
 
   private def parseArg()(using ctx: Ctx): Option[(Tm, ArgInfo)] =
-    debug(s"parseArg: $ctx")
+    // debug(s"parseArg: $ctx")
     if trySymbol("{") then
       def next(arginfo: ArgInfo): Option[(Tm, ArgInfo)] =
         val a = parseExpr()

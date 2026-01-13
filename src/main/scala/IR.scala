@@ -7,20 +7,26 @@ object IR:
     case Data(name: Name, args: List[VTy])
 
     override def toString: String = this match
-      case Bool          => "bool"
-      case Int           => "int"
+      case Bool          => "Bool"
+      case Int           => "Int"
       case Data(x, Nil)  => s"$x"
-      case Data(x, args) => s"$x ${args.mkString(" ")}"
+      case Data(x, args) => s"($x ${args.mkString(" ")})"
 
-  final case class CTy(params: List[VTy], ret: VTy):
+  final case class CTy(params: List[VTy], io: Boolean, ret: VTy):
     def head: VTy = params.head
-    def tail: CTy = CTy(params.tail, ret)
-    def drop(n: Int): CTy = CTy(params.drop(n), ret)
-    override def toString: String = s"${params.mkString("(", ",", ")")} -> $ret"
+    def tail: CTy = CTy(params.tail, io, ret)
+    def drop(n: Int): CTy = CTy(params.drop(n), io, ret)
+    override def toString: String =
+      params match
+        case Nil if !io => s"$ret"
+        case Nil        => s"IO $ret"
+        case _ =>
+          s"${params.mkString("(", ",", ")")} ->${if io then " IO" else ""} $ret"
   object CTy:
-    def apply(ret: VTy): CTy = CTy(Nil, ret)
-    def apply(param: VTy, ret: VTy): CTy = CTy(List(param), ret)
-    def apply(param: VTy, ret: CTy): CTy = CTy(param :: ret.params, ret.ret)
+    def apply(ret: VTy): CTy = CTy(Nil, false, ret)
+    def apply(param: VTy, ret: VTy): CTy = CTy(List(param), false, ret)
+    def apply(param: VTy, ret: CTy): CTy =
+      CTy(param :: ret.params, ret.io, ret.ret)
 
   final case class Defs(defs: List[Def]):
     override def toString: String = defs.mkString("\n")
@@ -68,6 +74,8 @@ object IR:
     case Con(dx: Name, cx: Name, ix: Int, ty: VTy, args: List[Tm])
     case Case(rty: CTy, dty: VTy, scrut: Tm, cases: Cases)
 
+    case ReturnIO(ty: VTy, value: Tm)
+
     override def toString: String = this match
       case Local(ix, _)               => s"'$ix"
       case Global(x)                  => s"$x"
@@ -83,6 +91,7 @@ object IR:
       case Con(_, cx, _, _, args)     => s"($cx ${args.mkString(" ")})"
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
+      case ReturnIO(ty, v)            => s"(returnIO $v)"
 
     def flattenApps: (Tm, List[Tm]) = this match
       case App(f, a) =>

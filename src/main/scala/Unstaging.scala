@@ -160,6 +160,16 @@ object Unstaging:
                 val dty = VTy.Data(dx, ps.map(t => goVTy(t)))
                 val as = args.drop(ps.size).map((t, _) => stgo(t))
                 IR.Tm.Con(dx, cx, State.conIndex(dx, cx), dty, as)
+              case (Tm1.Prim(Primitive.ReturnIO), args) =>
+                println(s"returnIO $args")
+                val ty = goTy(args.head._1, venv)
+                val v = stgo(args(1)._1)
+                println(ty)
+                println(v)
+                IR.Tm.ReturnIO(ty, v)
+              case (Tm1.Prim(Primitive.BindIO), args) =>
+                println(s"bindIO $args")
+                ???
               case _ => impossible()
   // types
   private def goCTy(ty: Tm1, env: Env = Env.Empty): CTy =
@@ -170,6 +180,7 @@ object Unstaging:
   private def goCTy(ty: V): CTy =
     forceAll1(ty) match
       case V.Fun(pty, _, rty) => CTy(goVTy(pty), goCTy(rty))
+      case V.IO(ty)           => CTy(Nil, true, goVTy(ty))
       case _                  => CTy(goVTy(ty))
 
   private def goVTy(ty: V, menv: State.MonoEnv = Map.empty): VTy =

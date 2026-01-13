@@ -489,7 +489,32 @@ object Elaboration:
     Primitive.Sub ->
       V.Lift(V.Comp, V.Fun(V.Int, V.Comp, V.Fun(V.Int, V.Val, V.Int))),
     Primitive.Mul ->
-      V.Lift(V.Comp, V.Fun(V.Int, V.Comp, V.Fun(V.Int, V.Val, V.Int)))
+      V.Lift(V.Comp, V.Fun(V.Int, V.Comp, V.Fun(V.Int, V.Val, V.Int))),
+    // type val -> type comp
+    Primitive.IO -> V.fun1(V.TypeV, V.TypeC),
+    // {A : type val} -> ^A -> ^(IO A)
+    Primitive.ReturnIO ->
+      V.piI(
+        "A",
+        V.TypeV,
+        a => V.fun1(V.liftV(a), V.liftC(V.IO(a)))
+      ),
+    // {A : type val} -> {B : type val} -> ^(IO A) -> (^A -> ^(IO B)) -> ^(IO B)
+    Primitive.BindIO ->
+      V.piI(
+        "A",
+        V.TypeV,
+        a =>
+          V.piI(
+            "B",
+            V.TypeV,
+            b =>
+              V.fun1(
+                V.liftC(V.IO(a)),
+                V.fun1(V.fun1(V.liftV(a), V.liftC(V.IO(b))), V.liftC(V.IO(b)))
+              )
+          )
+      )
   )
 
   private inline def inferPrimType(p: Primitive): VTy = primTypes(p)

@@ -1,21 +1,22 @@
 def vtype = type val
+def ctype = type comp
 
 def id {A : meta} (x : A) = x
 
 def n := id 42
 
 def addtest := add 1 2
-def iftest := if true then 1 else 2
+def iftest := if True then 1 else 2
 
-def fac (n : int) :=
-  let rec go (n : int) (acc : int) :=
+def fac (n : Int) :=
+  let rec go (n : Int) (acc : Int) :=
     if lt n 2 then acc
     else go (sub n 1) (mul acc n);
   go n 1
 
 def condloopacc {Acc : vtype} {Arg : vtype}
   (init : Acc)
-  (cond : Acc -> Arg -> bool)
+  (cond : Acc -> Arg -> Bool)
   (argChange : Acc -> Arg -> Arg)
   (accChange : Acc -> Arg -> Acc) : Arg -> Acc =
   \arg =>
@@ -26,8 +27,8 @@ def condloopacc {Acc : vtype} {Arg : vtype}
 
 def fac2 := condloopacc 1 (\_ n => lt n 2) (\_ n => sub n 1) (\acc n => mul acc n)
 
-def fac3 (n : int) :=
-  let rec go (n : int) :=
+def fac3 (n : Int) :=
+  let rec go (n : Int) :=
     if lt n 2 then \acc => acc
     else \acc => go (sub n 1) (mul acc n);
   go n 1
@@ -55,3 +56,19 @@ def reverse {A : vtype} (l : List A) : List A =
   go l Nil
 
 def myList3 := reverse myList
+
+-- IO testing
+data Pair A B := MkPair A B
+
+def fst {A B : vtype} (p : Pair A B) : A =
+  match p | MkPair a b => a
+
+def snd {A B : vtype} (p : Pair A B) : B =
+  match p | MkPair a b => b
+
+def randIO : IO Int := returnIO 42
+
+def testProgram : IO (Pair Int Int) :=
+  bindIO randIO \a =>
+  bindIO randIO \b =>
+  returnIO (MkPair a b)

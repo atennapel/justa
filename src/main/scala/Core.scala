@@ -314,6 +314,17 @@ object Core:
           Some(cv)
         case _ => None
 
+    object IO:
+      def apply(ty: Val1): Val1 =
+        Rigid(Head.Prim(Primitive.IO), Spine.App(Spine.Empty, ty, Icit.Expl))
+      def unapply(value: Val1): Option[Val1] = value match
+        case Rigid(
+              Head.Prim(Primitive.IO),
+              Spine.App(Spine.Empty, ty, Icit.Expl)
+            ) =>
+          Some(ty)
+        case _ => None
+
     val Meta = Prim(Primitive.Meta)
     val CV = Prim(Primitive.CV)
     val Val = Prim(Primitive.Val)
@@ -331,9 +342,11 @@ object Core:
       Val1.Lam(bind(x), Icit.Expl, ty, Clos1.Fun(b))
     def lamI(x: String, ty: VTy, b: Val1 => Val1): Val1 =
       Val1.Lam(bind(x), Icit.Impl, ty, Clos1.Fun(b))
-    def fun1(ty: VTy, rt: VTy): Val1 =
+    def fun1(ty: VTy, rt: VTy): VTy =
       Val1.Pi(Bind.DontBind, Icit.Expl, ty, Clos1.Fun(_ => rt))
-    def pi(x: String, ty: VTy, b: Val1 => Val1): Val1 =
+    def pi(x: String, ty: VTy, b: VTy => VTy): VTy =
       Val1.Pi(bind(x), Icit.Expl, ty, Clos1.Fun(b))
-    def piI(x: String, ty: VTy, b: Val1 => Val1): Val1 =
+    def piI(x: String, ty: VTy, b: Val1 => VTy): VTy =
       Val1.Pi(bind(x), Icit.Impl, ty, Clos1.Fun(b))
+    def liftV(ty: VTy): VTy = Lift(Val, ty)
+    def liftC(ty: VTy): VTy = Lift(Comp, ty)

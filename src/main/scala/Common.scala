@@ -106,29 +106,38 @@ object Common:
     case CV
     case Comp
     case Val
+
     case Bool
     case True
     case False
+
     case Int
     case Lt
     case Add
     case Sub
     case Mul
 
+    case IO
+    case ReturnIO
+    case BindIO
+
     override def toString: String = this match
-      case Meta  => "meta"
-      case Type  => "type"
-      case CV    => "cv"
-      case Comp  => "comp"
-      case Val   => "val"
-      case Bool  => "bool"
-      case True  => "true"
-      case False => "false"
-      case Int   => "int"
-      case Lt    => "lt"
-      case Add   => "add"
-      case Sub   => "sub"
-      case Mul   => "mul"
+      case Meta     => "meta"
+      case Type     => "type"
+      case CV       => "cv"
+      case Comp     => "comp"
+      case Val      => "val"
+      case Bool     => "Bool"
+      case True     => "True"
+      case False    => "False"
+      case Int      => "Int"
+      case Lt       => "lt"
+      case Add      => "add"
+      case Sub      => "sub"
+      case Mul      => "mul"
+      case IO       => "IO"
+      case ReturnIO => "returnIO"
+      case BindIO   => "bindIO"
 
   enum RuntimePrimitive:
     case Lt
