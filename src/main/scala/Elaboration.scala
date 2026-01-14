@@ -334,9 +334,18 @@ object Elaboration:
 
         case S.Splice(_, t) => check1(t, V.Lift(cv, ty)).splice
 
-        case S.Match(_, None, cs) => ???
-
         case S.Match(_, Some(s), cs) => checkMatch(s, cs, ty, cv)
+
+        case S.Match(_, None, cs) =>
+          val (t1, fcv, t2) = ensureFun(ty, cv)
+          val bx = DoBind(Name("x"))
+          val rt1 = ctx.readback1(t1)
+          val nctx =
+            ctx.bind0(DontBind, rt1, t1, T1.Val, V.Val)
+          val ecs = checkCases(t1, cs, t2, fcv)(using nctx)
+          val nrt1 = nctx.readback1(t1)
+          val rt2 = nctx.readback1(t2)
+          T0.Lam(bx, rt1, T0.Case(rt2, nrt1, T0.Var(ix0), ecs))
 
         case tm =>
           infer(tm) match
@@ -405,6 +414,21 @@ object Elaboration:
         case (tm, V.Lift(cv, ty))             => check0(tm, ty, cv).quote
 
         case (S.Hole(_, _), _) => freshMeta(ty)
+
+        case (S.Match(_, None, cs), V.Pi(x, Expl, a, b)) =>
+          val vdty = ctx.eval1(freshMeta(V.TypeV))
+          unify(a, V.Lift(V.Val, vdty))
+          val ra = ctx.readback1(a)
+          val nctx = ctx.bind1(DontBind, ra, a)
+          val vrcv = nctx.eval1(freshCV()(using nctx))
+          val vrty = nctx.eval1(freshMeta(V.Type(vrcv))(using nctx))
+          unify(b(V.Var(ctx.lvl)), V.Lift(vrcv, vrty))(using nctx)
+          val ndty = nctx.readback1(vdty)
+          val nvrty = nctx.readback1(vrty)
+          val ecs = checkCases(vdty, cs, vrty, vrcv)(using nctx)
+          val casetm = T0.Case(nvrty, ndty, T1.Var(ix0).splice, ecs)
+          val y = x.orElse(DoBind(Name("x")))
+          T1.Lam(y, Expl, ra, casetm.quote)
 
         case (tm, _) =>
           val (etm, vty) = insert(infer1(tm))
@@ -669,6 +693,20 @@ object Elaboration:
     )
     val (escrut, vscrutty, vscrutcv) = infer0(scrut)
     unify(vscrutcv, V.Val)
+    val ecs = checkCases(vscrutty, cs, exty, excv)
+    T0.Case(ctx.readback1(exty), ctx.readback1(vscrutty), escrut, ecs)
+
+  private def checkCases(
+      vscrutty: VTy,
+      cs: List[(PosInfo, Bind, List[Bind], S)],
+      exty: VTy,
+      excv: VTy
+  )(using
+      ctx: Ctx
+  ): Cases =
+    debug(
+      s"checkCases ${ctx.pretty1(vscrutty)} { ${cs.map((_, cx, ps, b) => s"$cx ${ps.mkString(" ")} => $b").mkString(" | ")} } : ${ctx.pretty1(exty)}"
+    )
     val (dx, ps) = forceAll1(vscrutty) match
       case V.TypeCon(dx, ps) => (dx, ps.map((t, _) => t))
       case _ =>
@@ -724,8 +762,7 @@ object Elaboration:
                 val (eps, eb) = goBranch(cx, ps, b)
                 val er = goCases(r, cons - cx, seen + cx)
                 Cases.Ext(cx, eps, eb, er)
-    val ecs = goCases(cs, cons, Set.empty)
-    T0.Case(ctx.readback1(exty), ctx.readback1(vscrutty), escrut, ecs)
+    goCases(cs, cons, Set.empty)
 
   // elaboration
   // TODO: use frozen metas instead of this check

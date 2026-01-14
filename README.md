@@ -11,6 +11,6 @@ https://github.com/AndrasKovacs/cctt
 # TODO:
 - [x] Data types
 - [x] IO
-- [ ] Lambda match
+- [x] Lambda match
 - [ ] Mutual recursion
 - [ ] Pattern matching

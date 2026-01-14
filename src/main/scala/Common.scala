@@ -65,6 +65,10 @@ object Common:
     def toOption: Option[Name] = this match
       case DontBind  => None
       case DoBind(x) => Some(x)
+
+    def orElse(b: Bind): Bind = this match
+      case DontBind  => b
+      case DoBind(_) => this
   object Bind:
     def fromString(x: String): Bind =
       if x.startsWith("_") then Bind.DontBind else Bind.DoBind(Name(x))

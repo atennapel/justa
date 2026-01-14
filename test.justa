@@ -72,3 +72,17 @@ def testProgram : IO (Pair Int Int) :=
   bindIO randIO \a =>
   bindIO randIO \b =>
   returnIO (MkPair a b)
+
+-- lambda match testing
+def isEmpty {A : vtype} : ^(List A -> Bool) =
+  match
+  | Nil => True
+  | _ => False
+
+def isEmpty2 {A : vtype} : List A -> Bool =
+  match
+  | Nil => True
+  | _ => False
+
+def isEmptyTest1 := isEmpty myList
+def isEmptyTest2 := isEmpty2 myList
