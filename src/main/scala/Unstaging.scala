@@ -50,7 +50,11 @@ object Unstaging:
     inline def extVEnv: Env = Env.Ext0(venv, V0.Var(mkLvl(venv.size)))
     tm match
       case Tm0.IntLit(v) => Tm.IntLit(v)
-      case Tm0.Global(x) => Tm.Global(x)
+      case Tm0.Global(x) =>
+        State.getGlobal(x) match
+          case Some(GlobalEntry.Def0(_, _, _, _, _, vty, _)) =>
+            Tm.Global(x, goCTy(vty))
+          case _ => impossible()
 
       case Tm0.Var(ix) => Tm.Local(ren(ix.expose), tenv(ix.expose))
 
@@ -160,16 +164,17 @@ object Unstaging:
                 val dty = VTy.Data(dx, ps.map(t => goVTy(t)))
                 val as = args.drop(ps.size).map((t, _) => stgo(t))
                 IR.Tm.Con(dx, cx, State.conIndex(dx, cx), dty, as)
-              case (Tm1.Prim(Primitive.ReturnIO), args) =>
-                println(s"returnIO $args")
-                val ty = goTy(args.head._1, venv)
-                val v = stgo(args(1)._1)
-                println(ty)
-                println(v)
-                IR.Tm.ReturnIO(ty, v)
-              case (Tm1.Prim(Primitive.BindIO), args) =>
-                println(s"bindIO $args")
-                ???
+              case (Tm1.Prim(Primitive.ReturnIO), List(ty, v)) =>
+                val ety = goTy(ty._1)
+                val ev = stgo(v._1)
+                IR.Tm.ReturnIO(ety, ev)
+              case (Tm1.Prim(Primitive.BindIO), List(ty, _, v, k)) =>
+                val ety = goTy(ty._1)
+                val ev = stgo(v._1)
+                val ek = stgo(k._1)
+                val x = supply.next()
+                val b = IR.Tm.App(ek, IR.Tm.Local(x, CTy(ety)))
+                IR.Tm.BindIO(x, -1, ety, ev, b)
               case _ => impossible()
   // types
   private def goCTy(ty: Tm1, env: Env = Env.Empty): CTy =

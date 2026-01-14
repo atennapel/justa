@@ -499,7 +499,7 @@ object Elaboration:
         V.TypeV,
         a => V.fun1(V.liftV(a), V.liftC(V.IO(a)))
       ),
-    // {A : type val} -> {B : type val} -> ^(IO A) -> (^A -> ^(IO B)) -> ^(IO B)
+    // {A : type val} -> {B : type val} -> ^(IO A) -> ^(A -> IO B) -> ^(IO B)
     Primitive.BindIO ->
       V.piI(
         "A",
@@ -511,7 +511,7 @@ object Elaboration:
             b =>
               V.fun1(
                 V.liftC(V.IO(a)),
-                V.fun1(V.fun1(V.liftV(a), V.liftC(V.IO(b))), V.liftC(V.IO(b)))
+                V.fun1(V.liftC(V.Fun(a, V.Comp, V.IO(b))), V.liftC(V.IO(b)))
               )
           )
       )

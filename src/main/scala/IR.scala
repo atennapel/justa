@@ -58,7 +58,7 @@ object IR:
   type LocalName = Int
   enum Tm:
     case Local(ix: LocalName, ty: CTy)
-    case Global(name: Name)
+    case Global(name: Name, ty: CTy)
     case Prim(prim: RuntimePrimitive)
     case BoolLit(value: Boolean)
     case IntLit(value: Int)
@@ -75,10 +75,11 @@ object IR:
     case Case(rty: CTy, dty: VTy, scrut: Tm, cases: Cases)
 
     case ReturnIO(ty: VTy, value: Tm)
+    case BindIO(name: LocalName, usage: Int, ty: VTy, value: Tm, body: Tm)
 
     override def toString: String = this match
       case Local(ix, _)               => s"'$ix"
-      case Global(x)                  => s"$x"
+      case Global(x, _)               => s"$x"
       case Prim(p)                    => s"$p"
       case BoolLit(v)                 => s"$v"
       case IntLit(v)                  => s"$v"
@@ -92,6 +93,7 @@ object IR:
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
       case ReturnIO(ty, v)            => s"(returnIO $v)"
+      case BindIO(x, _, ty, v, b)     => s"(bindIO '$x : $ty = $v; $b)"
 
     def flattenApps: (Tm, List[Tm]) = this match
       case App(f, a) =>

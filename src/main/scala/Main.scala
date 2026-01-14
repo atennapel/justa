@@ -7,7 +7,7 @@ import scala.util.Using
 object Main:
   @main def run(): Unit =
     val filename = "test.justa"
-    setDebug(true)
+    setDebug(false)
     val etimeStart = System.nanoTime()
     val text = Using(Source.fromFile(filename)) { source =>
       source.mkString

@@ -28,7 +28,7 @@ object Simplification:
 
   private def go(t: Tm, args: List[Tm])(using scope: Scope, subst: Subst): Tm =
     t match
-      case Tm.Global(_) => args.foldLeft(t)(Tm.App.apply)
+      case Tm.Global(_, _) => args.foldLeft(t)(Tm.App.apply)
       case Tm.Prim(p) =>
         if args.size == 2 then
           foldConstants2(p, args(0), args(1)) match
@@ -37,6 +37,8 @@ object Simplification:
         else args.foldLeft(t)(Tm.App.apply)
       case Tm.BoolLit(_) => t
       case Tm.IntLit(_)  => t
+
+      case Tm.ReturnIO(ty, v) => Tm.ReturnIO(ty, go(v, Nil))
 
       case Tm.Con(dx, cx, ix, dty, args) =>
         Tm.Con(dx, cx, ix, dty, args.map(a => go(a, Nil)))
@@ -65,6 +67,7 @@ object Simplification:
           val b = go(b0, Nil)(using scope + x, subst - x)
           Tm.Lam(x, -1, ty, b)
 
+      // TODO: some of these might not be a good idea
       case Tm.Let(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
         go(Tm.Let(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2)), args)
       case Tm.LetRec(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
@@ -73,6 +76,16 @@ object Simplification:
         go(Tm.LetRec(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2)), args)
       case Tm.LetRec(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
         go(Tm.Let(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2)), args)
+      case Tm.BindIO(x, _, ty2, Tm.BindIO(y, _, ty1, v, b1), b2) =>
+        go(Tm.BindIO(y, -1, ty1, v, Tm.BindIO(x, -1, ty2, b1, b2)), args)
+      case Tm.BindIO(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
+        go(Tm.Let(y, -1, ty1, v, Tm.BindIO(x, -1, ty2, b1, b2)), args)
+      case Tm.BindIO(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
+        go(Tm.LetRec(y, -1, ty1, v, Tm.BindIO(x, -1, ty2, b1, b2)), args)
+      case Tm.Let(x, _, ty2, Tm.BindIO(y, _, ty1, v, b1), b2) =>
+        go(Tm.BindIO(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2)), args)
+      case Tm.LetRec(x, _, ty2, Tm.BindIO(y, _, ty1, v, b1), b2) =>
+        go(Tm.BindIO(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2)), args)
 
       case Tm.Let(_, u, _, _, b) if u == 0 => go(b, args)
       case Tm.Let(x, u, _, v, b) if u == 1 || isSmall(v) =>
@@ -103,6 +116,20 @@ object Simplification:
             lams(ps, body)
         val b = go(b0, args)(using nscope, nsubst)
         Tm.LetRec(x, -1, ty, v, b)
+
+      case Tm.BindIO(x, u, ty, Tm.ReturnIO(_, v), b) =>
+        go(Tm.Let(x, u, CTy(ty), v, b), args)
+      case Tm.BindIO(x, _, _, v, Tm.ReturnIO(_, Tm.Local(y, _))) if x == y => v
+      case Tm.BindIO(x, _, ty, v0, b0) =>
+        val v = go(v0, Nil)
+        val (y, b) = if scope.contains(x) then
+          val y = scope.size
+          (
+            y,
+            go(b0, args)(using scope + y, subst + (x -> Tm.Local(y, CTy(ty))))
+          )
+        else (x, go(b0, args)(using scope + x, subst - x))
+        Tm.BindIO(y, -1, ty, v, b)
 
       case Tm.Case(_, _, Tm.Con(_, cx, _, _, cargs), cs) =>
         @tailrec
@@ -183,14 +210,15 @@ object Simplification:
         case _                               => false
     go(ty.params, v)
 
-  private def isSmall(t: Tm) = t match
-    case Tm.Local(_, _)          => true
-    case Tm.Global(name)         => true
-    case Tm.Prim(_)              => true
-    case Tm.BoolLit(_)           => true
-    case Tm.IntLit(_)            => true
-    case Tm.Con(_, _, _, _, Nil) => true
-    case _                       => false
+  private def isSmall(t: Tm): Boolean = t match
+    case Tm.Local(_, _)                  => true
+    case Tm.Global(_, _)                 => true
+    case Tm.Prim(_)                      => true
+    case Tm.BoolLit(_)                   => true
+    case Tm.IntLit(_)                    => true
+    case Tm.Con(_, _, _, _, Nil)         => true
+    case Tm.ReturnIO(_, v) if isSmall(v) => true
+    case _                               => false
 
   private def foldConstants2(p: RuntimePrimitive, a: Tm, b: Tm): Option[Tm] =
     import RuntimePrimitive.*
@@ -223,12 +251,16 @@ object Simplification:
 
   private def correctUsagesRec(t: Tm): (Tm, Usages) =
     t match
-      case Tm.Global(_)  => (t, Map.empty)
-      case Tm.Prim(_)    => (t, Map.empty)
-      case Tm.BoolLit(_) => (t, Map.empty)
-      case Tm.IntLit(_)  => (t, Map.empty)
+      case Tm.Global(_, _) => (t, Map.empty)
+      case Tm.Prim(_)      => (t, Map.empty)
+      case Tm.BoolLit(_)   => (t, Map.empty)
+      case Tm.IntLit(_)    => (t, Map.empty)
 
       case Tm.Local(x, _) => (t, Map(x -> 1))
+
+      case Tm.ReturnIO(ty, v) =>
+        val (cv, uv) = correctUsagesRec(v)
+        (Tm.ReturnIO(ty, cv), uv)
 
       case Tm.Lam(x, _, ty, b0) =>
         val (b, u) = correctUsagesRec(b0)
@@ -273,11 +305,17 @@ object Simplification:
         val (v, uv) = correctUsagesRec(v0)
         val (b, ub) = correctUsagesRec(b0)
         (Tm.Let(x, ub.getOrElse(x, 0), ty, v, b), mergeUsages(uv, ub - x))
-
       case Tm.LetRec(x, _, ty, v0, b0) =>
         val (v, uv) = correctUsagesRec(v0)
         val (b, ub) = correctUsagesRec(b0)
         (
           Tm.LetRec(x, uv.getOrElse(x, 0) + ub.getOrElse(x, 0), ty, v, b),
           mergeUsages(uv, ub) - x
+        )
+      case Tm.BindIO(x, _, ty, v0, b0) =>
+        val (v, uv) = correctUsagesRec(v0)
+        val (b, ub) = correctUsagesRec(b0)
+        (
+          Tm.BindIO(x, ub.getOrElse(x, 0), ty, v, b),
+          mergeUsages(uv, ub - x)
         )

@@ -71,7 +71,8 @@ object JVM:
 
   enum Tm:
     case Local(ix: LocalName, ty: Ty)
-    case Global(name: Name, args: List[Tm])
+    case Global(name: Name)
+    case GlobalApp(name: Name, args: List[Tm])
     case Prim(prim: RuntimePrimitive, args: List[Tm])
     case BoolLit(value: Boolean)
     case IntLit(value: Int)
@@ -96,15 +97,15 @@ object JVM:
     case Case(dty: Name, scrut: Tm, cases: Cases)
 
     override def toString: String = this match
-      case Local(ix, _)     => s"'$ix"
-      case Global(x, Nil)   => s"$x"
-      case Global(x, args)  => s"$x${args.mkString("(", ",", ")")}"
-      case Prim(p, Nil)     => s"$p"
-      case Prim(p, args)    => s"$p${args.mkString("(", ",", ")")}"
-      case BoolLit(v)       => s"$v"
-      case IntLit(v)        => s"$v"
-      case Let(x, ty, v, b) => s"(let '$x : $ty = $v; $b)"
-      case If(c, t, f)      => s"(if $c then $t else $f)"
+      case Local(ix, _)       => s"'$ix"
+      case Global(x)          => s"$x"
+      case GlobalApp(x, args) => s"$x${args.mkString("(", ",", ")")}"
+      case Prim(p, Nil)       => s"$p"
+      case Prim(p, args)      => s"$p${args.mkString("(", ",", ")")}"
+      case BoolLit(v)         => s"$v"
+      case IntLit(v)          => s"$v"
+      case Let(x, ty, v, b)   => s"(let '$x : $ty = $v; $b)"
+      case If(c, t, f)        => s"(if $c then $t else $f)"
       case Join(x, Nil, v, b) =>
         s"(join '$x = $v; $b"
       case Join(x, ps, v, b) =>
