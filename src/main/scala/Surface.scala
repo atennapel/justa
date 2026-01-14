@@ -2,9 +2,20 @@ import Common.*
 import Common.Icit.*
 
 object Surface:
-  final case class Defs(defs: List[Def]):
+  final case class Module(
+      pos: PosInfo,
+      name: Name,
+      deps: Set[Name],
+      imports: Map[Name, (PosInfo, PosInfo, Name, Option[Name])],
+      moduleAliases: Map[Name, Name],
+      defs: Defs
+  ):
+    override def toString: String =
+      s"module $name\n$defs"
+
+  final case class Defs(defs: Seq[Def]):
     override def toString: String = defs.mkString("\n")
-    def toList: List[Def] = defs
+    def toSeq: Seq[Def] = defs
 
   final case class Constructor(
       pos: PosInfo,
@@ -42,6 +53,9 @@ object Surface:
   enum ArgInfo:
     case Named(name: Name)
     case Icit(icit: Common.Icit)
+  object ArgInfo:
+    val Expl = Icit(Common.Icit.Expl)
+    val Impl = Icit(Common.Icit.Impl)
 
   type Ty = Tm
   enum Tm:

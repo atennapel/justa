@@ -853,4 +853,4 @@ object Elaboration:
             )
         }
 
-  def elaborate(d: Surface.Defs): Unit = d.toList.foreach(elaborate)
+  def elaborate(d: Surface.Defs): Unit = d.toSeq.foreach(elaborate)

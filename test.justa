@@ -1,3 +1,5 @@
+module test
+
 def vtype = type val
 def ctype = type comp
 
@@ -25,6 +27,7 @@ def condloopacc {Acc : vtype} {Arg : vtype}
       else go (accChange acc arg) (argChange acc arg);
     go init arg 
 
+
 def fac2 := condloopacc 1 (\_ n => lt n 2) (\_ n => sub n 1) (\acc n => mul acc n)
 
 def fac3 (n : Int) :=
@@ -36,7 +39,7 @@ def fac3 (n : Int) :=
 def fac4 := fac2
 
 data List A := Nil | Cons (head : A) (tail : List A)
-
+{-
 def myList := Cons 1 (Cons 2 (Cons 3 Nil))
 
 def map {A B : vtype} (f : A -> B) (l : List A) : List B =
@@ -128,3 +131,4 @@ def rangePush (n : Int) : Push Int =
 
 def pushTest1 := sumPush (rangePush 100)
 def pushTest2 := sumPush (mapPush (\n => add n 1) (fromList myList))
+-}

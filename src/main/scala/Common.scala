@@ -1,4 +1,5 @@
 import scala.annotation.targetName
+import scala.collection.mutable
 
 object Common:
   inline def impossible(): Nothing =
@@ -38,14 +39,25 @@ object Common:
     inline def toIx(using k: Lvl): Ix = k - l - 1
 
   // names
-  case class Name(x: String):
-    override def toString: String =
-      if !isOperator || (x.head == '(' || x.head == '[') then x else s"($x)"
-    inline def isOperator: Boolean = !x.head.isLetter && x.head != '_'
-    inline def expose: String = x
-    inline def toBind: Bind = Bind.DoBind(this)
+  enum Name:
+    case Nm(name: String)
+    case Op(name: String)
+
+    override def toString: String = this match
+      case Nm(x) => x
+      case Op(x) => s"($x)"
+
+    def expose: String = this match
+      case Nm(x) => x
+      case Op(x) => x
+
+    def toBind: Bind = Bind.DoBind(this)
 
   object Name:
+    private val namestore: mutable.Map[String, Name] = mutable.Map.empty
+    private val opstore: mutable.Map[String, Name] = mutable.Map.empty
+    def apply(name: String): Name = namestore.getOrElseUpdate(name, Nm(name))
+    def op(name: String): Name = opstore.getOrElseUpdate(name, Op(name))
     val Underscore = Name("_")
 
   type Assoc[T] = List[(Name, T)]

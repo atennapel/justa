@@ -13,10 +13,12 @@ object Main:
       source.mkString
     }.get
     try
-      val sdefs = Parser.parse(text)
+      val sdefs = Parser2.parseModule("test", text).get.defs
       println(sdefs)
       println()
-      Elaboration.elaborate(sdefs)
+      Util.time("elaboration") {
+        Elaboration.elaborate(sdefs)
+      }
       println()
       given ctx: Ctx = Ctx.empty(PosInfo.start)
       State.getMetas().foreach { (m, t, v) =>
@@ -46,15 +48,23 @@ object Main:
           )
       }
       println()
-      val uds = Unstaging.unstageState()
+      val uds = Util.time("unstaging") { Unstaging.unstageState() }
       println(uds)
       println()
-      val sds = Simplification.simplifyDefs(uds)
+      val sds = Util.time("simplification") { Simplification.simplifyDefs(uds) }
       println(sds)
       println()
-      val jds = Lifting.liftDefs(sds)
+      val jds = Util.time("lifting") { Lifting.liftDefs(sds) }
       println(jds)
     catch
+      case err: Lexer.LexerError =>
+        println(err.toString)
+        showPos(err.pos, filename)
+        if isDebug then err.printStackTrace()
+      case err: Parser2.ParseError =>
+        println(err.toString)
+        showPos(err.pos, filename)
+        if isDebug then err.printStackTrace()
       case err: Parser.ParseError =>
         println(err.toString)
         showPos(err.pos, filename)
@@ -64,7 +74,7 @@ object Main:
         showPos(err.pos, filename)
         if isDebug then err.printStackTrace()
     val etime = System.nanoTime() - etimeStart
-    println(s"elaboration time: ${etime / 1000000}ms (${etime}ns)")
+    println(s"total time: ${etime / 1000000}ms (${etime}ns)")
 
   private def showPos(pos: PosInfo, filename: String): Unit =
     val PosInfo(line, col) = pos
