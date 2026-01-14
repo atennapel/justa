@@ -12,5 +12,12 @@ https://github.com/AndrasKovacs/cctt
 - [x] Data types
 - [x] IO
 - [x] Lambda match
+- [ ] Operators
+- [ ] Modules
+- [ ] JVM bytecode generation
+- [ ] Datatype annotations and optimizations
+- [ ] Expanded representation polymorphism
+- [ ] Null handling
 - [ ] Mutual recursion
 - [ ] Pattern matching
+- [ ] Instance search
