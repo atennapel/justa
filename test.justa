@@ -46,6 +46,13 @@ def map {A B : vtype} (f : A -> B) (l : List A) : List B =
     | Cons hd tl => Cons (f hd) (go tl);
   go l
 
+def foldr {A : vtype} {k} {B : type k} (n : B) (c : A -> B -> B) (l : List A) : B =
+  let rec go (l : List A) :=
+    match l
+    | Nil => n
+    | Cons hd tl => c hd (go tl);
+  go l
+
 def myList2 := map (add 1) myList
 
 def reverse {A : vtype} (l : List A) : List A =
@@ -86,3 +93,38 @@ def isEmpty2 {A : vtype} : List A -> Bool =
 
 def isEmptyTest1 := isEmpty myList
 def isEmptyTest2 := isEmpty2 myList
+
+-- push testing
+def Push A = (k : cv) (B : type k) -> (A -> B -> B) -> B -> B
+
+def nil {A : vtype} : Push A =
+  \k B c n => n
+
+def cons {A : vtype} (hd : A) (tl : Push A) : Push A =
+  \k B c n => c hd (tl k B c n)
+
+def fromList {A : vtype} (as : List A) : Push A =
+  \k B f b => foldr b f as
+
+def toList {A : vtype} (as : Push A) : List A =
+  as _ _ Cons Nil
+
+def mapPush {A B : vtype} (f : A -> B) (as : Push A) : Push B =
+  \k R c n => as k R (\a bs => c (f a) bs) n
+
+def foldrPush {A : vtype} {k} {B : type k} (b : B) (f : A -> B -> B) (as : Push A) : B =
+  as k B f b
+
+def foldlPush {A B : vtype} (b : B) (f : B -> A -> B) (as : Push A) : B =
+  as _ (B -> B) (\a go acc => go (f acc a)) (\acc => acc) b
+
+def sumPush = foldlPush 0 add
+def productPush = foldlPush 1 mul
+
+def rangePush (n : Int) : Push Int =
+  \k B f b =>
+    let rec go c := if lt c 1 then b else f c (go (sub c 1));
+    go n
+
+def pushTest1 := sumPush (rangePush 100)
+def pushTest2 := sumPush (mapPush (\n => add n 1) (fromList myList))
