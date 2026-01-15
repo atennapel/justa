@@ -98,6 +98,7 @@ object JVM:
 
     case Con(mod: Name, dx: Name, cx: Name, ix: Int, args: Seq[Tm])
     case Case(mod: Name, dty: Name, scrut: Tm, cases: Cases)
+    case Select(scrut: Tm, ix: Int)
 
     override def toString: String = this match
       case Local(ix, _)          => s"'$ix"
@@ -123,6 +124,7 @@ object JVM:
       case Con(m, _, cx, _, args)     => s"($m.$cx ${args.mkString(" ")})"
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
+      case Select(s, i)               => s"$s.$i"
 
   object Tm:
     val True = BoolLit(true)

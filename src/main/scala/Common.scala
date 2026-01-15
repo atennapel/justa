@@ -81,6 +81,10 @@ object Common:
     def orElse(b: Bind): Bind = this match
       case DontBind  => b
       case DoBind(_) => this
+
+    def equals(x: Name): Boolean = this match
+      case DontBind  => false
+      case DoBind(y) => x == y
   object Bind:
     def op(x: String): Bind = Bind.DoBind(Name.op(x))
     def apply(x: String): Bind =

@@ -113,6 +113,8 @@ object Lifting:
         val (mdx, dx) = goData(dty)
         JVM.Tm.Con(mdx, dx, cx, ix, args.map(go(_, false)))
 
+      case Tm.Select(_, s, i) => JVM.Tm.Select(go(s, false), i)
+
       case Tm.App(_, _) =>
         val (f, a) = t.flattenApps
         f match
@@ -344,6 +346,8 @@ object Lifting:
       case Tm.App(f, a)      => merge(free(f), free(a))
       case Tm.If(_, c, t, f) => merge(free(c), merge(free(t), free(f)))
 
+      case Tm.Select(_, s, _) => free(s)
+
       case Tm.Lam(x, _, _, b) => remove(x, free(b))
 
       case Tm.ReturnIO(_, v) => free(v)
@@ -393,6 +397,8 @@ object Lifting:
       case Tm.Con(_, _, _, _, _, args) =>
         args.forall(isUsedInTailOnly(x, false, _))
 
+      case Tm.Select(_, s, _) => isUsedInTailOnly(x, false, s)
+
       case Tm.Local(y, ty) => if x == y then tail else true
 
       case Tm.App(_, _) =>
@@ -418,8 +424,8 @@ object Lifting:
 
   private def monomorphize(m: Name, dx: Name, ps: Seq[IR.VTy]): JVM.Ty =
     val xs = State.getGlobal(m, dx) match
-      case Some(GlobalEntry.Data(_, _, xs, _, _, _)) => xs
-      case _                                         => impossible()
+      case Some(GlobalEntry.Data(_, _, xs, _, _, _, _)) => xs
+      case _                                            => impossible()
     val (nx, alreadyDone) = tryMonomorphize(m, dx, ps)
     if !alreadyDone then
       val menv: State.MonoEnv =

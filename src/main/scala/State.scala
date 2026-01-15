@@ -81,7 +81,8 @@ object State:
         cons: Seq[Name],
         tm: Tm1,
         ty: Val1,
-        unitCon: Option[Name]
+        unitCon: Option[Name],
+        singleCon: Option[Name]
     )
     case Con(
         x: Name,
@@ -97,7 +98,7 @@ object State:
     def name: Name = this match
       case Def0(x, _, _, _, _, _, _)   => x
       case Def1(x, _, _, _, _)         => x
-      case Data(x, _, _, _, _, _)      => x
+      case Data(x, _, _, _, _, _, _)   => x
       case Con(x, _, _, _, _, _, _, _) => x
 
     def isPublic: Boolean = true
@@ -142,8 +143,8 @@ object State:
 
   def conIndex(mod: Name, dx: Name, cx: Name): Int =
     getGlobal(mod, dx) match
-      case Some(GlobalEntry.Data(_, _, xs, _, _, _)) => xs.indexOf(cx)
-      case _                                         => impossible()
+      case Some(GlobalEntry.Data(_, _, xs, _, _, _, _)) => xs.indexOf(cx)
+      case _                                            => impossible()
   inline def conIndex(dx: Name, cx: Name): Int = conIndex(currentModule, dx, cx)
 
   def allGlobals(): Map[Name, Seq[GlobalEntry]] =

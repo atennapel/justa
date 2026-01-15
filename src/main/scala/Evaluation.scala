@@ -106,8 +106,9 @@ object Evaluation:
       case T0.If(ty, c, t, f) => V0.If(eval1(ty), eval0(c), eval0(t), eval0(f))
       case T0.Case(rty, dty, s, cs) =>
         V0.Case(eval1(rty), eval1(dty), eval0(s), ClosCases(cs))
-      case T0.Wk1(t) => eval0(t)(using env.wk1)
-      case T0.Wk0(t) => eval0(t)(using env.wk0)
+      case T0.Select(rty, s, x, i) => V0.Select(eval1(rty), eval0(s), x, i)
+      case T0.Wk1(t)               => eval0(t)(using env.wk1)
+      case T0.Wk0(t)               => eval0(t)(using env.wk0)
 
   def eval1(t: T1)(using env: Env): V1 =
     t match
@@ -258,10 +259,11 @@ object Evaluation:
       case V0.Let(x, ty, v, b) => T0.Let(x, go1(ty), go0(v), goClos(b))
       case V0.LetRec(x, ty, v, b) =>
         T0.LetRec(x, go1(ty), goClos(v), goClos(b))
-      case V0.Lam(x, ty, b)   => T0.Lam(x, go1(ty), goClos(b))
-      case V0.App(f, a)       => T0.App(go0(f), go0(a))
-      case V0.If(ty, c, t, f) => T0.If(go1(ty), go0(c), go0(t), go0(f))
-      case V0.Splice(tm)      => go1(tm).splice
+      case V0.Lam(x, ty, b)        => T0.Lam(x, go1(ty), goClos(b))
+      case V0.App(f, a)            => T0.App(go0(f), go0(a))
+      case V0.If(ty, c, t, f)      => T0.If(go1(ty), go0(c), go0(t), go0(f))
+      case V0.Splice(tm)           => go1(tm).splice
+      case V0.Select(rty, s, x, i) => T0.Select(go1(rty), go0(s), x, i)
       case V0.Case(rty, dty, s, cs) =>
         def goCases(cs: Cases)(using env: Env): Cases =
           cs match

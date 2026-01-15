@@ -20,6 +20,7 @@ import State.GlobalEntry
 import Debug.debug
 
 import scala.annotation.tailrec
+import Surface.ProjType
 
 object Elaboration:
   final class ElaborateError(val pos: PosInfo, val module: Name, msg: String)
@@ -351,7 +352,7 @@ object Elaboration:
           forceAll1(ty) match
             case V.TypeCon(m, dx, dps) =>
               State.getGlobal(m, dx) match
-                case Some(GlobalEntry.Data(_, _, _, _, _, unitCon)) =>
+                case Some(GlobalEntry.Data(_, _, _, _, _, unitCon, _)) =>
                   unitCon match
                     case Some(cx) =>
                       State.getGlobal(m, cx) match
@@ -581,7 +582,7 @@ object Elaboration:
         Infer0(T0.Global(m, x), ty, cv)
       case Right((m, GlobalEntry.Def1(_, _, _, v, ty))) =>
         Infer1(T1.Global(m, x, v), ty)
-      case Right((_, GlobalEntry.Data(_, _, _, tm, ty, _))) =>
+      case Right((_, GlobalEntry.Data(_, _, _, tm, ty, _, _))) =>
         Infer1(tm, ty)
       case Right((_, GlobalEntry.Con(_, _, _, _, _, tm, _, ty))) =>
         Infer1(tm, ty)
@@ -603,7 +604,7 @@ object Elaboration:
               Infer1(T1.Var(x.toIx(using ctx.lvl)), ty)
             case None => inferGlobal(None, x)
 
-        case proj @ S.Proj(_, _, _) =>
+        case proj @ S.Proj(_, tm, p) =>
           val (hd, tl) = proj.splitProjs
           hd match
             case S.Var(pos, x) =>
@@ -622,8 +623,8 @@ object Elaboration:
                 val xs = x +: createMod(tl)
                 val m = Name(xs.init.mkString("."))
                 inferGlobal(Some(m), xs.last)(using ctx.enter(tl.last._1))
-              else err(s"invalid projection")
-            case _ => err(s"invalid projection")
+              else inferProj(tm, p)
+            case _ => inferProj(tm, p)
 
         case S.LetRec(_, x, mty, v, b) =>
           val (ety, cv2, vcv2) = (tyAnnot(mty, V.TypeC), T1.Comp, V.Comp)
@@ -737,6 +738,59 @@ object Elaboration:
           val etm = checkMatch(s, cs, exty, excv)
           Infer0(etm, exty, excv)
 
+  private def inferProj(tm: S, p: Surface.ProjType)(using ctx: Ctx): Infer =
+    debug(s"inferProj $tm.$p")
+    insertPi(infer(tm)) match
+      case Infer0(etm, vty, _) =>
+        val (cx, x, i, vrty) = inferProjTy(vty, p)
+        val rty = ctx.readback1(vrty)
+        Infer0(T0.Select(rty, etm, x, i), vrty, V.Val)
+      case Infer1(etm, vty) =>
+        forceAll1(vty) match
+          case V.Lift(_, vty2) =>
+            val (cx, x, i, vrty) = inferProjTy(vty2, p)
+            val rty = ctx.readback1(vrty)
+            Infer0(T0.Select(rty, etm.splice, x, i), vrty, V.Val)
+          case _ => err(s"cannot project from ${ctx.pretty1(vty)}")
+
+  private def inferProjTy(vty: VTy, p: Surface.ProjType)(using
+      ctx: Ctx
+  ): (Name, Option[Name], Int, VTy) =
+    forceAll1(vty) match
+      case V.TypeCon(m, dx, dps) =>
+        State.getGlobal(m, dx) match
+          case Some(GlobalEntry.Data(_, _, _, _, _, _, singleCon)) =>
+            singleCon match
+              case None =>
+                err(
+                  s"cannot project from ${ctx.pretty1(vty)}, type has multiple constructors"
+                )
+              case Some(cx) =>
+                State.getGlobal(m, cx) match
+                  case Some(GlobalEntry.Con(_, _, params, _, _, _, _, _)) =>
+                    p match
+                      case ProjType.Indexed(i) if i >= params.size =>
+                        err(
+                          s"cannot project from ${ctx.pretty1(vty)}, not enough parameters in constructor $cx"
+                        )
+                      case ProjType.Indexed(i) =>
+                        val rty = eval1(params(i)._2)(using Env(dps.map(_._1)))
+                        (cx, None, i, rty)
+                      case ProjType.Named(x) =>
+                        params.zipWithIndex.find { case ((y, _), _) =>
+                          y.equals(x)
+                        } match
+                          case None =>
+                            err(
+                              s"cannot project from ${ctx.pretty1(vty)}, no parameter named $x in constructor $cx"
+                            )
+                          case Some(((_, ty), i)) =>
+                            val rty = eval1(ty)(using Env(dps.map(_._1)))
+                            (cx, Some(x), i, rty)
+                  case _ => impossible()
+          case _ => impossible()
+      case _ => err(s"cannot project from ${ctx.pretty1(vty)}")
+
   private def checkMatch(
       scrut: S,
       cs: Seq[(PosInfo, Bind, Seq[Bind], S)],
@@ -769,8 +823,8 @@ object Elaboration:
       case _ =>
         err(s"expected datatype in match but got ${ctx.pretty1(vscrutty)}")
     val (dps, cons) = State.getGlobal(m, dx) match
-      case Some(GlobalEntry.Data(_, dps, cs, _, _, _)) => (dps, cs.toSet)
-      case _                                           => impossible()
+      case Some(GlobalEntry.Data(_, dps, cs, _, _, _, _)) => (dps, cs.toSet)
+      case _                                              => impossible()
     val psenv = Env(ps)
     inline def conTypes(m: Name, cx: Name): Seq[VTy] =
       State.getGlobal(m, cx) match
@@ -876,10 +930,11 @@ object Elaboration:
         val unitCons = cs.filter(c => c.params.isEmpty)
         val unitCon =
           if unitCons.size == 1 then Some(unitCons.head.name) else None
+        val singleCon = if cs.size == 1 then Some(cs.head.name) else None
         val ty = T1.TypeCon(State.currentModule, x)
         val vty = ps.foldRight(V.TypeV)((_, rt) => V.fun1(V.TypeV, rt))
         State.addGlobal(
-          GlobalEntry.Data(x, ps, cs.map(_.name), ty, vty, unitCon)
+          GlobalEntry.Data(x, ps, cs.map(_.name), ty, vty, unitCon, singleCon)
         )
         val datactx =
           ps.foldLeft(ctx)((ctx, x) => ctx.bind1(DoBind(x), T1.TypeV, V.TypeV))

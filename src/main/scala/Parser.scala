@@ -6,7 +6,6 @@ import Lexer.Symbol.*
 import Lexer.Keyword.*
 import Lexer.Token.*
 import Surface.*
-import Util.time
 
 import scala.collection.mutable
 import scala.reflect.ClassTag
@@ -17,13 +16,13 @@ object Parser:
   class ParseError(val pos: PosInfo, msg: String) extends RuntimeException(msg)
 
   def parseModule(mod: String, text: String): Option[Module] =
-    val tokens = time("lexer")(Lexer.tokenize(text))
+    val tokens = Lexer.tokenize(text)
     if tokens.length == 1 then
       // empty file
       None
     else
       val state = new State(tokens)
-      val m = time("parser")(state.module(mod))
+      val m = state.module(mod)
       if state.isDone then Some(m)
       else
         throw new ParseError(
@@ -505,8 +504,8 @@ object Parser:
           None
         else if trySymbol(PIPE) then None
         else
-          val scrut = expr()
-          if trySymbol(R_BRACE) then startedWithBracket = true
+          val scrut = atom()
+          if trySymbol(L_BRACE) then startedWithBracket = true
           else symbol(PIPE)
           Some(scrut)
       val cs =
@@ -516,8 +515,8 @@ object Parser:
           val hd = pcase()
           val tl = mutable.ArrayBuffer.empty[(PosInfo, Bind, Seq[Bind], Tm)]
           while trySymbol(PIPE) do tl += pcase()
+          if startedWithBracket then symbol(R_BRACE)
           hd +: tl.toSeq
-      if startedWithBracket then symbol(R_BRACE)
       Tm.Match(p, scrut, cs)
 
     private def expr(): Tm =

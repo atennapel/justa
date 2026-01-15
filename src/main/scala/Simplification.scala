@@ -137,6 +137,9 @@ object Simplification:
         else (x, go(b0, args)(using scope + x, subst - x))
         Tm.BindIO(y, -1, ty, v, b)
 
+      case Tm.Select(_, Tm.Con(_, _, _, _, _, cargs), i) => go(cargs(i), args)
+      case Tm.Select(ty, s, i) => Tm.Select(ty, go(s, Nil), i)
+
       case Tm.Case(_, _, Tm.Con(_, _, cx, _, _, cargs), cs) =>
         @tailrec
         def lookup(
@@ -289,6 +292,10 @@ object Simplification:
               (cargs :+ a, mergeUsages(usages, ua))
           }
         (Tm.Con(m, dx, cx, ix, dty, cargs), usages)
+
+      case Tm.Select(ty, s, i) =>
+        val (cs, us) = correctUsagesRec(s)
+        (Tm.Select(ty, cs, i), us)
 
       case Tm.Case(rt, dt, s, cs) =>
         def go(cs: Cases): (Cases, Usages) =

@@ -60,14 +60,15 @@ object Pretty:
       ns: Seq[Bind]
   ): String =
     tm match
-      case T0.Var(_)           => pretty0(tm)
-      case T0.Global(_, _)     => pretty0(tm)
-      case T0.IntLit(_)        => pretty0(tm)
-      case T0.Splice(_)        => pretty0(tm)
-      case T0.App(_, _) if app => pretty0(tm)
-      case T0.Wk0(tm)          => prettyParen0(tm, app)(using ns.tail)
-      case T0.Wk1(tm)          => prettyParen0(tm, app)(using ns.tail)
-      case _                   => s"(${pretty0(tm)})"
+      case T0.Var(_)             => pretty0(tm)
+      case T0.Global(_, _)       => pretty0(tm)
+      case T0.IntLit(_)          => pretty0(tm)
+      case T0.Splice(_)          => pretty0(tm)
+      case T0.App(_, _) if app   => pretty0(tm)
+      case T0.Select(_, _, _, _) => pretty0(tm)
+      case T0.Wk0(tm)            => prettyParen0(tm, app)(using ns.tail)
+      case T0.Wk1(tm)            => prettyParen0(tm, app)(using ns.tail)
+      case _                     => s"(${pretty0(tm)})"
 
   @tailrec
   def prettyParen1(tm: Tm1, app: Boolean = false)(using
@@ -124,6 +125,9 @@ object Pretty:
 
     case T0.Wk1(tm) => pretty0(tm)(using ns.tail)
     case T0.Wk0(tm) => pretty0(tm)(using ns.tail)
+
+    case T0.Select(_, s, None, i)    => s"${prettyParen0(s)}.$i"
+    case T0.Select(_, s, Some(x), i) => s"${prettyParen0(s)}.$x"
 
     case T0.Case(_, _, s, Cases.Empty) => s"match $s {}"
     case T0.Case(_, _, s, cs) =>

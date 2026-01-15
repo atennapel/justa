@@ -37,6 +37,7 @@ object Core:
 
     case If(rty: Ty, cond: Tm0, ifTrue: Tm0, ifFalse: Tm0)
     case Case(rty: Ty, dty: Ty, scrut: Tm0, cases: Cases)
+    case Select(rty: Ty, scrut: Tm0, x: Option[Name], i: Int)
 
     case Wk1(tm: Tm0)
     case Wk0(tm: Tm0)
@@ -70,6 +71,8 @@ object Core:
       case Wk0(tm)                    => s"Wk00($tm)"
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
+      case Select(_, s, None, i)      => s"$s.$i"
+      case Select(_, s, Some(x), _)   => s"$s.$x"
 
   type Ty = Tm1
   enum Tm1:
@@ -208,6 +211,7 @@ object Core:
     case App(fn: Val0, arg: Val0)
     case If(rty: VTy, cond: Val0, ifTrue: Val0, ifFalse: Val0)
     case Case(rty: VTy, dty: VTy, scrut: Val0, cases: ClosCases)
+    case Select(rty: VTy, scrut: Val0, x: Option[Name], i: Int)
     case Splice(tm: Val1)
 
   enum Head:
