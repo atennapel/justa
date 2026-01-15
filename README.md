@@ -22,4 +22,3 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Pattern matching
 - [ ] Instance search
 - [ ] Public/private
-- [ ] Frozen metas

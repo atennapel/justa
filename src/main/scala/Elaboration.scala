@@ -796,13 +796,16 @@ object Elaboration:
     goCases(cs, cons, Set.empty)
 
   // elaboration
-  // TODO: use frozen metas instead of this check
   private def checkUnsolvedMetas()(using ctx: Ctx): Unit =
     val ums = State.unsolvedMetas()
     if ums.nonEmpty then
       val str =
         ums.map((id, ty) => s"?$id : ${ctx.pretty1(ty)}").mkString("\n")
       err(s"there are unsolved metas:\n$str")
+
+  private def freeze()(using ctx: Ctx): Unit =
+    // checkUnsolvedMetas()
+    State.freezeMetas()
 
   private def elaborate(d: Surface.Def): Unit =
     debug(s"elaborate $d")
@@ -823,7 +826,7 @@ object Elaboration:
             val vty = ctx.eval1(ety)
             val ev = check0(v, vty, vcv)(using ctx)
             (ev, ety, cv, vty, vcv)
-        checkUnsolvedMetas()
+        freeze()
         State.addGlobal(
           GlobalEntry.Def0(x, ev, ty, cv, ctx.eval0(ev), vty, vcv)
         )
@@ -839,7 +842,7 @@ object Elaboration:
             val vty = ctx.eval1(ety)
             val ev = check1(v, vty)
             (ev, ety, ctx.eval1(ev), vty)
-        checkUnsolvedMetas()
+        freeze()
         State.addGlobal(GlobalEntry.Def1(x, ev, ty, vv, vty))
       case Surface.Def.Data(pos, x, ps, cs) =>
         given ctx: Ctx = Ctx.empty(pos)
@@ -883,6 +886,7 @@ object Elaboration:
               )
             )
         }
+        freeze()
 
   private def elaborate(mod: Surface.Module): Unit =
     State.enterModule(mod.name)
