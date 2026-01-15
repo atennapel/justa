@@ -70,6 +70,8 @@ object Surface:
     case Var(_pos: PosInfo, name: Name)
     case Prim(_pos: PosInfo, prim: Primitive)
     case IntLit(_pos: PosInfo, value: Int)
+    case UnitLit(_pos: PosInfo)
+
     case Let0(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
     case Let1(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
     case LetRec(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
@@ -97,6 +99,7 @@ object Surface:
       case Var(_pos, _)             => _pos
       case Prim(_pos, _)            => _pos
       case IntLit(_pos, _)          => _pos
+      case UnitLit(_pos)            => _pos
       case Proj(_pos, _, _)         => _pos
       case Let0(_pos, _, _, _, _)   => _pos
       case Let1(_pos, _, _, _, _)   => _pos
@@ -121,6 +124,7 @@ object Surface:
       case Var(_, x)     => s"$x"
       case Prim(_, p)    => s"$p"
       case IntLit(_, v)  => s"$v"
+      case UnitLit(_)    => "()"
       case Proj(_, t, p) => s"$t.$p"
       case Let0(_, x, ty, v, b) =>
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"

@@ -347,6 +347,30 @@ object Elaboration:
           val rt2 = nctx.readback1(t2)
           T0.Lam(bx, rt1, T0.Case(rt2, nrt1, T0.Var(ix0), ecs))
 
+        case S.UnitLit(_) =>
+          forceAll1(ty) match
+            case V.TypeCon(m, dx, dps) =>
+              State.getGlobal(m, dx) match
+                case Some(GlobalEntry.Data(_, _, _, _, _, unitCon)) =>
+                  unitCon match
+                    case Some(cx) =>
+                      State.getGlobal(m, cx) match
+                        case Some(
+                              GlobalEntry.Con(_, _, _, _, _, tm, _, _)
+                            ) =>
+                          dps
+                            .foldLeft(tm) { case (tm, (ty, _)) =>
+                              T1.App(tm, ctx.readback1(ty), Impl)
+                            }
+                            .splice
+                        case _ => impossible()
+                    case None =>
+                      err(
+                        s"cannot check unit against ${ctx.pretty1(ty)}, datatype does not have a 0-parameter constructor"
+                      )
+                case _ => impossible()
+            case _ => err(s"cannot check unit against ${ctx.pretty1(ty)}")
+
         case tm =>
           infer(tm) match
             case Infer0(etm, vty, vcv) =>
@@ -568,6 +592,8 @@ object Elaboration:
       tm match
         case S.Prim(_, p)   => Infer1(T1.Prim(p), inferPrimType(p))
         case S.IntLit(_, v) => Infer0(T0.IntLit(v), V.Int, V.Val)
+
+        case S.UnitLit(_) => err("cannot infer unit")
 
         case S.Var(_, x) =>
           ctx.lookup(x) match

@@ -201,9 +201,11 @@ object Parser:
                     val p2 = pos
                     tryOp() match
                       case null =>
-                        val e = expr()
-                        symbol(R_PAREN)
-                        e
+                        if trySymbol(R_PAREN) then Tm.UnitLit(p)
+                        else
+                          val e = expr()
+                          symbol(R_PAREN)
+                          e
                       case op =>
                         if trySymbol(R_PAREN) then Tm.Var(p2, Name.op(op))
                         else

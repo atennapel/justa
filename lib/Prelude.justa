@@ -21,6 +21,10 @@ def factorial (n : Int) :=
     else go (n - 1) (acc * n);
   go n 1
 
+data Void
+
+data Unit := U
+
 data Option A := None | Some (value : A)
 
 data Pair A B := MkPair (fst : A) (snd : B)

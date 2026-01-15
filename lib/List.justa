@@ -1,6 +1,7 @@
 module List
 
-import Prelude (vtype, not, (&&), (||), (+), (*), Option, None, Some)
+import Prelude (vtype, not, (&&), (||), (+), (*), Option, None, Some, Unit, U)
+import IOUtil (return, bind, seq)
 
 data List A := Nil | (::) (head : A) (tail : List A)
 
@@ -44,3 +45,12 @@ def sum l := foldl 0 (+) l
 def product l := foldl 0 (*) l
 def all l := foldl True (&&) l
 def any l := foldl False (||) l
+
+def traverseIO {A B : vtype} (f : A -> IO B) (l : List A) : IO (List B) =
+  foldr (return Nil) (\hd tl => bind (f hd) \fhd => bind tl \ftl => return (fhd :: ftl)) l
+
+def traverseIO_ {A B : vtype} (f : A -> IO B) (l : List A) : IO Unit =
+  foldr (return U) (\hd tl => seq (f hd) tl) l
+
+def foldlIO {A B : vtype} (start : B) (f : B -> A -> IO B) (l : List A) : IO B =
+  foldr (\acc => return acc) (\hd tl acc => bind (f acc hd) tl) l start
