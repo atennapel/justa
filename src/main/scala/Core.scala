@@ -25,7 +25,7 @@ object Core:
 
   enum Tm0:
     case Var(ix: Ix)
-    case Global(name: Name)
+    case Global(mod: Name, name: Name)
     case IntLit(value: Int)
     case Let(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case LetRec(name: Name, ty: Ty, value: Tm0, body: Tm0)
@@ -53,12 +53,12 @@ object Core:
     def flattenApps: (Tm0, Seq[Tm0]) = this match
       case App(f, a) =>
         val (hd, args) = f.flattenApps
-        (hd, args ++ Seq(a))
-      case t => (t, Nil)
+        (hd, args :+ a)
+      case t => (t, Seq.empty)
 
     override def toString: String = this match
       case Var(ix)                    => s"'$ix"
-      case Global(x)                  => s"$x"
+      case Global(m, x)               => s"$m.$x"
       case IntLit(v)                  => s"$v"
       case Let(x, ty, v, b)           => s"(let $x : $ty := $v; $b)"
       case LetRec(x, ty, v, b)        => s"(let rec $x : $ty := $v; $b)"
@@ -74,10 +74,10 @@ object Core:
   type Ty = Tm1
   enum Tm1:
     case Var(ix: Ix)
-    case Global(name: Name)
+    case Global(mod: Name, name: Name, value: Val1)
     case Prim(prim: Primitive)
-    case TypeCon(name: Name)
-    case Con(dx: Name, cx: Name)
+    case TypeCon(mod: Name, name: Name)
+    case Con(mod: Name, dx: Name, cx: Name)
     case Let(name: Name, ty: Ty, value: Tm1, body: Tm1)
 
     case Pi(name: Bind, icit: Icit, ty: Ty, body: Ty)
@@ -117,10 +117,10 @@ object Core:
 
     override def toString: String = this match
       case Var(ix)                 => s"'$ix"
-      case Global(x)               => s"$x"
+      case Global(m, x, _)         => s"$m.$x"
       case Prim(p)                 => s"$p"
-      case TypeCon(x)              => s"$x"
-      case Con(_, x)               => s"$x"
+      case TypeCon(m, x)           => s"$m.$x"
+      case Con(m, _, x)            => s"$m.$x"
       case Let(x, ty, v, b)        => s"(let $x : $ty = $v; $b)"
       case Pi(x, i, ty, b)         => s"(${i.wrap(s"$x : $ty")} -> $b)"
       case Lam(x, i, ty, b)        => s"(\\${i.wrap(s"$x : $ty")} => $b)"
@@ -200,7 +200,7 @@ object Core:
 
   enum Val0:
     case Var(lvl: Lvl)
-    case Global(name: Name)
+    case Global(mod: Name, name: Name)
     case IntLit(value: Int)
     case Let(name: Name, ty: VTy, value: Val0, body: Clos0)
     case LetRec(name: Name, ty: VTy, value: Clos0, body: Clos0)
@@ -213,11 +213,11 @@ object Core:
   enum Head:
     case Var(lvl: Lvl)
     case Prim(prim: Primitive)
-    case TypeCon(name: Name)
-    case Con(dx: Name, cx: Name)
+    case TypeCon(mod: Name, name: Name)
+    case Con(mod: Name, dx: Name, cx: Name)
 
   enum UnfoldHead:
-    case Global(name: Name)
+    case Global(mod: Name, name: Name, value: Val1)
 
   enum Spine:
     case Empty
@@ -248,8 +248,8 @@ object Core:
       case _     => false
 
     def toSeq: Seq[(Val1, Icit)] = this match
-      case Spine.App(sp, arg, i) => sp.toSeq ++ Seq((arg, i))
-      case Spine.Empty           => Nil
+      case Spine.App(sp, arg, i) => sp.toSeq :+ (arg, i)
+      case Spine.Empty           => Seq.empty
       case _                     => impossible()
 
   object Spine:
@@ -289,19 +289,31 @@ object Core:
         case _                                 => None
 
     object TypeCon:
-      def apply(name: Name, args: Seq[(VTy, Icit)] = Nil): Val1 =
-        Rigid(Head.TypeCon(name), Spine.apps(args))
-      def unapply(value: Val1): Option[(Name, Seq[(VTy, Icit)])] = value match
-        case Rigid(Head.TypeCon(hd), spine) => Some((hd, spine.toSeq))
-        case _                              => None
-
-    object Con:
-      def apply(dx: Name, cx: Name, args: Seq[(VTy, Icit)] = Nil): Val1 =
-        Rigid(Head.Con(dx, cx), Spine.apps(args))
+      def apply(
+          mod: Name,
+          name: Name,
+          args: Seq[(VTy, Icit)] = Seq.empty
+      ): Val1 =
+        Rigid(Head.TypeCon(mod, name), Spine.apps(args))
       def unapply(value: Val1): Option[(Name, Name, Seq[(VTy, Icit)])] =
         value match
-          case Rigid(Head.Con(dx, cx), spine) => Some((dx, cx, spine.toSeq))
-          case _                              => None
+          case Rigid(Head.TypeCon(mod, hd), spine) =>
+            Some((mod, hd, spine.toSeq))
+          case _ => None
+
+    object Con:
+      def apply(
+          mod: Name,
+          dx: Name,
+          cx: Name,
+          args: Seq[(VTy, Icit)] = Seq.empty
+      ): Val1 =
+        Rigid(Head.Con(mod, dx, cx), Spine.apps(args))
+      def unapply(value: Val1): Option[(Name, Name, Name, Seq[(VTy, Icit)])] =
+        value match
+          case Rigid(Head.Con(mod, dx, cx), spine) =>
+            Some((mod, dx, cx, spine.toSeq))
+          case _ => None
 
     object Type:
       def apply(cv: Val1): Val1 =

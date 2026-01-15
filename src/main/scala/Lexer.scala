@@ -32,6 +32,7 @@ object Lexer:
     case CARET
     case GRAVE
     case DOLLAR
+    case PERIOD
 
     def pretty: String =
       this match
@@ -52,6 +53,7 @@ object Lexer:
         case CARET        => "^"
         case GRAVE        => "`"
         case DOLLAR       => "$"
+        case PERIOD       => "."
 
   object Symbol:
     def parseImmediate(symbol: String): Symbol | Null =
@@ -80,6 +82,7 @@ object Lexer:
         case "^"  => CARET
         case "`"  => GRAVE
         case "$"  => DOLLAR
+        case "."  => PERIOD
         case _    => null
 
   enum Keyword:

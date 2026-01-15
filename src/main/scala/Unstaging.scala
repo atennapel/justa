@@ -7,29 +7,36 @@ import Evaluation.{eval1, forceAll1, unstageUnder}
 import scala.annotation.tailrec
 
 object Unstaging:
-  def unstageState(): Defs =
-    val ds = State.allGlobals.flatMap {
-      case GlobalEntry.Def0(x, tm, _, _, _, vty, _) =>
-        val nty = goCTy(vty)
-        val ntm = unstage(tm)
-        Some(Def(x, nty, ntm))
-      case GlobalEntry.Con(cx, typarams, params, dx, _, _, _, _) =>
-        State.setMono(dx, cx) { menv =>
-          val env =
-            Env(
-              (0 until typarams.size).reverse.map(i => V.Var(mkLvl(i))).toSeq
-            )
-          params.map { case (x, ty) =>
-            val vty = eval1(ty)(using env)
-            val ty2 = goVTy(vty, menv)
-            (x, ty2)
-          }
+  def unstageState(): Seq[Module] =
+    State
+      .allGlobals()
+      .map { (m, sds) =>
+        val ds = sds.flatMap {
+          case GlobalEntry.Def0(x, tm, _, _, _, vty, _) =>
+            val nty = goCTy(vty)
+            val ntm = unstage(tm)
+            Some(Def(x, nty, ntm))
+          case GlobalEntry.Con(cx, typarams, params, dx, _, _, _, _) =>
+            State.setMono(m, dx, cx) { menv =>
+              val env =
+                Env(
+                  (0 until typarams.size).reverse
+                    .map(i => V.Var(mkLvl(i)))
+                    .toSeq
+                )
+              params.map { case (x, ty) =>
+                val vty = eval1(ty)(using env)
+                val ty2 = goVTy(vty, menv)
+                (x, ty2)
+              }
+            }
+            None
+          case _ =>
+            None
         }
-        None
-      case _ =>
-        None
-    }
-    Defs(ds)
+        Module(m, Defs(ds))
+      }
+      .toSeq
 
   private type TEnv = Seq[CTy]
   private type Ren = Seq[LocalName]
@@ -50,10 +57,10 @@ object Unstaging:
     inline def extVEnv: Env = Env.Ext0(venv, V0.Var(mkLvl(venv.size)))
     tm match
       case Tm0.IntLit(v) => Tm.IntLit(v)
-      case Tm0.Global(x) =>
-        State.getGlobal(x) match
+      case Tm0.Global(m, x) =>
+        State.getGlobal(m, x) match
           case Some(GlobalEntry.Def0(_, _, _, _, _, vty, _)) =>
-            Tm.Global(x, goCTy(vty))
+            Tm.Global(m, x, goCTy(vty))
           case _ => impossible()
 
       case Tm0.Var(ix) => Tm.Local(ren(ix.expose), tenv(ix.expose))
@@ -111,7 +118,7 @@ object Unstaging:
                     val vt = goTy(ty)
                     addParamsRec(
                       rest,
-                      newps ++ Seq((x, vt, -1)),
+                      newps :+ (x, vt, -1),
                       CTy(vt) +: tenv,
                       Env.Ext0(env, V0.Var(mkLvl(env.size))),
                       x +: ren
@@ -149,7 +156,7 @@ object Unstaging:
               tm match
                 case Tm1.App(f, a, i) => apps(f, (a, i) +: args)
                 case Tm1.Prim(_)      => (tm, args)
-                case Tm1.Con(_, _)    => (tm, args)
+                case Tm1.Con(_, _, _) => (tm, args)
                 case _                => impossible()
             def takeImpl(args: Seq[(Tm1, Icit)]): Seq[Tm1] =
               args match
@@ -159,11 +166,11 @@ object Unstaging:
             inline def st(t: Tm1) = stWithEnv(t, venv)
             inline def stgo(t: Tm1) = go(st(t))
             apps(tm) match
-              case (Tm1.Con(dx, cx), args) =>
+              case (Tm1.Con(m, dx, cx), args) =>
                 val ps = takeImpl(args).map(eval1)
-                val dty = VTy.Data(dx, ps.map(t => goVTy(t)))
+                val dty = VTy.Data(m, dx, ps.map(t => goVTy(t)))
                 val as = args.drop(ps.size).map((t, _) => stgo(t))
-                IR.Tm.Con(dx, cx, State.conIndex(dx, cx), dty, as)
+                IR.Tm.Con(m, dx, cx, State.conIndex(m, dx, cx), dty, as)
               case (Tm1.Prim(Primitive.ReturnIO), Seq(ty, v)) =>
                 val ety = goTy(ty._1)
                 val ev = stgo(v._1)
@@ -190,8 +197,9 @@ object Unstaging:
 
   private def goVTy(ty: V, menv: State.MonoEnv = Map.empty): VTy =
     forceAll1(ty) match
-      case V.Bool             => VTy.Bool
-      case V.Int              => VTy.Int
-      case V.TypeCon(x, args) => VTy.Data(x, args.map((a, _) => goVTy(a, menv)))
-      case V.Var(lvl)         => menv(lvl)
-      case _                  => impossible()
+      case V.Bool => VTy.Bool
+      case V.Int  => VTy.Int
+      case V.TypeCon(m, x, args) =>
+        VTy.Data(m, x, args.map((a, _) => goVTy(a, menv)))
+      case V.Var(lvl) => menv(lvl)
+      case _          => impossible()

@@ -4,12 +4,15 @@ object JVM:
   enum Ty:
     case Bool
     case Int
-    case Data(name: Name)
+    case Data(mod: Name, name: Name)
 
     override def toString: String = this match
-      case Bool    => "Bool"
-      case Int     => "Int"
-      case Data(x) => s"$x"
+      case Bool       => "Bool"
+      case Int        => "Int"
+      case Data(m, x) => s"$m.$x"
+
+  final case class Module(name: Name, defs: Defs):
+    override def toString: String = s"module $name\n$defs"
 
   final case class Defs(defs: Seq[Def]):
     override def toString: String = defs.mkString("\n")
@@ -71,8 +74,8 @@ object JVM:
 
   enum Tm:
     case Local(ix: LocalName, ty: Ty)
-    case Global(name: Name)
-    case GlobalApp(name: Name, args: Seq[Tm])
+    case Global(mod: Name, name: Name)
+    case GlobalApp(mod: Name, name: Name, args: Seq[Tm])
     case Prim(prim: RuntimePrimitive, args: Seq[Tm])
     case BoolLit(value: Boolean)
     case IntLit(value: Int)
@@ -93,19 +96,19 @@ object JVM:
     )
     case Jump(name: LocalName, args: Seq[Tm])
 
-    case Con(dx: Name, cx: Name, ix: Int, args: Seq[Tm])
-    case Case(dty: Name, scrut: Tm, cases: Cases)
+    case Con(mod: Name, dx: Name, cx: Name, ix: Int, args: Seq[Tm])
+    case Case(mod: Name, dty: Name, scrut: Tm, cases: Cases)
 
     override def toString: String = this match
-      case Local(ix, _)       => s"'$ix"
-      case Global(x)          => s"$x"
-      case GlobalApp(x, args) => s"$x${args.mkString("(", ",", ")")}"
-      case Prim(p, Nil)       => s"$p"
-      case Prim(p, args)      => s"$p${args.mkString("(", ",", ")")}"
-      case BoolLit(v)         => s"$v"
-      case IntLit(v)          => s"$v"
-      case Let(x, ty, v, b)   => s"(let '$x : $ty = $v; $b)"
-      case If(c, t, f)        => s"(if $c then $t else $f)"
+      case Local(ix, _)          => s"'$ix"
+      case Global(m, x)          => s"$m.$x"
+      case GlobalApp(m, x, args) => s"$m.$x${args.mkString("(", ",", ")")}"
+      case Prim(p, Nil)          => s"$p"
+      case Prim(p, args)         => s"$p${args.mkString("(", ",", ")")}"
+      case BoolLit(v)            => s"$v"
+      case IntLit(v)             => s"$v"
+      case Let(x, ty, v, b)      => s"(let '$x : $ty = $v; $b)"
+      case If(c, t, f)           => s"(if $c then $t else $f)"
       case Join(x, Nil, v, b) =>
         s"(join '$x = $v; $b"
       case Join(x, ps, v, b) =>
@@ -114,12 +117,12 @@ object JVM:
         s"(join rec '$x = $v; $b"
       case JoinRec(x, ps, v, b) =>
         s"(join rec '$x ${ps.map((x, t) => s"('$x : $t)").mkString(" ")} = $v; $b"
-      case Jump(x, Nil)        => s"(jump '$x)"
-      case Jump(x, args)       => s"(jump '$x${args.mkString("(", ",", ")")})"
-      case Con(_, cx, _, Nil)  => s"$cx"
-      case Con(_, cx, _, args) => s"($cx ${args.mkString(" ")})"
-      case Case(_, s, Cases.Empty) => s"(match $s)"
-      case Case(_, s, cs)          => s"(match $s { $cs })"
+      case Jump(x, Nil)          => s"(jump '$x)"
+      case Jump(x, args)         => s"(jump '$x${args.mkString("(", ",", ")")})"
+      case Con(m, _, cx, _, Nil) => s"$m.$cx"
+      case Con(m, _, cx, _, args)     => s"($m.$cx ${args.mkString(" ")})"
+      case Case(_, _, s, Cases.Empty) => s"(match $s)"
+      case Case(_, _, s, cs)          => s"(match $s { $cs })"
 
   object Tm:
     val True = BoolLit(true)

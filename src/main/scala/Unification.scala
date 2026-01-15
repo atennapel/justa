@@ -265,7 +265,7 @@ object Unification:
           case None         => err(s"out of scope $x")
           case Some(PS1(_)) => impossible()
           case Some(PS0(v)) => readback0(v)(using psub.dom, UnfoldOption.None)
-      case V0.Global(x)           => T0.Global(x)
+      case V0.Global(m, x)        => T0.Global(m, x)
       case V0.IntLit(v)           => T0.IntLit(v)
       case V0.Let(x, ty, v, b)    => T0.Let(x, go1(ty), go0(v), goClos(b))
       case V0.LetRec(x, ty, v, b) => T0.LetRec(x, go1(ty), goClos(v), goClos(b))
@@ -313,9 +313,9 @@ object Unification:
     inline def goClos0(c: Clos1) =
       psubst1(c(V0.Var(psub.cod)))(using psub.lift1)
     forceMetas1(v) match
-      case V.Rigid(Head.Prim(p), sp)     => goSp(T1.Prim(p), sp)
-      case V.Rigid(Head.TypeCon(x), sp)  => goSp(T1.TypeCon(x), sp)
-      case V.Rigid(Head.Con(dx, cx), sp) => goSp(T1.Con(dx, cx), sp)
+      case V.Rigid(Head.Prim(p), sp)        => goSp(T1.Prim(p), sp)
+      case V.Rigid(Head.TypeCon(m, x), sp)  => goSp(T1.TypeCon(m, x), sp)
+      case V.Rigid(Head.Con(m, dx, cx), sp) => goSp(T1.Con(m, dx, cx), sp)
       case V.Rigid(Head.Var(x), sp) =>
         psub.sub.get(x.expose) match
           case None         => err(s"out of scope $x")
@@ -325,7 +325,8 @@ object Unification:
       case V.Flex(m, sp) =>
         if psub.occ.contains(m) then err(s"occurs error ?$m")
         else pruneVFlex(m, sp)
-      case V.Unfold(UnfoldHead.Global(x), sp, _) => goSp(T1.Global(x), sp)
+      case V.Unfold(UnfoldHead.Global(m, x, v), sp, _) =>
+        goSp(T1.Global(m, x, v), sp)
       case V.Pi(x, i, ty, b)   => T1.Pi(x, i, go1(ty), goClos(b))
       case V.Lam(x, i, ty, b)  => T1.Lam(x, i, go1(ty), goClos(b))
       case V.Fun(pty, cv, rty) => T1.Fun(go1(pty), go1(cv), go1(rty))
@@ -386,9 +387,9 @@ object Unification:
       unify0(a(V0.Var(lvl)), b(V0.Var(lvl)))(using lvl + 1)
     debug(s"unify0 ${readback0m(a)} ~ ${readback0m(b)}")
     (forceMetas0(a), forceMetas0(b)) match
-      case (V0.Var(x), V0.Var(y)) if x == y       => ()
-      case (V0.Global(x), V0.Global(y)) if x == y => ()
-      case (V0.IntLit(x), V0.IntLit(y)) if x == y => ()
+      case (V0.Var(x), V0.Var(y)) if x == y                           => ()
+      case (V0.Global(m1, x), V0.Global(m2, y)) if m1 == m2 && x == y => ()
+      case (V0.IntLit(x), V0.IntLit(y)) if x == y                     => ()
       case (V0.Let(_, ty1, v1, b1), V0.Let(_, ty2, v2, b2)) =>
         unify1(ty1, ty2); unify0(v1, v2); goClos(b1, b2)
       case (V0.LetRec(_, ty1, v1, b1), V0.LetRec(_, ty2, v2, b2)) =>
@@ -464,6 +465,11 @@ object Unification:
         unify1(top1, sp1, top2, sp2); unify1(a1, a2)
       case _ => err(s"spine mismatch ${readback1n(top1)} ~ ${readback1n(top2)}")
 
+  private def unfoldHeadEquals(a: UnfoldHead, b: UnfoldHead): Boolean =
+    (a, b) match
+      case (UnfoldHead.Global(m1, x, _), UnfoldHead.Global(m2, y, _)) =>
+        m1 == m2 && x == y
+
   def unify1(a: V, b: V)(using lvl: Lvl): Unit =
     inline def goClos(a: Clos1, b: Clos1) =
       val v = V.Var(lvl)
@@ -519,7 +525,7 @@ object Unification:
 
       case (top1 @ V.Unfold(h1, sp1, v1), top2 @ V.Unfold(h2, sp2, v2)) =>
         try
-          if h1 != h2 then err("head mismatch")
+          if !unfoldHeadEquals(h1, h2) then err("head mismatch")
           unify1(a, sp1, b, sp2)
         catch case _: UnifyError => unify1(v1(), v2())
       case (V.Unfold(_, _, v1), v2) => unify1(v1(), v2)

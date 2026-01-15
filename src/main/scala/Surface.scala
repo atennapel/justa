@@ -57,6 +57,14 @@ object Surface:
     val Expl = Icit(Common.Icit.Expl)
     val Impl = Icit(Common.Icit.Impl)
 
+  enum ProjType:
+    case Named(name: Name)
+    case Indexed(ix: Int)
+
+    override def toString: String = this match
+      case Named(x)    => x.toString
+      case Indexed(ix) => ix.toString
+
   type Ty = Tm
   enum Tm:
     case Var(_pos: PosInfo, name: Name)
@@ -65,6 +73,8 @@ object Surface:
     case Let0(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
     case Let1(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
     case LetRec(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
+
+    case Proj(_pos: PosInfo, tm: Tm, proj: ProjType)
 
     case Pi(_pos: PosInfo, name: Bind, icit: Icit, ty: Ty, body: Ty)
     case Lam(_pos: PosInfo, name: Bind, info: ArgInfo, ty: Option[Ty], body: Tm)
@@ -87,6 +97,7 @@ object Surface:
       case Var(_pos, _)             => _pos
       case Prim(_pos, _)            => _pos
       case IntLit(_pos, _)          => _pos
+      case Proj(_pos, _, _)         => _pos
       case Let0(_pos, _, _, _, _)   => _pos
       case Let1(_pos, _, _, _, _)   => _pos
       case LetRec(_pos, _, _, _, _) => _pos
@@ -100,10 +111,17 @@ object Surface:
       case Match(_pos, _, _)        => _pos
       case Hole(_pos, _)            => _pos
 
+    def splitProjs: (Tm, Seq[(PosInfo, ProjType)]) = this match
+      case Proj(pos, tm, proj) =>
+        val (hd, tl) = tm.splitProjs
+        (hd, tl :+ (pos, proj))
+      case tm => (tm, Seq.empty)
+
     override def toString: String = this match
-      case Var(_, x)    => s"$x"
-      case Prim(_, p)   => s"$p"
-      case IntLit(_, v) => s"$v"
+      case Var(_, x)     => s"$x"
+      case Prim(_, p)    => s"$p"
+      case IntLit(_, v)  => s"$v"
+      case Proj(_, t, p) => s"$t.$p"
       case Let0(_, x, ty, v, b) =>
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
       case Let1(_, x, ty, v, b) =>

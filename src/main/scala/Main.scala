@@ -13,11 +13,11 @@ object Main:
       source.mkString
     }.get
     try
-      val sdefs = Parser.parseModule("test", text).get.defs
-      println(sdefs)
+      val smod = Parser.parseModule("test", text).get
+      println(smod)
       println()
       Util.time("elaboration") {
-        Elaboration.elaborate(sdefs)
+        Elaboration.elaborate(Seq(smod))
       }
       println()
       given ctx: Ctx = Ctx.empty(PosInfo.start)
@@ -28,34 +28,44 @@ object Main:
             println(s"?$m : ${ctx.pretty1(t)} = ${ctx.pretty1(v)}")
       }
       println()
-      State.allGlobals.foreach {
-        case State.GlobalEntry.Def0(x, tm, _, _, _, vty, _) =>
-          println(
-            s"def $x : ${ctx.pretty1(vty)} := ${ctx.pretty0(tm)}"
-          )
-        case State.GlobalEntry.Def1(x, tm, _, _, vty) =>
-          println(
-            s"def $x : ${ctx.pretty1(vty)} = ${ctx.pretty1(tm)}"
-          )
-        case State.GlobalEntry.Data(x, Nil, _, _, _, _) => println(s"data $x")
-        case State.GlobalEntry.Data(x, ps, _, _, _, _) =>
-          println(s"data $x ${ps.mkString(" ")}")
-        case State.GlobalEntry.Con(x, _, Nil, _, _, _, _, _) => println(s"| $x")
-        case State.GlobalEntry.Con(x, tps0, ps, _, _, _, _, _) =>
-          val tps = tps0.map(x => Bind.DoBind(x))
-          println(
-            s"| $x ${ps.map((x, t) => s"($x : ${Pretty.pretty1(t)(using tps)})").mkString(" ")}"
-          )
+      State.allGlobals().foreach { (m, gs) =>
+        println(s"module $m")
+        gs.foreach {
+          case State.GlobalEntry.Def0(x, tm, _, _, _, vty, _) =>
+            println(
+              s"def $x : ${ctx.pretty1(vty)} := ${ctx.pretty0(tm)}"
+            )
+          case State.GlobalEntry.Def1(x, tm, _, _, vty) =>
+            println(
+              s"def $x : ${ctx.pretty1(vty)} = ${ctx.pretty1(tm)}"
+            )
+          case State.GlobalEntry.Data(x, Nil, _, _, _, _) => println(s"data $x")
+          case State.GlobalEntry.Data(x, ps, _, _, _, _) =>
+            println(s"data $x ${ps.mkString(" ")}")
+          case State.GlobalEntry.Con(x, _, Nil, _, _, _, _, _) =>
+            println(s"| $x")
+          case State.GlobalEntry.Con(x, tps0, ps, _, _, _, _, _) =>
+            val tps = tps0.map(x => Bind.DoBind(x))
+            println(
+              s"| $x ${ps.map((x, t) => s"($x : ${Pretty.pretty1(t)(using tps)})").mkString(" ")}"
+            )
+        }
       }
       println()
-      val uds = Util.time("unstaging") { Unstaging.unstageState() }
-      println(uds)
+      val umods = Util.time("unstaging") {
+        Unstaging.unstageState()
+      }
+      umods.foreach(println)
       println()
-      val sds = Util.time("simplification") { Simplification.simplifyDefs(uds) }
-      println(sds)
+      val smods = Util.time("simplification") {
+        Simplification.simplifyModules(umods)
+      }
+      smods.foreach(println)
       println()
-      val jds = Util.time("lifting") { Lifting.liftDefs(sds) }
-      println(jds)
+      val jmods = Util.time("lifting") {
+        Lifting.liftModules(smods)
+      }
+      jmods.foreach(println)
     catch
       case err: Lexer.LexerError =>
         println(err.toString)

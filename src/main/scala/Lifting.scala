@@ -9,8 +9,14 @@ import scala.collection.mutable
 // lift out local functions, create join points, rename with unique names
 object Lifting:
   // the passed definitions should be simplified!
-  def liftDefs(ds: Defs): JVM.Defs =
-    JVM.Defs(ds.toSeq.flatMap(liftDef))
+  def liftModules(mods: Seq[Module]): Seq[JVM.Module] =
+    mods.map(liftModule)
+
+  private def liftModule(mod: Module): JVM.Module =
+    JVM.Module(mod.name, liftDefs(mod.name, mod.defs))
+
+  private def liftDefs(mod: Name, ds: Defs): JVM.Defs =
+    JVM.Defs(ds.toSeq.flatMap(d => liftDef(mod, d)))
 
   private final class Emit(
       name: Name,
@@ -33,17 +39,17 @@ object Lifting:
   private enum RenEntry:
     case RenVar(name: LocalName)
     case JoinPoint(name: LocalName)
-    case LiftedFun(name: Name, extraArgs: Seq[(LocalName, CTy)])
+    case LiftedFun(mod: Name, name: Name, extraArgs: Seq[(LocalName, CTy)])
   import RenEntry.*
 
-  private def liftDef(d: Def): Seq[JVM.Def] =
-    debug(s"liftDef ${d.name}")
+  private def liftDef(mod: Name, d: Def): Seq[JVM.Def] =
+    debug(s"liftDef $mod.${d.name}")
     newDefs.clear()
     val Def(name, ty, v) = d
     given emit: Emit = new Emit(d.name)
     given Supply = new Supply(0)
     given Ren = renParams(ty)
-    given Name = name
+    given (Name, Name) = (mod, name)
     val value = go(removeLams(ty, v), true, Some(lamTypes(v)))
     val retty = goVTy(ty.ret)
     val cdef =
@@ -51,7 +57,7 @@ object Lifting:
       else
         val ps = ty.params.zipWithIndex.map((ty, ix) => (ix, goVTy(ty)))
         JVM.Def.Function(name, ps, retty, value)
-    newDefs.toSeq ++ emit.toSeq ++ Seq(cdef)
+    newDefs.toSeq ++ emit.toSeq :+ cdef
 
   private inline def renParams(ty: CTy, ren: Ren = Map.empty)(using
       supply: Supply
@@ -74,19 +80,19 @@ object Lifting:
       ren: Ren,
       emit: Emit,
       supply: Supply,
-      defName: Name
+      currentDef: (Name, Name)
   ): JVM.Tm =
     t match
       case Tm.Lam(_, _, _, _) => impossible()
       case Tm.Local(ix, ty) =>
         ren(ix) match
-          case RenVar(x)       => JVM.Tm.Local(x, goCTy(ty))
-          case JoinPoint(x)    => JVM.Tm.Jump(x, Nil)
-          case LiftedFun(_, _) => impossible()
-      case Tm.Global(x, ty) =>
+          case RenVar(x)          => JVM.Tm.Local(x, goCTy(ty))
+          case JoinPoint(x)       => JVM.Tm.Jump(x, Nil)
+          case LiftedFun(_, _, _) => impossible()
+      case Tm.Global(m, x, ty) =>
         if ty.params.nonEmpty then impossible()
-        else if ty.io then JVM.Tm.GlobalApp(x, Nil)
-        else JVM.Tm.Global(x)
+        else if ty.io then JVM.Tm.GlobalApp(m, x, Nil)
+        else JVM.Tm.Global(m, x)
       case Tm.Prim(p)    => JVM.Tm.Prim(p, Nil)
       case Tm.BoolLit(v) => JVM.Tm.bool(v)
       case Tm.IntLit(v)  => JVM.Tm.IntLit(v)
@@ -103,21 +109,23 @@ object Lifting:
 
       case Tm.If(_, c, t, f) =>
         JVM.Tm.If(go(c, false), go(t, tail), go(f, tail))
-      case Tm.Con(_, cx, ix, dty, args) =>
-        JVM.Tm.Con(goData(dty), cx, ix, args.map(go(_, false)))
+      case Tm.Con(m, _, cx, ix, dty, args) =>
+        val (mdx, dx) = goData(dty)
+        JVM.Tm.Con(mdx, dx, cx, ix, args.map(go(_, false)))
 
       case Tm.App(_, _) =>
         val (f, a) = t.flattenApps
         f match
-          case Tm.Global(x, _) => JVM.Tm.GlobalApp(x, a.map(a => go(a, false)))
-          case Tm.Prim(p)      => JVM.Tm.Prim(p, a.map(a => go(a, false)))
+          case Tm.Global(m, x, _) =>
+            JVM.Tm.GlobalApp(m, x, a.map(a => go(a, false)))
+          case Tm.Prim(p) => JVM.Tm.Prim(p, a.map(a => go(a, false)))
           case Tm.Local(ix, ty) =>
             ren(ix) match
               case RenVar(x)    => impossible()
               case JoinPoint(x) => JVM.Tm.Jump(x, a.map(a => go(a, false)))
-              case LiftedFun(x, args) =>
+              case LiftedFun(m, x, args) =>
                 val extraArgs = args.map((x, ty) => go(Tm.Local(x, ty), false))
-                JVM.Tm.GlobalApp(x, extraArgs ++ a.map(a => go(a, false)))
+                JVM.Tm.GlobalApp(m, x, extraArgs ++ a.map(a => go(a, false)))
           case _ => impossible()
 
       case Tm.Let(x, _, ty, v, b) if tail && isUsedInTailOnly(x, true, b) =>
@@ -154,7 +162,9 @@ object Lifting:
           val body = go(removeLams(ty, v), true)
           JVM.Def.Function(y, ps, goVTy(ty.ret), body)
         }
-        go(b, tail)(using ren = ren + (x -> LiftedFun(y, freeps)))
+        go(b, tail)(using
+          ren = ren + (x -> LiftedFun(currentDef._1, y, freeps))
+        )
 
       case Tm.LetRec(x, _, ty, v, b)
           if tail && isUsedInTailOnly(x, true, v) &&
@@ -175,7 +185,7 @@ object Lifting:
         given Ren = renToplevel(
           lamTypes(v),
           toplevel.get,
-          ren + (x -> LiftedFun(defName, Nil))
+          ren + (x -> LiftedFun(currentDef._1, currentDef._2, Nil))
         )
         go(newbody, tail)
       case Tm.LetRec(x, _, ty, v, b) =>
@@ -187,12 +197,18 @@ object Lifting:
           ) ++ ty.params.zipWithIndex.map((ty, x) => (x + freen, goVTy(ty)))
           given Supply = new Supply(0)
           given ren: Ren =
-            renLifted(freeps ++ lamTypes(v)) + (x -> LiftedFun(y, freeps))
+            renLifted(freeps ++ lamTypes(v)) + (x -> LiftedFun(
+              currentDef._1,
+              y,
+              freeps
+            ))
           given Name = y
           val body = go(removeLams(ty, v), true)
           JVM.Def.Function(y, ps, goVTy(ty.ret), body)
         }
-        go(b, tail)(using ren = ren + (x -> LiftedFun(y, freeps)))
+        go(b, tail)(using
+          ren = ren + (x -> LiftedFun(currentDef._1, y, freeps))
+        )
 
       case Tm.Case(_, dty, s, cs) =>
         def goCases(cs: Cases): JVM.Cases =
@@ -212,7 +228,7 @@ object Lifting:
                     val y = supply.next()
                     goParamsRec(
                       rest,
-                      newps ++ Seq((y, goVTy(ty), u)),
+                      newps :+ (y, goVTy(ty), u),
                       ren + (x -> RenVar(y))
                     )
               inline def goParams(
@@ -222,7 +238,8 @@ object Lifting:
               val (newps, innerren) = goParams(ps)
               val newb = go(b, tail)(using innerren)
               JVM.Cases.Ext(cx, newps, newb, goCases(r))
-        JVM.Tm.Case(goData(dty), go(s, false), goCases(cs))
+        val (mdx, dx) = goData(dty)
+        JVM.Tm.Case(mdx, dx, go(s, false), goCases(cs))
 
   @tailrec
   private def renLifted(ps: Seq[(Int, CTy)], ren: Ren = Map.empty)(using
@@ -283,14 +300,14 @@ object Lifting:
 
   private def goVTy(t: VTy): JVM.Ty =
     t match
-      case VTy.Bool          => JVM.Ty.Bool
-      case VTy.Int           => JVM.Ty.Int
-      case VTy.Data(x, args) => monomorphize(x, args)
+      case VTy.Bool             => JVM.Ty.Bool
+      case VTy.Int              => JVM.Ty.Int
+      case VTy.Data(m, x, args) => monomorphize(m, x, args)
 
-  private def goData(dty: VTy): Name =
+  private def goData(dty: VTy): (Name, Name) =
     goVTy(dty) match
-      case JVM.Ty.Data(dx) => dx
-      case _               => impossible()
+      case JVM.Ty.Data(m, dx) => (m, dx)
+      case _                  => impossible()
 
   private def removeLams(ty: CTy, t: Tm): Tm =
     @tailrec
@@ -317,10 +334,10 @@ object Lifting:
     ): List[(LocalName, CTy)] =
       a.filterNot((y, _) => x == y)
     t match
-      case Tm.Global(_, _) => Nil
-      case Tm.Prim(_)      => Nil
-      case Tm.BoolLit(_)   => Nil
-      case Tm.IntLit(_)    => Nil
+      case Tm.Global(_, _, _) => Nil
+      case Tm.Prim(_)         => Nil
+      case Tm.BoolLit(_)      => Nil
+      case Tm.IntLit(_)       => Nil
 
       case Tm.Local(ix, ty) => List(ix -> ty)
 
@@ -336,7 +353,7 @@ object Lifting:
         merge(remove(x, free(v)), remove(x, free(b)))
       case Tm.BindIO(x, _, _, v, b) => merge(free(v), remove(x, free(b)))
 
-      case Tm.Con(_, _, _, _, args) =>
+      case Tm.Con(_, _, _, _, _, args) =>
         args.map(free).foldLeft(Nil)(merge)
 
       case Tm.Case(_, _, s, cs) =>
@@ -353,10 +370,10 @@ object Lifting:
 
   private def isUsedInTailOnly(x: LocalName, tail: Boolean, t: Tm): Boolean =
     t match
-      case Tm.Global(_, _) => true
-      case Tm.Prim(_)      => true
-      case Tm.BoolLit(_)   => true
-      case Tm.IntLit(_)    => true
+      case Tm.Global(_, _, _) => true
+      case Tm.Prim(_)         => true
+      case Tm.BoolLit(_)      => true
+      case Tm.IntLit(_)       => true
 
       case Tm.Lam(_, _, _, b) => isUsedInTailOnly(x, tail, b)
 
@@ -373,7 +390,7 @@ object Lifting:
         isUsedInTailOnly(x, false, c) &&
         isUsedInTailOnly(x, tail, t) &&
         isUsedInTailOnly(x, tail, f)
-      case Tm.Con(_, _, _, _, args) =>
+      case Tm.Con(_, _, _, _, _, args) =>
         args.forall(isUsedInTailOnly(x, false, _))
 
       case Tm.Local(y, ty) => if x == y then tail else true
@@ -395,30 +412,34 @@ object Lifting:
         isUsedInTailOnly(x, false, s) && go(cs)
 
   // monomorphization
-  private type MonoKey = (Name, Seq[IR.VTy])
+  private type MonoKey = (Name, Name, Seq[IR.VTy])
   private val monoStore = mutable.Map.empty[MonoKey, Name]
   private val newDefs = mutable.ArrayBuffer.empty[JVM.Def]
 
-  private def monomorphize(dx: Name, ps: Seq[IR.VTy]): JVM.Ty =
-    val xs = State.getGlobal(dx) match
+  private def monomorphize(m: Name, dx: Name, ps: Seq[IR.VTy]): JVM.Ty =
+    val xs = State.getGlobal(m, dx) match
       case Some(GlobalEntry.Data(_, _, xs, _, _, _)) => xs
       case _                                         => impossible()
-    val (nx, alreadyDone) = tryMonomorphize(dx, ps)
+    val (nx, alreadyDone) = tryMonomorphize(m, dx, ps)
     if !alreadyDone then
       val menv: State.MonoEnv =
         ps.zipWithIndex.map((ty, i) => (mkLvl(i), ty)).toMap
       val ecs = xs.map { cx =>
         val ets =
           State
-            .getMonoConParams(dx, cx, menv)
+            .getMonoConParams(m, dx, cx, menv)
             .map((x, ty) => (x.toOption, goVTy(ty)))
         JVM.Constructor(cx, ets)
       }
       newDefs += JVM.Def.Data(nx, ecs)
-    JVM.Ty.Data(nx)
+    JVM.Ty.Data(m, nx)
 
-  private def tryMonomorphize(name: Name, ps: Seq[IR.VTy]): (Name, Boolean) =
-    val k = (name, ps)
+  private def tryMonomorphize(
+      mod: Name,
+      name: Name,
+      ps: Seq[IR.VTy]
+  ): (Name, Boolean) =
+    val k = (mod, name, ps)
     monoStore.get(k) match
       case Some(x) => (x, true)
       case None =>
@@ -428,9 +449,10 @@ object Lifting:
 
   private def createName(name: Name, ps: Seq[IR.VTy]): Name =
     def paramStr(p: IR.VTy): String = p match
-      case VTy.Bool          => "Bool"
-      case VTy.Int           => "Int"
-      case VTy.Data(x, Nil)  => s"$x"
-      case VTy.Data(x, args) => s"${x}_${args.map(paramStr).mkString("_")}"
+      case VTy.Bool            => "Bool"
+      case VTy.Int             => "Int"
+      case VTy.Data(m, x, Nil) => s"$m$$$x"
+      case VTy.Data(m, x, args) =>
+        s"$m$$${x}_${args.map(paramStr).mkString("_")}"
     if ps.isEmpty then name
     else Name(s"${name}_${ps.map(paramStr).mkString("_")}")

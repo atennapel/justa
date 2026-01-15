@@ -93,37 +93,121 @@ object State:
         ty: Ty,
         vty: VTy
     )
+
     def name: Name = this match
       case Def0(x, _, _, _, _, _, _)   => x
       case Def1(x, _, _, _, _)         => x
       case Data(x, _, _, _, _, _)      => x
       case Con(x, _, _, _, _, _, _, _) => x
 
-  private val globals: ArrayBuffer[GlobalEntry] = ArrayBuffer.empty
+    def isPublic: Boolean = true
 
-  def addGlobal(entry: GlobalEntry): Unit = globals += entry
-  def getGlobal(x: Name): Option[GlobalEntry] =
-    globals.findLast(e => e.name == x)
+  // modules
+  private final case class ModuleCtx(
+      name: Name,
+      modules: mutable.Map[Name, Name] = mutable.Map.empty,
+      imports: mutable.Map[Name, (Name, Name)] = mutable.Map.empty
+  )
 
-  def allGlobals: Seq[GlobalEntry] = globals.toSeq
+  private val globals: mutable.Map[Name, mutable.ArrayBuffer[GlobalEntry]] =
+    mutable.Map.empty
 
-  def conIndex(dx: Name, cx: Name): Int =
-    getGlobal(dx) match
+  private var moduleCtx: Option[ModuleCtx] = None
+
+  def currentModule: Name = moduleCtx.get.name
+
+  private def module(mod: Name): mutable.ArrayBuffer[GlobalEntry] =
+    globals.get(mod) match
+      case None =>
+        val a = mutable.ArrayBuffer.empty[GlobalEntry]
+        globals += (mod -> a)
+        a
+      case Some(a) => a
+
+  def addGlobal(entry: GlobalEntry): Unit =
+    module(currentModule) += entry
+
+  def moduleExists(mod: Name): Boolean = globals.contains(mod)
+  def moduleHasName(mod: Name, x: Name): Boolean =
+    moduleExists(mod) && globals(mod).findLast(e => e.name == x).isDefined
+  def currentModuleHasName(x: Name): Boolean =
+    moduleHasName(currentModule, x)
+
+  def getGlobal(mod: Name, x: Name): Option[GlobalEntry] =
+    globals.get(mod) match
+      case None    => None
+      case Some(a) => a.findLast(e => e.name == x)
+  private inline def getGlobal(x: Name): Option[GlobalEntry] =
+    getGlobal(currentModule, x)
+
+  def conIndex(mod: Name, dx: Name, cx: Name): Int =
+    getGlobal(mod, dx) match
       case Some(GlobalEntry.Data(_, _, xs, _, _, _)) => xs.indexOf(cx)
       case _                                         => impossible()
+  inline def conIndex(dx: Name, cx: Name): Int = conIndex(currentModule, dx, cx)
+
+  def allGlobals(): Map[Name, Seq[GlobalEntry]] =
+    globals.mapValues(_.toSeq).toMap
+
+  def allGlobalsForModule(mod: Name = currentModule): Seq[GlobalEntry] =
+    globals(mod).toSeq
+
+  def enterModule(mod: Name): Unit =
+    moduleCtx = Some(ModuleCtx(mod))
+
+  def addModuleRenaming(globalName: Name, innerName: Name): Unit =
+    moduleCtx.get.modules += innerName -> globalName
+
+  def addImport(m: Name, x: Name, r: Name): Unit =
+    moduleCtx.get.imports += r -> (m, x)
+
+  enum GlobalLookupFailure:
+    case ModuleNotFound
+    case GlobalNotFound
+    case GlobalIsNotAccessible
+  import GlobalLookupFailure.*
+
+  def checkAccessibility(m: Name, x: Name): Boolean =
+    getGlobal(m, x) match
+      case None    => true
+      case Some(e) => e.isPublic
+
+  def getGlobal(
+      mod: Option[Name],
+      px: Name
+  ): Either[(Name, Name, GlobalLookupFailure), (Name, GlobalEntry)] =
+    val ctx = moduleCtx.get
+    def next(m: Name, x: Name) =
+      getGlobal(m, x) match
+        case None => Left((m, x, GlobalNotFound))
+        case Some(e) =>
+          if !(m == ctx.name || e.isPublic) then
+            Left((m, x, GlobalIsNotAccessible))
+          else Right((m, e))
+    mod match
+      case Some(pm) =>
+        ctx.modules.get(pm) match
+          case None    => Left((pm, px, ModuleNotFound))
+          case Some(m) => next(m, px)
+      case None =>
+        val (m, x) = ctx.imports.getOrElse(px, (ctx.name, px))
+        next(m, x)
 
   // monomorphization
   type MonoEnv = Map[Lvl, IR.VTy]
   private val monomap
-      : mutable.Map[(Name, Name), MonoEnv => Seq[(Bind, IR.VTy)]] =
+      : mutable.Map[(Name, Name, Name), MonoEnv => Seq[(Bind, IR.VTy)]] =
     mutable.Map.empty
 
-  def setMono(dx: Name, cx: Name)(k: MonoEnv => Seq[(Bind, IR.VTy)]): Unit =
-    monomap += ((dx, cx) -> k)
+  def setMono(mod: Name, dx: Name, cx: Name)(
+      k: MonoEnv => Seq[(Bind, IR.VTy)]
+  ): Unit =
+    monomap += ((mod, dx, cx) -> k)
 
   def getMonoConParams(
+      mod: Name,
       dx: Name,
       cx: Name,
       menv: MonoEnv
   ): Seq[(Bind, IR.VTy)] =
-    monomap((dx, cx))(menv)
+    monomap((mod, dx, cx))(menv)

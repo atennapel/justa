@@ -2,7 +2,7 @@ import Common.*
 import Common.Icit.*
 import Core.*
 import Core.{Val1 as V1, Val0 as V0, Tm1 as T1, Tm0 as T0}
-import State.{GlobalEntry, MetaEntry}
+import State.MetaEntry
 
 import scala.annotation.tailrec
 
@@ -36,12 +36,6 @@ object Evaluation:
       case Env.Ext0(env, _)                 => var1(ix - 1)(using env)
       case Env.Ext1(env, _)                 => var1(ix - 1)(using env)
       case Env.Empty                        => impossible()
-
-  private def vglobal1(x: Name): Val1 =
-    State.getGlobal(x) match
-      case Some(GlobalEntry.Def1(_, _, _, v, _)) =>
-        V1.Unfold(UnfoldHead.Global(x), Spine.Empty, () => v)
-      case _ => impossible()
 
   private def vmeta(id: MetaId): V1 = State.getMeta(id) match
     case MetaEntry.Unsolved(_)      => V1.Flex(id, Spine.Empty)
@@ -101,7 +95,7 @@ object Evaluation:
   def eval0(t: T0)(using env: Env): V0 =
     t match
       case T0.Var(ix)          => var0(ix)
-      case T0.Global(x)        => V0.Global(x)
+      case T0.Global(m, x)     => V0.Global(m, x)
       case T0.IntLit(v)        => V0.IntLit(v)
       case T0.Let(x, ty, v, b) => V0.Let(x, eval1(ty), eval0(v), Clos0(b))
       case T0.LetRec(x, ty, v, b) =>
@@ -117,11 +111,12 @@ object Evaluation:
 
   def eval1(t: T1)(using env: Env): V1 =
     t match
-      case T1.Var(ix)          => var1(ix)
-      case T1.Global(x)        => vglobal1(x)
+      case T1.Var(ix) => var1(ix)
+      case T1.Global(m, x, v) =>
+        V1.Unfold(UnfoldHead.Global(m, x, v), Spine.Empty, () => v)
       case T1.Prim(p)          => V1.Prim(p)
-      case T1.TypeCon(x)       => V1.TypeCon(x)
-      case T1.Con(dx, cx)      => V1.Con(dx, cx)
+      case T1.TypeCon(m, x)    => V1.TypeCon(m, x)
+      case T1.Con(m, dx, cx)   => V1.Con(m, dx, cx)
       case T1.Let(x, ty, v, b) => eval1(b)(using Env.Ext1(env, eval1(v)))
       case T1.Pi(x, i, ty, b)  => V1.Pi(x, i, eval1(ty), Clos1(b))
       case T1.Lam(x, i, ty, b) => V1.Lam(x, i, eval1(ty), Clos1(b))
@@ -229,12 +224,13 @@ object Evaluation:
     force(v) match
       case V1.Rigid(hd, sp) =>
         hd match
-          case Head.Var(lvl)    => goSp(T1.Var(lvl.toIx), sp)
-          case Head.Prim(p)     => goSp(T1.Prim(p), sp)
-          case Head.TypeCon(x)  => goSp(T1.TypeCon(x), sp)
-          case Head.Con(dx, cx) => goSp(T1.Con(dx, cx), sp)
-      case V1.Flex(id, sp)                        => goSp(T1.Meta(id), sp)
-      case V1.Unfold(UnfoldHead.Global(x), sp, _) => goSp(T1.Global(x), sp)
+          case Head.Var(lvl)       => goSp(T1.Var(lvl.toIx), sp)
+          case Head.Prim(p)        => goSp(T1.Prim(p), sp)
+          case Head.TypeCon(m, x)  => goSp(T1.TypeCon(m, x), sp)
+          case Head.Con(m, dx, cx) => goSp(T1.Con(m, dx, cx), sp)
+      case V1.Flex(id, sp) => goSp(T1.Meta(id), sp)
+      case V1.Unfold(UnfoldHead.Global(m, x, v), sp, _) =>
+        goSp(T1.Global(m, x, v), sp)
       case V1.Pi(x, i, ty, b)   => T1.Pi(x, i, go1(ty), goClos(b))
       case V1.Lam(x, i, ty, b)  => T1.Lam(x, i, go1(ty), goClos(b))
       case V1.Fun(pty, cv, rty) => T1.Fun(go1(pty), go1(cv), go1(rty))
@@ -257,7 +253,7 @@ object Evaluation:
       case UnfoldOption.Unstage => forceUnstage0(v)
     force(v) match
       case V0.Var(x)           => T0.Var(x.toIx)
-      case V0.Global(x)        => T0.Global(x)
+      case V0.Global(m, x)     => T0.Global(m, x)
       case V0.IntLit(v)        => T0.IntLit(v)
       case V0.Let(x, ty, v, b) => T0.Let(x, go1(ty), go0(v), goClos(b))
       case V0.LetRec(x, ty, v, b) =>

@@ -4,13 +4,13 @@ object IR:
   enum VTy:
     case Bool
     case Int
-    case Data(name: Name, args: Seq[VTy])
+    case Data(mod: Name, name: Name, args: Seq[VTy])
 
     override def toString: String = this match
-      case Bool          => "Bool"
-      case Int           => "Int"
-      case Data(x, Nil)  => s"$x"
-      case Data(x, args) => s"($x ${args.mkString(" ")})"
+      case Bool             => "Bool"
+      case Int              => "Int"
+      case Data(m, x, Nil)  => s"$m.$x"
+      case Data(m, x, args) => s"($m.$x ${args.mkString(" ")})"
 
   final case class CTy(params: Seq[VTy], io: Boolean, ret: VTy):
     def head: VTy = params.head
@@ -27,6 +27,9 @@ object IR:
     def apply(param: VTy, ret: VTy): CTy = CTy(Seq(param), false, ret)
     def apply(param: VTy, ret: CTy): CTy =
       CTy(param +: ret.params, ret.io, ret.ret)
+
+  final case class Module(name: Name, defs: Defs):
+    override def toString: String = s"module $name\n$defs"
 
   final case class Defs(defs: Seq[Def]):
     override def toString: String = defs.mkString("\n")
@@ -58,7 +61,7 @@ object IR:
   type LocalName = Int
   enum Tm:
     case Local(ix: LocalName, ty: CTy)
-    case Global(name: Name, ty: CTy)
+    case Global(mod: Name, name: Name, ty: CTy)
     case Prim(prim: RuntimePrimitive)
     case BoolLit(value: Boolean)
     case IntLit(value: Int)
@@ -71,7 +74,7 @@ object IR:
 
     case If(rty: CTy, cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
-    case Con(dx: Name, cx: Name, ix: Int, ty: VTy, args: Seq[Tm])
+    case Con(mod: Name, dx: Name, cx: Name, ix: Int, ty: VTy, args: Seq[Tm])
     case Case(rty: CTy, dty: VTy, scrut: Tm, cases: Cases)
 
     case ReturnIO(ty: VTy, value: Tm)
@@ -79,7 +82,7 @@ object IR:
 
     override def toString: String = this match
       case Local(ix, _)               => s"'$ix"
-      case Global(x, _)               => s"$x"
+      case Global(m, x, _)            => s"$m.$x"
       case Prim(p)                    => s"$p"
       case BoolLit(v)                 => s"$v"
       case IntLit(v)                  => s"$v"
@@ -88,8 +91,8 @@ object IR:
       case Lam(x, _, ty, b)           => s"(\\('$x : $ty) => $b)"
       case App(fn, arg)               => s"($fn $arg)"
       case If(_, c, t, f)             => s"(if $c then $t else $f)"
-      case Con(_, cx, _, _, Nil)      => s"$cx"
-      case Con(_, cx, _, _, args)     => s"($cx ${args.mkString(" ")})"
+      case Con(m, _, cx, _, _, Nil)   => s"$m.$cx"
+      case Con(m, _, cx, _, _, args)  => s"($m.$cx ${args.mkString(" ")})"
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
       case ReturnIO(ty, v)            => s"(returnIO $v)"
@@ -98,7 +101,7 @@ object IR:
     def flattenApps: (Tm, Seq[Tm]) = this match
       case App(f, a) =>
         val (hd, args) = f.flattenApps
-        (hd, args ++ Seq(a))
+        (hd, args :+ a)
       case t => (t, Nil)
 
   object Tm:

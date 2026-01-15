@@ -185,7 +185,7 @@ object Parser:
     private def rassoc(op: String): Boolean = op.last == ':'
 
     // Language parsing
-    private def tryAtom(): Tm | Null =
+    private def tryAtomInner(): Tm | Null =
       val p = pos
       tryPrimitive() match
         case null =>
@@ -268,6 +268,24 @@ object Parser:
         i += 1
       }
       null
+
+    private def tryAtom(): Tm | Null =
+      tryAtomInner() match
+        case null => null
+        case tm =>
+          val projs = mutable.ArrayBuffer.empty[(PosInfo, ProjType)]
+          while trySymbol(PERIOD) do
+            val p = pos
+            val proj = tryNumber() match
+              case null => ProjType.Named(nameOrOp())
+              case n =>
+                n.toIntOption match
+                  case None    => err(s"invalid number for projection: $n")
+                  case Some(n) => ProjType.Indexed(n)
+            projs += ((p, proj))
+          projs.foldLeft(tm) { case (tm, (p, proj)) =>
+            Tm.Proj(p, tm, proj)
+          }
 
     private def atom(): Tm =
       tryAtom() match

@@ -13,7 +13,8 @@ https://github.com/AndrasKovacs/cctt
 - [x] IO
 - [x] Lambda match
 - [x] Operators
-- [ ] Modules
+- [x] Modules
+- [ ] Module ordering
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
@@ -21,3 +22,4 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Mutual recursion
 - [ ] Pattern matching
 - [ ] Instance search
+- [ ] Public/private

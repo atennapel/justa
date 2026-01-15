@@ -543,6 +543,25 @@ object Elaboration:
 
   private inline def inferPrimType(p: Primitive): VTy = primTypes(p)
 
+  private def inferGlobal(m: Option[Name], x: Name)(using ctx: Ctx): Infer =
+    State.getGlobal(m, x) match
+      case Left((m, x, State.GlobalLookupFailure.ModuleNotFound)) =>
+        err(s"undefined variable $m.$x: undefined module")
+      case Left((m, x, State.GlobalLookupFailure.GlobalNotFound)) =>
+        err(s"undefined variable $m.$x")
+      case Left(
+            (m, x, State.GlobalLookupFailure.GlobalIsNotAccessible)
+          ) =>
+        err(s"inaccessible variable $m.$x")
+      case Right((m, GlobalEntry.Def0(_, _, _, _, _, ty, cv))) =>
+        Infer0(T0.Global(m, x), ty, cv)
+      case Right((m, GlobalEntry.Def1(_, _, _, v, ty))) =>
+        Infer1(T1.Global(m, x, v), ty)
+      case Right((_, GlobalEntry.Data(_, _, _, tm, ty, _))) =>
+        Infer1(tm, ty)
+      case Right((_, GlobalEntry.Con(_, _, _, _, _, tm, _, ty))) =>
+        Infer1(tm, ty)
+
   private def infer(tm: S)(using ctx: Ctx): Infer =
     debug(s"infer $tm")
     enter(tm.pos):
@@ -556,17 +575,29 @@ object Elaboration:
               Infer0(T0.Var(x.toIx(using ctx.lvl)), ty, cv)
             case Some(NameInfo.Name1(x, ty)) =>
               Infer1(T1.Var(x.toIx(using ctx.lvl)), ty)
-            case None =>
-              State.getGlobal(x) match
-                case None => err(s"undefined variable $x")
-                case Some(GlobalEntry.Def0(_, _, _, _, _, ty, cv)) =>
-                  Infer0(T0.Global(x), ty, cv)
-                case Some(GlobalEntry.Def1(_, _, _, _, ty)) =>
-                  Infer1(T1.Global(x), ty)
-                case Some(GlobalEntry.Data(_, _, _, tm, ty, _)) =>
-                  Infer1(tm, ty)
-                case Some(GlobalEntry.Con(_, _, _, _, _, tm, _, ty)) =>
-                  Infer1(tm, ty)
+            case None => inferGlobal(None, x)
+
+        case proj @ S.Proj(_, _, _) =>
+          val (hd, tl) = proj.splitProjs
+          hd match
+            case S.Var(pos, x) =>
+              if ctx.lookup(x).isEmpty && State.getGlobal(None, x).isLeft then
+                def createMod(
+                    tl: Seq[(PosInfo, Surface.ProjType)]
+                ): Seq[Name] =
+                  tl match
+                    case Nil => Nil
+                    case (pos, Surface.ProjType.Indexed(_)) :: _ =>
+                      err("indexed projection for module is invalid")(using
+                        ctx.enter(pos)
+                      )
+                    case (pos, Surface.ProjType.Named(x)) :: tl =>
+                      x +: createMod(tl)
+                val xs = x +: createMod(tl)
+                val m = Name(xs.init.mkString("."))
+                inferGlobal(Some(m), xs.last)(using ctx.enter(tl.last._1))
+              else err(s"invalid projection")
+            case _ => err(s"invalid projection")
 
         case S.LetRec(_, x, mty, v, b) =>
           val (ety, cv2, vcv2) = (tyAnnot(mty, V.TypeC), T1.Comp, V.Comp)
@@ -707,29 +738,29 @@ object Elaboration:
     debug(
       s"checkCases ${ctx.pretty1(vscrutty)} { ${cs.map((_, cx, ps, b) => s"$cx ${ps.mkString(" ")} => $b").mkString(" | ")} } : ${ctx.pretty1(exty)}"
     )
-    val (dx, ps) = forceAll1(vscrutty) match
-      case V.TypeCon(dx, ps) => (dx, ps.map((t, _) => t))
+    val (m, dx, ps) = forceAll1(vscrutty) match
+      case V.TypeCon(m, dx, ps) => (m, dx, ps.map((t, _) => t))
       case _ =>
         err(s"expected datatype in match but got ${ctx.pretty1(vscrutty)}")
-    val (dps, cons) = State.getGlobal(dx) match
+    val (dps, cons) = State.getGlobal(m, dx) match
       case Some(GlobalEntry.Data(_, dps, cs, _, _, _)) => (dps, cs.toSet)
       case _                                           => impossible()
     val psenv = Env(ps)
-    inline def conTypes(cx: Name): Seq[VTy] =
-      State.getGlobal(cx) match
+    inline def conTypes(m: Name, cx: Name): Seq[VTy] =
+      State.getGlobal(m, cx) match
         case Some(GlobalEntry.Con(_, _, params, _, _, _, _, _)) =>
           params.map((_, ty) => eval1(ty)(using psenv))
         case _ => impossible()
-    inline def goBranch(cx: Name, ps: Seq[Bind], b: S)(using
+    inline def goBranch(m: Name, cx: Name, ps: Seq[Bind], b: S)(using
         ctx: Ctx
     ): (Seq[(Bind, Ty)], T0) =
       val (innerctx, nps) =
-        ps.zip(conTypes(cx)).foldLeft[(Ctx, Seq[(Bind, Ty)])]((ctx, Nil)) {
+        ps.zip(conTypes(m, cx)).foldLeft[(Ctx, Seq[(Bind, Ty)])]((ctx, Nil)) {
           case ((innerctx, nps), (x, ty)) =>
             val rty = ctx.readback1(ty)
             (
               innerctx.bind0(x, rty, ty, T1.Val, V.Val),
-              nps ++ Seq((x, rty))
+              nps :+ (x, rty)
             )
         }
       val nb = check0(b, exty, excv)(using innerctx)
@@ -759,7 +790,7 @@ object Elaboration:
                   err(s"constructor not part of datatype in match: $cx")
                 if seen.contains(cx) then
                   err(s"duplicate constructor in match: $cx")
-                val (eps, eb) = goBranch(cx, ps, b)
+                val (eps, eb) = goBranch(m, cx, ps, b)
                 val er = goCases(r, cons - cx, seen + cx)
                 Cases.Ext(cx, eps, eb, er)
     goCases(cs, cons, Set.empty)
@@ -778,7 +809,7 @@ object Elaboration:
     d match
       case Surface.Def.Def0(pos, x, mty, v) =>
         given ctx: Ctx = Ctx.empty(pos)
-        if State.getGlobal(x).isDefined then err(s"duplicate definition $x")
+        if State.currentModuleHasName(x) then err(s"duplicate definition $x")
         val (ev, ty, cv, vty, vcv) = mty match
           case None =>
             val (ev, vty, vcv) = infer0(v)
@@ -798,7 +829,7 @@ object Elaboration:
         )
       case Surface.Def.Def1(pos, x, mty, v) =>
         given ctx: Ctx = Ctx.empty(pos)
-        if State.getGlobal(x).isDefined then err(s"duplicate definition $x")
+        if State.currentModuleHasName(x) then err(s"duplicate definition $x")
         val (ev, ty, vv, vty) = mty match
           case None =>
             val (ev, vty) = infer1(v)
@@ -812,11 +843,11 @@ object Elaboration:
         State.addGlobal(GlobalEntry.Def1(x, ev, ty, vv, vty))
       case Surface.Def.Data(pos, x, ps, cs) =>
         given ctx: Ctx = Ctx.empty(pos)
-        if State.getGlobal(x).isDefined then err(s"duplicate definition $x")
+        if State.currentModuleHasName(x) then err(s"duplicate definition $x")
         val unitCons = cs.filter(c => c.params.isEmpty)
         val unitCon =
           if unitCons.size == 1 then Some(unitCons.head.name) else None
-        val ty = T1.TypeCon(x)
+        val ty = T1.TypeCon(State.currentModule, x)
         val vty = ps.foldRight(V.TypeV)((_, rt) => V.fun1(V.TypeV, rt))
         State.addGlobal(
           GlobalEntry.Data(x, ps, cs.map(_.name), ty, vty, unitCon)
@@ -826,7 +857,7 @@ object Elaboration:
         cs.zipWithIndex.foreach {
           case (Surface.Constructor(pos, cx, cps), ix) =>
             given conctx: Ctx = datactx.enter(pos)
-            if State.getGlobal(cx).isDefined then err(s"duplicate name $cx")
+            if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
             val tyapp = ps.indices.foldRight(ty)((i, ty) =>
               T1.App(ty, T1.Var(mkIx(i)), Expl)
             )
@@ -846,11 +877,25 @@ object Elaboration:
                 eps,
                 x,
                 ix,
-                T1.Con(x, cx),
+                T1.Con(State.currentModule, x, cx),
                 cty,
                 vcty
               )
             )
         }
 
-  def elaborate(d: Surface.Defs): Unit = d.toSeq.foreach(elaborate)
+  private def elaborate(mod: Surface.Module): Unit =
+    State.enterModule(mod.name)
+    mod.moduleAliases.foreach((m, r) => State.addModuleRenaming(m, r))
+    mod.imports.foreach { case (x, (p1, p2, m, r)) =>
+      val ctx = Ctx.empty(mod.pos)
+      if (!State.moduleExists(m))
+        err(s"undefined module $m in imports")(using ctx.enter(p1))
+      else if (!State.moduleHasName(m, x))
+        err(s"undefined name $m.$x in imports")(using ctx.enter(p2))
+      else State.addImport(m, x, r.getOrElse(x))
+    }
+    mod.defs.toSeq.foreach(elaborate)
+
+  def elaborate(mod: Seq[Surface.Module]): Unit =
+    mod.map(elaborate)

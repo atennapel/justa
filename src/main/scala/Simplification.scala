@@ -7,7 +7,13 @@ import Common.impossible
 
 // eta-expand, remove dead lets, inlining, constant folding, remove closures
 object Simplification:
-  def simplifyDefs(ds: Defs): Defs =
+  def simplifyModules(m: Seq[Module]): Seq[Module] =
+    m.map(simplifyModule)
+
+  private def simplifyModule(m: Module): Module =
+    Module(m.name, simplifyDefs(m.defs))
+
+  private def simplifyDefs(ds: Defs): Defs =
     Defs(ds.toSeq.map(simplifyDef))
 
   private type Scope = Set[LocalName]
@@ -28,7 +34,7 @@ object Simplification:
 
   private def go(t: Tm, args: Seq[Tm])(using scope: Scope, subst: Subst): Tm =
     t match
-      case Tm.Global(_, _) => args.foldLeft(t)(Tm.App.apply)
+      case Tm.Global(_, _, _) => args.foldLeft(t)(Tm.App.apply)
       case Tm.Prim(p) =>
         if args.size == 2 then
           foldConstants2(p, args(0), args(1)) match
@@ -40,8 +46,8 @@ object Simplification:
 
       case Tm.ReturnIO(ty, v) => Tm.ReturnIO(ty, go(v, Nil))
 
-      case Tm.Con(dx, cx, ix, dty, args) =>
-        Tm.Con(dx, cx, ix, dty, args.map(a => go(a, Nil)))
+      case Tm.Con(m, dx, cx, ix, dty, args) =>
+        Tm.Con(m, dx, cx, ix, dty, args.map(a => go(a, Nil)))
 
       case Tm.Local(x, ty) =>
         subst.get(x) match
@@ -131,7 +137,7 @@ object Simplification:
         else (x, go(b0, args)(using scope + x, subst - x))
         Tm.BindIO(y, -1, ty, v, b)
 
-      case Tm.Case(_, _, Tm.Con(_, cx, _, _, cargs), cs) =>
+      case Tm.Case(_, _, Tm.Con(_, _, cx, _, _, cargs), cs) =>
         @tailrec
         def lookup(
             cx: Name,
@@ -165,14 +171,14 @@ object Simplification:
                 val y = scope.size
                 goParamsRec(
                   rest,
-                  newps ++ Seq((y, ty, -1)),
+                  newps :+ (y, ty, -1),
                   scope + y,
                   subst + (x -> Tm.Local(y, CTy(ty)))
                 )
               else
                 goParamsRec(
                   rest,
-                  newps ++ Seq((x, ty, -1)),
+                  newps :+ (x, ty, -1),
                   scope + x,
                   subst - x
                 )
@@ -212,11 +218,11 @@ object Simplification:
 
   private def isSmall(t: Tm): Boolean = t match
     case Tm.Local(_, _)                  => true
-    case Tm.Global(_, _)                 => true
+    case Tm.Global(_, _, _)              => true
     case Tm.Prim(_)                      => true
     case Tm.BoolLit(_)                   => true
     case Tm.IntLit(_)                    => true
-    case Tm.Con(_, _, _, _, Nil)         => true
+    case Tm.Con(_, _, _, _, _, Nil)      => true
     case Tm.ReturnIO(_, v) if isSmall(v) => true
     case _                               => false
 
@@ -251,10 +257,10 @@ object Simplification:
 
   private def correctUsagesRec(t: Tm): (Tm, Usages) =
     t match
-      case Tm.Global(_, _) => (t, Map.empty)
-      case Tm.Prim(_)      => (t, Map.empty)
-      case Tm.BoolLit(_)   => (t, Map.empty)
-      case Tm.IntLit(_)    => (t, Map.empty)
+      case Tm.Global(_, _, _) => (t, Map.empty)
+      case Tm.Prim(_)         => (t, Map.empty)
+      case Tm.BoolLit(_)      => (t, Map.empty)
+      case Tm.IntLit(_)       => (t, Map.empty)
 
       case Tm.Local(x, _) => (t, Map(x -> 1))
 
@@ -275,14 +281,14 @@ object Simplification:
         val (t, ut) = correctUsagesRec(t0)
         val (f, uf) = correctUsagesRec(f0)
         (Tm.If(ty, c, t, f), mergeUsages(uc, mergeUsages(ut, uf)))
-      case Tm.Con(dx, cx, ix, dty, args) =>
+      case Tm.Con(m, dx, cx, ix, dty, args) =>
         val (cargs, usages) =
           args.foldLeft[(Seq[Tm], Usages)]((Nil, Map.empty)) {
             case ((cargs, usages), arg) =>
               val (a, ua) = correctUsagesRec(arg)
-              (cargs ++ Seq(a), mergeUsages(usages, ua))
+              (cargs :+ a, mergeUsages(usages, ua))
           }
-        (Tm.Con(dx, cx, ix, dty, cargs), usages)
+        (Tm.Con(m, dx, cx, ix, dty, cargs), usages)
 
       case Tm.Case(rt, dt, s, cs) =>
         def go(cs: Cases): (Cases, Usages) =
