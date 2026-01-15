@@ -22,11 +22,11 @@ import Debug.debug
 import scala.annotation.tailrec
 
 object Elaboration:
-  final class ElaborateError(val pos: PosInfo, msg: String)
+  final class ElaborateError(val pos: PosInfo, val module: Name, msg: String)
       extends Exception(msg)
 
   private inline def err(msg: String)(using ctx: Ctx): Nothing =
-    throw new ElaborateError(ctx.pos, msg)
+    throw new ElaborateError(ctx.pos, State.currentModule, msg)
 
   private enum Infer:
     case Infer0(tm: T0, ty: VTy, cv: VTy)

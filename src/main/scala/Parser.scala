@@ -561,12 +561,12 @@ object Parser:
 
     private def dataCon(): Constructor =
       val p = pos
-      val cx = name()
+      val cx = nameOrOp()
       val ps = list(dataParam()).toSeq.flatten
       Constructor(p, cx, ps)
 
     private def data(pos: PosInfo): Def =
-      val dx = name()
+      val dx = nameOrOp()
       val ps = list(tryName())
       val continue = if trySymbol(COLON_EQUALS) then { trySymbol(PIPE); true }
       else trySymbol(PIPE)
@@ -625,6 +625,7 @@ object Parser:
         val xr = if trySymbol(DOUBLE_ARROW) then name() else m
         moduleAliases += m -> xr
         deps += m
-        if trySymbol(L_PAREN) then imports().foreach(p => imps += x -> p)
+        if trySymbol(L_PAREN) then
+          imports().foreach((p1, p2, x, r) => imps += x -> (p1, p2, m, r))
       val ds = defs()
       Module(p, x, deps.toSet, imps.toMap, moduleAliases.toMap, ds)

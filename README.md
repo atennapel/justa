@@ -14,7 +14,6 @@ https://github.com/AndrasKovacs/cctt
 - [x] Lambda match
 - [x] Operators
 - [x] Modules
-- [ ] Module ordering
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
@@ -23,3 +22,5 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Pattern matching
 - [ ] Instance search
 - [ ] Public/private
+- [ ] Frozen metas
+- [ ] Operators in match
