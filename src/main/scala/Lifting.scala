@@ -10,7 +10,7 @@ import scala.collection.mutable
 object Lifting:
   // the passed definitions should be simplified!
   def liftDefs(ds: Defs): JVM.Defs =
-    JVM.Defs(ds.toList.flatMap(liftDef))
+    JVM.Defs(ds.toSeq.flatMap(liftDef))
 
   private final class Emit(
       name: Name,
@@ -21,7 +21,7 @@ object Lifting:
       defs += k(x)
       x
 
-    def toList: List[JVM.Def] = defs.toList
+    def toSeq: Seq[JVM.Def] = defs.toSeq
 
   private final class Supply(var id: LocalName):
     def next(): LocalName =
@@ -33,10 +33,10 @@ object Lifting:
   private enum RenEntry:
     case RenVar(name: LocalName)
     case JoinPoint(name: LocalName)
-    case LiftedFun(name: Name, extraArgs: List[(LocalName, CTy)])
+    case LiftedFun(name: Name, extraArgs: Seq[(LocalName, CTy)])
   import RenEntry.*
 
-  private def liftDef(d: Def): List[JVM.Def] =
+  private def liftDef(d: Def): Seq[JVM.Def] =
     debug(s"liftDef ${d.name}")
     newDefs.clear()
     val Def(name, ty, v) = d
@@ -51,7 +51,7 @@ object Lifting:
       else
         val ps = ty.params.zipWithIndex.map((ty, ix) => (ix, goVTy(ty)))
         JVM.Def.Function(name, ps, retty, value)
-    newDefs.toList ++ emit.toList ++ List(cdef)
+    newDefs.toSeq ++ emit.toSeq ++ Seq(cdef)
 
   private inline def renParams(ty: CTy, ren: Ren = Map.empty)(using
       supply: Supply
@@ -69,7 +69,7 @@ object Lifting:
   private def go(
       t: Tm,
       tail: Boolean,
-      toplevel: Option[List[(Int, CTy)]] = None
+      toplevel: Option[Seq[(Int, CTy)]] = None
   )(using
       ren: Ren,
       emit: Emit,
@@ -202,22 +202,22 @@ object Lifting:
             case Cases.Ext(cx, ps, b, r) =>
               @tailrec
               def goParamsRec(
-                  ps: List[(LocalName, VTy, Int)],
-                  newps: List[(LocalName, JVM.Ty, Int)],
+                  ps: Seq[(LocalName, VTy, Int)],
+                  newps: Seq[(LocalName, JVM.Ty, Int)],
                   ren: Ren
-              ): (List[(LocalName, JVM.Ty, Int)], Ren) =
+              ): (Seq[(LocalName, JVM.Ty, Int)], Ren) =
                 ps match
                   case Nil => (newps, ren)
                   case (x, ty, u) :: rest =>
                     val y = supply.next()
                     goParamsRec(
                       rest,
-                      newps ++ List((y, goVTy(ty), u)),
+                      newps ++ Seq((y, goVTy(ty), u)),
                       ren + (x -> RenVar(y))
                     )
               inline def goParams(
-                  ps: List[(LocalName, VTy, Int)]
-              )(using ren: Ren): (List[(LocalName, JVM.Ty, Int)], Ren) =
+                  ps: Seq[(LocalName, VTy, Int)]
+              )(using ren: Ren): (Seq[(LocalName, JVM.Ty, Int)], Ren) =
                 goParamsRec(ps, Nil, ren)
               val (newps, innerren) = goParams(ps)
               val newb = go(b, tail)(using innerren)
@@ -225,22 +225,22 @@ object Lifting:
         JVM.Tm.Case(goData(dty), go(s, false), goCases(cs))
 
   @tailrec
-  private def renLifted(ps: List[(Int, CTy)], ren: Ren = Map.empty)(using
+  private def renLifted(ps: Seq[(Int, CTy)], ren: Ren = Map.empty)(using
       supply: Supply
   ): Ren =
     ps match
       case Nil            => ren
       case (i, _) :: rest => renLifted(rest, ren + (i -> RenVar(supply.next())))
 
-  private def lamTypes(tm: Tm): List[(Int, CTy)] =
+  private def lamTypes(tm: Tm): Seq[(Int, CTy)] =
     tm match
-      case Tm.Lam(x, _, ty, b) => (x, CTy(ty)) :: lamTypes(b)
+      case Tm.Lam(x, _, ty, b) => (x, CTy(ty)) +: lamTypes(b)
       case _                   => Nil
 
   private def renameLamTypes(
-      ps: List[(Int, CTy)],
+      ps: Seq[(Int, CTy)],
       ren: Ren
-  ): List[(Int, JVM.Ty)] =
+  ): Seq[(Int, JVM.Ty)] =
     ps.map { (x, ty) =>
       ren(x) match
         case RenVar(y) => (y, goCTy(ty))
@@ -248,8 +248,8 @@ object Lifting:
     }
 
   private def renToplevel(
-      lams: List[(Int, CTy)],
-      top: List[(Int, CTy)],
+      lams: Seq[(Int, CTy)],
+      top: Seq[(Int, CTy)],
       ren: Ren
   ): Ren =
     (lams, top) match
@@ -258,7 +258,7 @@ object Lifting:
       case _ => impossible()
 
   private def shouldNotBeLifted(
-      toplevel: Option[List[(Int, CTy)]],
+      toplevel: Option[Seq[(Int, CTy)]],
       x: LocalName,
       body: Tm
   ): Boolean =
@@ -395,11 +395,11 @@ object Lifting:
         isUsedInTailOnly(x, false, s) && go(cs)
 
   // monomorphization
-  private type MonoKey = (Name, List[IR.VTy])
+  private type MonoKey = (Name, Seq[IR.VTy])
   private val monoStore = mutable.Map.empty[MonoKey, Name]
   private val newDefs = mutable.ArrayBuffer.empty[JVM.Def]
 
-  private def monomorphize(dx: Name, ps: List[IR.VTy]): JVM.Ty =
+  private def monomorphize(dx: Name, ps: Seq[IR.VTy]): JVM.Ty =
     val xs = State.getGlobal(dx) match
       case Some(GlobalEntry.Data(_, _, xs, _, _, _)) => xs
       case _                                         => impossible()
@@ -417,7 +417,7 @@ object Lifting:
       newDefs += JVM.Def.Data(nx, ecs)
     JVM.Ty.Data(nx)
 
-  private def tryMonomorphize(name: Name, ps: List[IR.VTy]): (Name, Boolean) =
+  private def tryMonomorphize(name: Name, ps: Seq[IR.VTy]): (Name, Boolean) =
     val k = (name, ps)
     monoStore.get(k) match
       case Some(x) => (x, true)
@@ -426,7 +426,7 @@ object Lifting:
         monoStore += k -> x
         (x, false)
 
-  private def createName(name: Name, ps: List[IR.VTy]): Name =
+  private def createName(name: Name, ps: Seq[IR.VTy]): Name =
     def paramStr(p: IR.VTy): String = p match
       case VTy.Bool          => "Bool"
       case VTy.Int           => "Int"

@@ -29,6 +29,9 @@ object Lexer:
     case UNDERSCORE
     case COMMA
     case PIPE
+    case CARET
+    case GRAVE
+    case DOLLAR
 
     def pretty: String =
       this match
@@ -46,6 +49,9 @@ object Lexer:
         case UNDERSCORE   => "_"
         case COMMA        => ","
         case PIPE         => "|"
+        case CARET        => "^"
+        case GRAVE        => "`"
+        case DOLLAR       => "$"
 
   object Symbol:
     def parseImmediate(symbol: String): Symbol | Null =
@@ -71,6 +77,9 @@ object Lexer:
         case "_"  => UNDERSCORE
         case ","  => COMMA
         case "|"  => PIPE
+        case "^"  => CARET
+        case "`"  => GRAVE
+        case "$"  => DOLLAR
         case _    => null
 
   enum Keyword:
@@ -80,26 +89,106 @@ object Lexer:
     case DATA
     case LET
     case REC
+    case IF
+    case THEN
+    case ELSE
+    case MATCH
+
+    case META
+    case TYPE
+    case CV
+    case VAL
+    case COMP
+    case BOOL
+    case TRUE
+    case FALSE
+    case INT
+    case LT
+    case ADD
+    case SUB
+    case MUL
+    case IO
+    case RETURNIO
+    case BINDIO
 
     def pretty: String =
       this match
-        case MODULE => "module"
-        case IMPORT => "import"
-        case DEF    => "def"
-        case DATA   => "data"
-        case LET    => "let"
-        case REC    => "rec"
+        case MODULE   => "module"
+        case IMPORT   => "import"
+        case DEF      => "def"
+        case DATA     => "data"
+        case LET      => "let"
+        case REC      => "rec"
+        case IF       => "if"
+        case THEN     => "then"
+        case ELSE     => "else"
+        case MATCH    => "match"
+        case META     => "meta"
+        case TYPE     => "type"
+        case CV       => "cv"
+        case VAL      => "val"
+        case COMP     => "comp"
+        case BOOL     => "Bool"
+        case TRUE     => "True"
+        case FALSE    => "False"
+        case INT      => "Int"
+        case LT       => "lt"
+        case ADD      => "add"
+        case SUB      => "sub"
+        case MUL      => "mul"
+        case IO       => "IO"
+        case RETURNIO => "returnIO"
+        case BINDIO   => "bindIO"
 
   object Keyword:
+    val Primitives: Array[Keyword] = Array(
+      META,
+      TYPE,
+      CV,
+      VAL,
+      COMP,
+      BOOL,
+      TRUE,
+      FALSE,
+      INT,
+      LT,
+      ADD,
+      SUB,
+      MUL,
+      IO,
+      RETURNIO,
+      BINDIO
+    )
+
     def parse(keyword: String): Keyword | Null =
       keyword match
-        case "module" => MODULE
-        case "import" => IMPORT
-        case "def"    => DEF
-        case "data"   => DATA
-        case "let"    => LET
-        case "rec"    => REC
-        case _        => null
+        case "module"   => MODULE
+        case "import"   => IMPORT
+        case "def"      => DEF
+        case "data"     => DATA
+        case "let"      => LET
+        case "rec"      => REC
+        case "if"       => IF
+        case "then"     => THEN
+        case "else"     => ELSE
+        case "match"    => MATCH
+        case "meta"     => META
+        case "type"     => TYPE
+        case "cv"       => CV
+        case "val"      => VAL
+        case "comp"     => COMP
+        case "Bool"     => BOOL
+        case "True"     => TRUE
+        case "False"    => FALSE
+        case "Int"      => INT
+        case "lt"       => LT
+        case "add"      => ADD
+        case "sub"      => SUB
+        case "mul"      => MUL
+        case "IO"       => IO
+        case "returnIO" => RETURNIO
+        case "bindIO"   => BINDIO
+        case _          => null
 
   enum Token:
     case EOF(_pos: PosInfo)
@@ -241,9 +330,11 @@ object Lexer:
               if acc.nonEmpty then
                 val id = acc.result()
                 acc.clear()
-                Keyword.parse(id) match
-                  case null => add(IDENT(id, pos))
-                  case kw   => add(KEYWORD(kw, pos))
+                if id == "_" then add(SYMBOL(Symbol.UNDERSCORE, pos))
+                else
+                  Keyword.parse(id) match
+                    case null => add(IDENT(id, pos))
+                    case kw   => add(KEYWORD(kw, pos))
               to(LexState.Start)
               tokenize()
         case LexState.Op =>

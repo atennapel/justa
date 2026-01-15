@@ -8,56 +8,56 @@ import scala.annotation.tailrec
 
 // TODO: ensure this produces syntax that can be parsed
 object Pretty:
-  private def prettyApp0(tm: Tm0)(using ns: List[Bind]): String = tm match
+  private def prettyApp0(tm: Tm0)(using ns: Seq[Bind]): String = tm match
     case T0.App(f, a) => s"${prettyApp0(f)} ${prettyParen0(a)}"
     case f            => prettyParen0(f)
 
-  private def prettyApp1(tm: Tm1)(using ns: List[Bind]): String = tm match
+  private def prettyApp1(tm: Tm1)(using ns: Seq[Bind]): String = tm match
     case T1.App(f, a, Expl) => s"${prettyApp1(f)} ${prettyParen1(a)}"
     case T1.App(f, a, Impl) => s"${prettyApp1(f)} {${pretty1(a)}}"
     case T1.MetaApp1(f, a)  => s"${prettyApp1(f)} ${prettyParen1(a)}"
     case T1.MetaApp0(f, a)  => s"${prettyApp1(f)} ${prettyParen0(a)}"
     case f                  => prettyParen1(f)
 
-  private def prettyPi(tm: Ty)(using ns: List[Bind]): String = tm match
+  private def prettyPi(tm: Ty)(using ns: Seq[Bind]): String = tm match
     case T1.Fun(a, _, b) => s"${prettyParen1(a, true)} -> ${prettyPi(b)}"
     case T1.Pi(DontBind, Expl, t, b) =>
-      s"${prettyParen1(t, true)} -> ${prettyPi(b)(using DontBind :: ns)}"
+      s"${prettyParen1(t, true)} -> ${prettyPi(b)(using DontBind +: ns)}"
     case T1.Pi(bx @ DoBind(x), Expl, t, b) =>
-      s"($x : ${pretty1(t)}) -> ${prettyPi(b)(using bx :: ns)}"
+      s"($x : ${pretty1(t)}) -> ${prettyPi(b)(using bx +: ns)}"
     case T1.Pi(x, i, t, b) =>
-      s"${i.wrap(s"$x : ${pretty1(t)}")} -> ${prettyPi(b)(using x :: ns)}"
+      s"${i.wrap(s"$x : ${pretty1(t)}")} -> ${prettyPi(b)(using x +: ns)}"
     case T1.MetaPi1(t, b) =>
-      s"${prettyParen1(t, true)} 1-> ${prettyPi(b)(using DontBind :: ns)}"
+      s"${prettyParen1(t, true)} 1-> ${prettyPi(b)(using DontBind +: ns)}"
     case T1.MetaPi0(t, b) =>
-      s"${prettyParen1(t, true)} 0-> ${prettyPi(b)(using DontBind :: ns)}"
+      s"${prettyParen1(t, true)} 0-> ${prettyPi(b)(using DontBind +: ns)}"
     case rest => pretty1(rest)
 
-  private def prettyLam0(tm: Tm0)(using ns: List[Bind]): String =
-    def go(tm: Tm0, first: Boolean = false)(using ns: List[Bind]): String =
+  private def prettyLam0(tm: Tm0)(using ns: Seq[Bind]): String =
+    def go(tm: Tm0, first: Boolean = false)(using ns: Seq[Bind]): String =
       tm match
         case T0.Lam(x, _, b) =>
-          s"${if first then "" else " "}$x${go(b)(using x :: ns)}"
+          s"${if first then "" else " "}$x${go(b)(using x +: ns)}"
         case rest => s" => ${pretty0(rest)}"
     s"\\${go(tm, true)}"
 
-  private def prettyLam1(tm: Tm1)(using ns: List[Bind]): String =
-    def go(tm: Tm1, first: Boolean = false)(using ns: List[Bind]): String =
+  private def prettyLam1(tm: Tm1)(using ns: Seq[Bind]): String =
+    def go(tm: Tm1, first: Boolean = false)(using ns: Seq[Bind]): String =
       tm match
         case T1.Lam(x, Expl, _, b) =>
-          s"${if first then "" else " "}$x${go(b)(using x :: ns)}"
+          s"${if first then "" else " "}$x${go(b)(using x +: ns)}"
         case T1.Lam(x, Impl, _, b) =>
-          s"${if first then "" else " "}{$x}${go(b)(using x :: ns)}"
+          s"${if first then "" else " "}{$x}${go(b)(using x +: ns)}"
         case T1.MetaLam1(b) =>
-          s"${if first then "" else " "}1${go(b)(using DontBind :: ns)}"
+          s"${if first then "" else " "}1${go(b)(using DontBind +: ns)}"
         case T1.MetaLam0(b) =>
-          s"${if first then "" else " "}0${go(b)(using DontBind :: ns)}"
+          s"${if first then "" else " "}0${go(b)(using DontBind +: ns)}"
         case rest => s" => ${pretty1(rest)}"
     s"\\${go(tm, true)}"
 
   @tailrec
   def prettyParen0(tm: Tm0, app: Boolean = false)(using
-      ns: List[Bind]
+      ns: Seq[Bind]
   ): String =
     tm match
       case T0.Var(_)           => pretty0(tm)
@@ -71,7 +71,7 @@ object Pretty:
 
   @tailrec
   def prettyParen1(tm: Tm1, app: Boolean = false)(using
-      ns: List[Bind]
+      ns: Seq[Bind]
   ): String =
     tm match
       case T1.Var(_)                => pretty1(tm)
@@ -91,16 +91,16 @@ object Pretty:
       case _                        => s"(${pretty1(tm)})"
 
   private inline def prettyLift0(x: Bind, tm: Tm0)(using
-      ns: List[Bind]
+      ns: Seq[Bind]
   ): String =
-    pretty0(tm)(using x :: ns)
+    pretty0(tm)(using x +: ns)
 
   private inline def prettyLift1(x: Bind, tm: Tm1)(using
-      ns: List[Bind]
+      ns: Seq[Bind]
   ): String =
-    pretty1(tm)(using x :: ns)
+    pretty1(tm)(using x +: ns)
 
-  def pretty0(tm: Tm0)(using ns: List[Bind]): String = tm match
+  def pretty0(tm: Tm0)(using ns: Seq[Bind]): String = tm match
     case T0.Var(ix) =>
       ns(ix.expose) match
         case DontBind => s"_@${ns.size - ix.expose - 1}"
@@ -140,7 +140,7 @@ object Pretty:
           case Cases.Empty        => s""
       s"match ${pretty0(s)} { ${go(cs)} }"
 
-  def pretty1(tm: Tm1)(using ns: List[Bind]): String = tm match
+  def pretty1(tm: Tm1)(using ns: Seq[Bind]): String = tm match
     case T1.Var(ix) =>
       ns(ix.expose) match
         case DontBind => s"_@${ns.size - ix.expose - 1}"

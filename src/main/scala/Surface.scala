@@ -20,7 +20,7 @@ object Surface:
   final case class Constructor(
       pos: PosInfo,
       name: Name,
-      params: List[(Bind, Ty)]
+      params: Seq[(Bind, Ty)]
   ):
     override def toString: String =
       params match
@@ -37,8 +37,8 @@ object Surface:
     case Data(
         pos: PosInfo,
         name: Name,
-        params: List[Name],
-        cons: List[Constructor]
+        params: Seq[Name],
+        cons: Seq[Constructor]
     )
 
     override def toString: String = this match
@@ -78,7 +78,7 @@ object Surface:
     case Match(
         _pos: PosInfo,
         scrut: Option[Tm],
-        cases: List[(PosInfo, Bind, List[Bind], Tm)]
+        cases: Seq[(PosInfo, Bind, Seq[Bind], Tm)]
     )
 
     case Hole(_pos: PosInfo, name: Option[Name])
@@ -130,7 +130,7 @@ object Surface:
       case Match(_, None, Nil)    => s"(match {})"
       case Match(_, Some(s), Nil) => s"(match $s {})"
       case Match(_, s, cs) =>
-        inline def show(c: (PosInfo, Bind, List[Bind], Tm)) =
+        inline def show(c: (PosInfo, Bind, Seq[Bind], Tm)) =
           c._3 match
             case Nil => s"${c._2} => ${c._4}"
             case ps  => s"${c._2} ${ps.mkString(" ")} => ${c._4}"

@@ -45,7 +45,7 @@ object Elaboration:
 
   // metas
   private def closeTy(ty: Ty)(using ctx: Ctx): Ty =
-    def go(ls: Locals, xs: List[Bind], ty: Ty): Ty = (ls, xs) match
+    def go(ls: Locals, xs: Seq[Bind], ty: Ty): Ty = (ls, xs) match
       case (Locals.Empty, Nil) => ty
       case (Locals.Def(ls, a, v), Bind.DoBind(x) :: xs) =>
         go(ls, xs, T1.Let(x, a, v, ty))
@@ -233,12 +233,12 @@ object Elaboration:
 
   private def ensureFunN(n: Int, a: VTy, acv: VTy)(using
       ctx: Ctx
-  ): (List[VTy], VTy, VTy) =
+  ): (Seq[VTy], VTy, VTy) =
     if n == 0 then (Nil, acv, a)
     else
       val (t1, cv, t2) = ensureFun(a, acv)
       val (ps, rcv, rt) = ensureFunN(n - 1, t2, cv)
-      (t1 :: ps, rcv, rt)
+      (t1 +: ps, rcv, rt)
 
   private def ensureLift(t: VTy)(using ctx: Ctx): (VTy, VTy) =
     forceAll1(t) match
@@ -682,7 +682,7 @@ object Elaboration:
 
   private def checkMatch(
       scrut: S,
-      cs: List[(PosInfo, Bind, List[Bind], S)],
+      cs: Seq[(PosInfo, Bind, Seq[Bind], S)],
       exty: VTy,
       excv: VTy
   )(using
@@ -698,7 +698,7 @@ object Elaboration:
 
   private def checkCases(
       vscrutty: VTy,
-      cs: List[(PosInfo, Bind, List[Bind], S)],
+      cs: Seq[(PosInfo, Bind, Seq[Bind], S)],
       exty: VTy,
       excv: VTy
   )(using
@@ -715,27 +715,27 @@ object Elaboration:
       case Some(GlobalEntry.Data(_, dps, cs, _, _, _)) => (dps, cs.toSet)
       case _                                           => impossible()
     val psenv = Env(ps)
-    inline def conTypes(cx: Name): List[VTy] =
+    inline def conTypes(cx: Name): Seq[VTy] =
       State.getGlobal(cx) match
         case Some(GlobalEntry.Con(_, _, params, _, _, _, _, _)) =>
           params.map((_, ty) => eval1(ty)(using psenv))
         case _ => impossible()
-    inline def goBranch(cx: Name, ps: List[Bind], b: S)(using
+    inline def goBranch(cx: Name, ps: Seq[Bind], b: S)(using
         ctx: Ctx
-    ): (List[(Bind, Ty)], T0) =
+    ): (Seq[(Bind, Ty)], T0) =
       val (innerctx, nps) =
-        ps.zip(conTypes(cx)).foldLeft[(Ctx, List[(Bind, Ty)])]((ctx, Nil)) {
+        ps.zip(conTypes(cx)).foldLeft[(Ctx, Seq[(Bind, Ty)])]((ctx, Nil)) {
           case ((innerctx, nps), (x, ty)) =>
             val rty = ctx.readback1(ty)
             (
               innerctx.bind0(x, rty, ty, T1.Val, V.Val),
-              nps ++ List((x, rty))
+              nps ++ Seq((x, rty))
             )
         }
       val nb = check0(b, exty, excv)(using innerctx)
       (nps, nb)
     def goCases(
-        cs: List[(PosInfo, Bind, List[Bind], S)],
+        cs: Seq[(PosInfo, Bind, Seq[Bind], S)],
         cons: Set[Name],
         seen: Set[Name]
     ): Cases =

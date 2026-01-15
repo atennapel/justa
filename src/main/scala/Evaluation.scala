@@ -283,7 +283,7 @@ object Evaluation:
           goCases(cs.cases)(using cs.env)
         )
 
-  def addParams(ps: List[(Bind, Ty)])(using lvl: Lvl, env: Env): (Lvl, Env) =
+  def addParams(ps: Seq[(Bind, Ty)])(using lvl: Lvl, env: Env): (Lvl, Env) =
     def go(n: Int, lvl: Lvl, env: Env): (Lvl, Env) =
       n match
         case 0 => (lvl, env)

@@ -67,13 +67,13 @@ object Unification:
       case V.Var(x) =>
         val (dom, domvars, sub, pr, isLinear) = data
         if domvars.contains(x) then
-          (dom + 1, domvars, sub - x.expose, PruneEntry.Skip :: pr, false)
+          (dom + 1, domvars, sub - x.expose, PruneEntry.Skip +: pr, false)
         else
           (
             dom + 1,
             domvars + x,
             sub + (x.expose -> PS1(rhs)),
-            PruneEntry.Bind1(i) :: pr,
+            PruneEntry.Bind1(i) +: pr,
             isLinear
           )
       case V.Quote(v) => invert0(v, vsplice(rhs), i, data)
@@ -84,13 +84,13 @@ object Unification:
       case V0.Var(x) =>
         val (dom, domvars, sub, pr, isLinear) = data
         if domvars.contains(x) then
-          (dom + 1, domvars, sub - x.expose, PruneEntry.Skip :: pr, false)
+          (dom + 1, domvars, sub - x.expose, PruneEntry.Skip +: pr, false)
         else
           (
             dom + 1,
             domvars + x,
             sub + (x.expose -> PS0(rhs)),
-            PruneEntry.Bind0 :: pr,
+            PruneEntry.Bind0 +: pr,
             isLinear
           )
       case V0.Splice(v) => invert1(v, vquote(rhs), i, data)
@@ -197,24 +197,24 @@ object Unification:
     debug(
       s"pruneVFlex ${readback1(V.Flex(m, sp))(using psub.cod, UnfoldOption.None)}"
     )
-    def go(sp: Spine): (List[Option[PruneTm]], SpinePruneStatus) =
+    def go(sp: Spine): (Seq[Option[PruneTm]], SpinePruneStatus) =
       inline def go1(
           sp: Spine,
           v: V,
           inline ptm: T1 => PruneTm
-      ): (List[Option[PruneTm]], SpinePruneStatus) =
+      ): (Seq[Option[PruneTm]], SpinePruneStatus) =
         val (sp2, status) = go(sp)
         forceAll1(v) match
           case V.Var(x) =>
             (psub.sub.get(x.expose), status) match
-              case (Some(PS1(_)), _) => (Some(ptm(psubst1(v))) :: sp2, status)
+              case (Some(PS1(_)), _) => (Some(ptm(psubst1(v))) +: sp2, status)
               case (Some(PS0(v)), _) => impossible()
               case (None, OKNonRenaming) => err("failed to prune")
-              case _                     => (None :: sp2, NeedsPruning)
+              case _                     => (None +: sp2, NeedsPruning)
           case t =>
             status match
               case NeedsPruning => err("failed to prune")
-              case _            => (Some(ptm(psubst1(t))) :: sp2, OKNonRenaming)
+              case _            => (Some(ptm(psubst1(t))) +: sp2, OKNonRenaming)
       sp match
         case Spine.Empty           => (Nil, OKRenaming)
         case Spine.App(sp, v, i)   => go1(sp, v, t => Prune1(t, i))
@@ -226,14 +226,14 @@ object Unification:
               (psub.sub.get(x.expose), status) match
                 case (Some(PS1(_)), _) => impossible()
                 case (Some(PS0(v)), _) =>
-                  (Some(PruneMeta0(psubst0(v))) :: sp2, status)
+                  (Some(PruneMeta0(psubst0(v))) +: sp2, status)
                 case (None, OKNonRenaming) =>
                   err("failed to prune")
-                case _ => (None :: sp2, NeedsPruning)
+                case _ => (None +: sp2, NeedsPruning)
             case t =>
               status match
                 case NeedsPruning => err("failed to prune")
-                case _ => (Some(PruneMeta0(psubst0(t))) :: sp2, OKNonRenaming)
+                case _ => (Some(PruneMeta0(psubst0(t))) +: sp2, OKNonRenaming)
     val (sp2, status) = go(sp)
     val m2 = status match
       case OKRenaming    => m
@@ -275,7 +275,7 @@ object Unification:
       case V0.Splice(v)           => go1(v).splice
       case V0.Case(rty, dty, s, cs) =>
         def addParams(
-            ps: List[(Bind, Ty)]
+            ps: Seq[(Bind, Ty)]
         )(using psub: PSub, env: Env): (PSub, Env) =
           def go(n: Int, psub: PSub, env: Env): (PSub, Env) =
             n match
@@ -427,7 +427,7 @@ object Unification:
         (forceAll1(t1), forceAll1(t2)) match
           case (V.Var(x1), V.Var(x2)) =>
             go(sp1, sp2).map(
-              (if x1 == x2 then PruneEntry.Bind1(i) else PruneEntry.Skip) :: _
+              (if x1 == x2 then PruneEntry.Bind1(i) else PruneEntry.Skip) +: _
             )
           case _ => None
       (sp1, sp2) match
@@ -442,7 +442,7 @@ object Unification:
           (forceAll0(t1), forceAll0(t2)) match
             case (V0.Var(x1), V0.Var(x2)) =>
               go(sp1, sp2).map(
-                (if x1 == x2 then PruneEntry.Bind0 else PruneEntry.Skip) :: _
+                (if x1 == x2 then PruneEntry.Bind0 else PruneEntry.Skip) +: _
               )
             case _ => None
         case _ => impossible()

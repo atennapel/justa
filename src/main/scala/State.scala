@@ -37,16 +37,16 @@ object State:
     val u = getMetaUnsolved(id)
     metas(id.expose) = MetaEntry.Solved(v, u.ty)
 
-  def getMetas(): List[(MetaId, VTy, Option[Val1])] =
+  def getMetas(): Seq[(MetaId, VTy, Option[Val1])] =
     metas.zipWithIndex.collect {
       case (MetaEntry.Solved(v, ty), ix) => (metaId(ix), ty, Some(v))
       case (MetaEntry.Unsolved(ty), ix)  => (metaId(ix), ty, None)
-    }.toList
+    }.toSeq
 
-  def unsolvedMetas(): List[(MetaId, VTy)] =
+  def unsolvedMetas(): Seq[(MetaId, VTy)] =
     metas.zipWithIndex.collect { case (MetaEntry.Unsolved(ty), ix) =>
       (metaId(ix), ty)
-    }.toList
+    }.toSeq
 
   def isMetaUnsolved(id: MetaId): Boolean = getMeta(id) match
     case MetaEntry.Unsolved(ty)      => true
@@ -77,16 +77,16 @@ object State:
     )
     case Data(
         x: Name,
-        params: List[Name],
-        cons: List[Name],
+        params: Seq[Name],
+        cons: Seq[Name],
         tm: Tm1,
         ty: Val1,
         unitCon: Option[Name]
     )
     case Con(
         x: Name,
-        typarams: List[Name],
-        params: List[(Bind, Ty)],
+        typarams: Seq[Name],
+        params: Seq[(Bind, Ty)],
         dx: Name,
         ix: Int,
         tm: Tm1,
@@ -105,7 +105,7 @@ object State:
   def getGlobal(x: Name): Option[GlobalEntry] =
     globals.findLast(e => e.name == x)
 
-  def allGlobals: List[GlobalEntry] = globals.toList
+  def allGlobals: Seq[GlobalEntry] = globals.toSeq
 
   def conIndex(dx: Name, cx: Name): Int =
     getGlobal(dx) match
@@ -115,15 +115,15 @@ object State:
   // monomorphization
   type MonoEnv = Map[Lvl, IR.VTy]
   private val monomap
-      : mutable.Map[(Name, Name), MonoEnv => List[(Bind, IR.VTy)]] =
+      : mutable.Map[(Name, Name), MonoEnv => Seq[(Bind, IR.VTy)]] =
     mutable.Map.empty
 
-  def setMono(dx: Name, cx: Name)(k: MonoEnv => List[(Bind, IR.VTy)]): Unit =
+  def setMono(dx: Name, cx: Name)(k: MonoEnv => Seq[(Bind, IR.VTy)]): Unit =
     monomap += ((dx, cx) -> k)
 
   def getMonoConParams(
       dx: Name,
       cx: Name,
       menv: MonoEnv
-  ): List[(Bind, IR.VTy)] =
+  ): Seq[(Bind, IR.VTy)] =
     monomap((dx, cx))(menv)

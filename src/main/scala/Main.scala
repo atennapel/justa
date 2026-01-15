@@ -13,7 +13,7 @@ object Main:
       source.mkString
     }.get
     try
-      val sdefs = Parser2.parseModule("test", text).get.defs
+      val sdefs = Parser.parseModule("test", text).get.defs
       println(sdefs)
       println()
       Util.time("elaboration") {
@@ -58,10 +58,6 @@ object Main:
       println(jds)
     catch
       case err: Lexer.LexerError =>
-        println(err.toString)
-        showPos(err.pos, filename)
-        if isDebug then err.printStackTrace()
-      case err: Parser2.ParseError =>
         println(err.toString)
         showPos(err.pos, filename)
         if isDebug then err.printStackTrace()

@@ -9,7 +9,7 @@ final case class Ctx(
     env: Env,
     locals: Locals,
     pruning: Pruning,
-    binds: List[Bind],
+    binds: Seq[Bind],
     names: NameMap,
     pos: PosInfo
 ):
@@ -43,8 +43,8 @@ final case class Ctx(
       lvl + 1,
       Env.Ext1(env, Val1.Var(lvl)),
       Locals.Bind1(locals, ty),
-      PruneEntry.Bind1(Expl) :: pruning,
-      x :: binds,
+      PruneEntry.Bind1(Expl) +: pruning,
+      x +: binds,
       addName(x, Name1(lvl, vty)),
       pos
     )
@@ -54,8 +54,8 @@ final case class Ctx(
       lvl + 1,
       Env.Ext1(env, Val1.Var(lvl)),
       Locals.Bind1(locals, ty),
-      PruneEntry.Bind1(Expl) :: pruning,
-      x :: binds,
+      PruneEntry.Bind1(Expl) +: pruning,
+      x +: binds,
       names,
       pos
     )
@@ -65,8 +65,8 @@ final case class Ctx(
       lvl + 1,
       Env.Ext1(env, vv),
       Locals.Def(locals, ty, v),
-      PruneEntry.Skip :: pruning,
-      Bind.DoBind(x) :: binds,
+      PruneEntry.Skip +: pruning,
+      Bind.DoBind(x) +: binds,
       names + (x -> Name1(lvl, vty)),
       pos
     )
@@ -76,8 +76,8 @@ final case class Ctx(
       lvl + 1,
       Env.Ext1(env, vv),
       Locals.Def(locals, ty, v),
-      PruneEntry.Skip :: pruning,
-      Bind.DoBind(x) :: binds,
+      PruneEntry.Skip +: pruning,
+      Bind.DoBind(x) +: binds,
       names,
       pos
     )
@@ -87,8 +87,8 @@ final case class Ctx(
       lvl + 1,
       Env.Ext0(env, Val0.Var(lvl)),
       Locals.Bind0(locals, ty, cv),
-      PruneEntry.Bind0 :: pruning,
-      x :: binds,
+      PruneEntry.Bind0 +: pruning,
+      x +: binds,
       addName(x, Name0(lvl, vty, vcv)),
       pos
     )
@@ -98,8 +98,8 @@ final case class Ctx(
       lvl + 1,
       Env.Ext0(env, Val0.Var(lvl)),
       Locals.Bind0(locals, ty, cv),
-      PruneEntry.Bind0 :: pruning,
-      x :: binds,
+      PruneEntry.Bind0 +: pruning,
+      x +: binds,
       names,
       pos
     )

@@ -1,5 +1,5 @@
 object Util:
-  private inline val EnableTiming = false
+  private inline val EnableTiming = true
 
   inline def time[A](label: String)(inline action: A): A =
     inline if EnableTiming then

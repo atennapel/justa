@@ -11,15 +11,15 @@ object JVM:
       case Int     => "Int"
       case Data(x) => s"$x"
 
-  final case class Defs(defs: List[Def]):
+  final case class Defs(defs: Seq[Def]):
     override def toString: String = defs.mkString("\n")
-    def toList: List[Def] = defs
+    def toSeq: Seq[Def] = defs
 
   type LocalName = Int
 
   final case class Constructor(
       name: Name,
-      params: List[(Option[Name], Ty)]
+      params: Seq[(Option[Name], Ty)]
   ):
     override def toString: String = params match
       case Nil => s"$name"
@@ -33,11 +33,11 @@ object JVM:
     case Value(name: Name, ty: Ty, value: Tm)
     case Function(
         name: Name,
-        params: List[(LocalName, Ty)],
+        params: Seq[(LocalName, Ty)],
         retty: Ty,
         body: Tm
     )
-    case Data(name: Name, constructors: List[Constructor])
+    case Data(name: Name, constructors: Seq[Constructor])
 
     override def toString: String = this match
       case Value(x, t, v) =>
@@ -50,7 +50,7 @@ object JVM:
       case Data(x, cs)  => s"data $x = ${cs.mkString(" | ")}"
 
   enum Cases:
-    case Ext(x: Name, ps: List[(LocalName, Ty, Int)], body: Tm, rest: Cases)
+    case Ext(x: Name, ps: Seq[(LocalName, Ty, Int)], body: Tm, rest: Cases)
     case Otherwise(body: Tm)
     case Empty
 
@@ -72,8 +72,8 @@ object JVM:
   enum Tm:
     case Local(ix: LocalName, ty: Ty)
     case Global(name: Name)
-    case GlobalApp(name: Name, args: List[Tm])
-    case Prim(prim: RuntimePrimitive, args: List[Tm])
+    case GlobalApp(name: Name, args: Seq[Tm])
+    case Prim(prim: RuntimePrimitive, args: Seq[Tm])
     case BoolLit(value: Boolean)
     case IntLit(value: Int)
     case Let(name: LocalName, ty: Ty, value: Tm, body: Tm)
@@ -81,19 +81,19 @@ object JVM:
 
     case Join(
         name: LocalName,
-        params: List[(LocalName, Ty)],
+        params: Seq[(LocalName, Ty)],
         value: Tm,
         body: Tm
     )
     case JoinRec(
         name: LocalName,
-        params: List[(LocalName, Ty)],
+        params: Seq[(LocalName, Ty)],
         value: Tm,
         body: Tm
     )
-    case Jump(name: LocalName, args: List[Tm])
+    case Jump(name: LocalName, args: Seq[Tm])
 
-    case Con(dx: Name, cx: Name, ix: Int, args: List[Tm])
+    case Con(dx: Name, cx: Name, ix: Int, args: Seq[Tm])
     case Case(dty: Name, scrut: Tm, cases: Cases)
 
     override def toString: String = this match

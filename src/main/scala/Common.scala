@@ -60,7 +60,7 @@ object Common:
     def op(name: String): Name = opstore.getOrElseUpdate(name, Op(name))
     val Underscore = Name("_")
 
-  type Assoc[T] = List[(Name, T)]
+  type Assoc[T] = Seq[(Name, T)]
 
   enum Bind:
     case DontBind
@@ -99,7 +99,7 @@ object Common:
     case Skip
     case Bind0
     case Bind1(icit: Icit)
-  type Pruning = List[PruneEntry]
+  type Pruning = Seq[PruneEntry]
 
   opaque type RevPruning = Pruning
   extension (r: RevPruning)

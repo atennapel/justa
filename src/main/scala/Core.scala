@@ -4,7 +4,7 @@ import scala.annotation.tailrec
 
 object Core:
   enum Cases:
-    case Ext(x: Name, ps: List[(Bind, Ty)], body: Tm0, rest: Cases)
+    case Ext(x: Name, ps: Seq[(Bind, Ty)], body: Tm0, rest: Cases)
     case Otherwise(body: Tm0)
     case Empty
 
@@ -50,10 +50,10 @@ object Core:
       case Splice(t) => t
       case t         => Tm1.Quote(t)
 
-    def flattenApps: (Tm0, List[Tm0]) = this match
+    def flattenApps: (Tm0, Seq[Tm0]) = this match
       case App(f, a) =>
         val (hd, args) = f.flattenApps
-        (hd, args ++ List(a))
+        (hd, args ++ Seq(a))
       case t => (t, Nil)
 
     override def toString: String = this match
@@ -180,7 +180,7 @@ object Core:
       case Ext1(env, _) => env
       case _            => impossible()
   object Env:
-    def apply(vs: List[Val1]): Env = vs.foldLeft(Empty)(Ext1.apply)
+    def apply(vs: Seq[Val1]): Env = vs.foldLeft(Empty)(Ext1.apply)
 
   enum Clos0:
     case Clos(env: Env, tm: Tm0)
@@ -247,13 +247,13 @@ object Core:
       case Empty => true
       case _     => false
 
-    def toList: List[(Val1, Icit)] = this match
-      case Spine.App(sp, arg, i) => sp.toList ++ List((arg, i))
+    def toSeq: Seq[(Val1, Icit)] = this match
+      case Spine.App(sp, arg, i) => sp.toSeq ++ Seq((arg, i))
       case Spine.Empty           => Nil
       case _                     => impossible()
 
   object Spine:
-    def apps(args: List[(Val1, Icit)]): Spine =
+    def apps(args: Seq[(Val1, Icit)]): Spine =
       args.foldLeft(Spine.Empty) { case (s, (a, i)) => Spine.App(s, a, i) }
 
   type VTy = Val1
@@ -289,18 +289,18 @@ object Core:
         case _                                 => None
 
     object TypeCon:
-      def apply(name: Name, args: List[(VTy, Icit)] = Nil): Val1 =
+      def apply(name: Name, args: Seq[(VTy, Icit)] = Nil): Val1 =
         Rigid(Head.TypeCon(name), Spine.apps(args))
-      def unapply(value: Val1): Option[(Name, List[(VTy, Icit)])] = value match
-        case Rigid(Head.TypeCon(hd), spine) => Some((hd, spine.toList))
+      def unapply(value: Val1): Option[(Name, Seq[(VTy, Icit)])] = value match
+        case Rigid(Head.TypeCon(hd), spine) => Some((hd, spine.toSeq))
         case _                              => None
 
     object Con:
-      def apply(dx: Name, cx: Name, args: List[(VTy, Icit)] = Nil): Val1 =
+      def apply(dx: Name, cx: Name, args: Seq[(VTy, Icit)] = Nil): Val1 =
         Rigid(Head.Con(dx, cx), Spine.apps(args))
-      def unapply(value: Val1): Option[(Name, Name, List[(VTy, Icit)])] =
+      def unapply(value: Val1): Option[(Name, Name, Seq[(VTy, Icit)])] =
         value match
-          case Rigid(Head.Con(dx, cx), spine) => Some((dx, cx, spine.toList))
+          case Rigid(Head.Con(dx, cx), spine) => Some((dx, cx, spine.toSeq))
           case _                              => None
 
     object Type:

@@ -12,7 +12,7 @@ https://github.com/AndrasKovacs/cctt
 - [x] Data types
 - [x] IO
 - [x] Lambda match
-- [ ] Operators
+- [x] Operators
 - [ ] Modules
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
