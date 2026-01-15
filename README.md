@@ -23,4 +23,3 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Instance search
 - [ ] Public/private
 - [ ] Frozen metas
-- [ ] Operators in match

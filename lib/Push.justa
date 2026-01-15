@@ -3,18 +3,18 @@ module Push
 import Prelude (vtype, (&&), (||), (<), (+), (-), (*))
 import List => L (List)
 
-def Push A = (k : cv) (B : type k) -> (A -> B -> B) -> B -> B
+def Push (A : vtype) = (k : cv) (B : type k) -> (A -> B -> B) -> B -> B
 
-def Nil {A : vtype} : Push A =
+def Nil {A} : Push A =
   \k B c n => n
 
 def (::) {A : vtype} (hd : A) (tl : Push A) : Push A =
   \k B c n => c hd (tl k B c n)
 
-def fromList {A : vtype} (as : List A) : Push A =
+def fromList {A} (as : List A) : Push A =
   \k B f b => L.foldr b f as
 
-def toList {A : vtype} (as : Push A) : List A =
+def toList {A} (as : Push A) : List A =
   as _ _ L.(::) L.Nil
 
 def map {A B : vtype} (f : A -> B) (as : Push A) : Push B =

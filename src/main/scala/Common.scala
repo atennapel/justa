@@ -82,7 +82,8 @@ object Common:
       case DontBind  => b
       case DoBind(_) => this
   object Bind:
-    def fromString(x: String): Bind =
+    def op(x: String): Bind = Bind.DoBind(Name.op(x))
+    def apply(x: String): Bind =
       if x.startsWith("_") then Bind.DontBind else Bind.DoBind(Name(x))
 
   // icit

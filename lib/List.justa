@@ -16,20 +16,20 @@ def nonEmpty {A} (l : List A) : Bool = not (isEmpty l)
 def head {A} (l : List A) : Option A =
   match l
   | Nil => None
-  | (::) hd _ => Some hd
+  | hd :: _ => Some hd
 
 def reverse {A} (l : List A) : List A =
   let rec go (l : List A) (acc : List A) :=
     match l
     | Nil => acc
-    | (::) hd tl => go tl (hd :: acc);
+    | hd :: tl => go tl (hd :: acc);
   go l Nil
 
 def foldr {A : vtype} {k} {B : type k} (n : B) (c : A -> B -> B) (l : List A) : B =
   let rec go (l : List A) :=
     match l
     | Nil => n
-    | (::) hd tl => c hd (go tl);
+    | hd :: tl => c hd (go tl);
   go l
 
 def foldl {A B : vtype} (n : B) (c : B -> A -> B) (l : List A) : B =

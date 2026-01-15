@@ -484,8 +484,12 @@ object Parser:
 
     private def pcase(): (PosInfo, Bind, Seq[Bind], Tm) =
       val p = pos
-      val cx = bind()
-      val ps = list(tryBind()).toSeq
+      val fst = bind()
+      val (cx, ps) = tryOp() match
+        case null => (fst, list(tryBind()).toSeq)
+        case op =>
+          val snd = bind()
+          (Bind.op(op), Seq(fst, snd))
       symbol(DOUBLE_ARROW)
       val b = expr()
       (p, cx, ps, b)
