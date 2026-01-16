@@ -15,7 +15,7 @@ https://github.com/AndrasKovacs/cctt
 - [x] Operators
 - [x] Modules
 - [x] Public/private
-- [ ] Re-exporting
+- [x] Re-exporting
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
@@ -24,3 +24,4 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Pattern matching
 - [ ] Instance search
 - [ ] String and label types
+- [ ] Import all(-hiding), re-export all(-hiding)

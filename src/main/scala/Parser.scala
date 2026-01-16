@@ -605,19 +605,21 @@ object Parser:
 
     @tailrec
     private def imports(
-        res: mutable.ArrayBuffer[(PosInfo, PosInfo, Name, Option[Name])] =
-          mutable.ArrayBuffer.empty
-    ): mutable.ArrayBuffer[(PosInfo, PosInfo, Name, Option[Name])] =
+        res: mutable.ArrayBuffer[
+          (PosInfo, PosInfo, Boolean, Name, Option[Name])
+        ] = mutable.ArrayBuffer.empty
+    ): mutable.ArrayBuffer[(PosInfo, PosInfo, Boolean, Name, Option[Name])] =
       if trySymbol(R_PAREN) then res
       else
         val p1 = pos
+        val reexport = tryKeyword(PUB)
         val x = nameOrOp()
         var p2 = p1
         val r = if trySymbol(DOUBLE_ARROW) then
           p2 = pos
           Some(nameOrOp())
         else None
-        res += ((p1, p2, x, r))
+        res += ((p1, p2, reexport, x, r))
         if trySymbol(COMMA) then imports(res)
         else
           symbol(R_PAREN)
@@ -633,7 +635,8 @@ object Parser:
         )
       val deps = mutable.Set.empty[Name]
       val imps =
-        mutable.ArrayBuffer.empty[(PosInfo, PosInfo, Name, Name, Option[Name])]
+        mutable.ArrayBuffer
+          .empty[(PosInfo, PosInfo, Boolean, Name, Name, Option[Name])]
       val moduleAliases = mutable.Map.empty[Name, Name]
       while tryKeyword(IMPORT) do
         val m = name()
@@ -641,6 +644,8 @@ object Parser:
         moduleAliases += m -> xr
         deps += m
         if trySymbol(L_PAREN) then
-          imports().foreach((p1, p2, x, r) => imps += ((p1, p2, m, x, r)))
+          imports().foreach((p1, p2, rex, x, r) =>
+            imps += ((p1, p2, rex, m, x, r))
+          )
       val ds = defs()
       Module(p, x, deps.toSet, imps.toSeq, moduleAliases.toMap, ds)

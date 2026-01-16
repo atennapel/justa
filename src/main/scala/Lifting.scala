@@ -426,7 +426,7 @@ object Lifting:
   private val newDefs = mutable.ArrayBuffer.empty[JVM.Def]
 
   private def monomorphize(m: Name, dx: Name, ps: Seq[IR.VTy]): JVM.Ty =
-    val (pub, xs) = State.getGlobal(m, dx) match
+    val (pub, xs) = State.getGlobalDirect(m, dx) match
       case Some(GlobalEntry.Data(pub, _, _, xs, _, _, _, _)) => (pub, xs)
       case _                                                 => impossible()
     val (nx, alreadyDone) = tryMonomorphize(m, dx, ps)

@@ -58,7 +58,7 @@ object Unstaging:
     tm match
       case Tm0.IntLit(v) => Tm.IntLit(v)
       case Tm0.Global(m, x) =>
-        State.getGlobal(m, x) match
+        State.getGlobalDirect(m, x) match
           case Some(GlobalEntry.Def0(_, _, _, _, _, _, vty, _)) =>
             Tm.Global(m, x, goCTy(vty))
           case _ => impossible()

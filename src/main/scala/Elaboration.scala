@@ -351,11 +351,11 @@ object Elaboration:
         case S.UnitLit(_) =>
           forceAll1(ty) match
             case V.TypeCon(m, dx, dps) =>
-              State.getGlobal(m, dx) match
+              State.getGlobalDirect(m, dx) match
                 case Some(GlobalEntry.Data(_, _, _, _, _, _, unitCon, _)) =>
                   unitCon match
                     case Some(cx) =>
-                      State.getGlobal(m, cx) match
+                      State.getGlobalDirect(m, cx) match
                         case Some(
                               GlobalEntry.Con(_, _, _, _, _, _, tm, _, _)
                             ) =>
@@ -578,13 +578,13 @@ object Elaboration:
             (m, x, State.GlobalLookupFailure.GlobalIsNotAccessible)
           ) =>
         err(s"inaccessible variable $m.$x")
-      case Right((m, GlobalEntry.Def0(_, _, _, _, _, _, ty, cv))) =>
+      case Right((m, x, GlobalEntry.Def0(_, _, _, _, _, _, ty, cv))) =>
         Infer0(T0.Global(m, x), ty, cv)
-      case Right((m, GlobalEntry.Def1(_, _, _, _, v, ty))) =>
+      case Right((m, x, GlobalEntry.Def1(_, _, _, _, v, ty))) =>
         Infer1(T1.Global(m, x, v), ty)
-      case Right((_, GlobalEntry.Data(_, _, _, _, tm, ty, _, _))) =>
+      case Right((_, _, GlobalEntry.Data(_, _, _, _, tm, ty, _, _))) =>
         Infer1(tm, ty)
-      case Right((_, GlobalEntry.Con(_, _, _, _, _, _, tm, _, ty))) =>
+      case Right((_, _, GlobalEntry.Con(_, _, _, _, _, _, tm, _, ty))) =>
         Infer1(tm, ty)
 
   private def infer(tm: S)(using ctx: Ctx): Infer =
@@ -758,7 +758,7 @@ object Elaboration:
   ): (Name, Option[Name], Int, VTy) =
     forceAll1(vty) match
       case V.TypeCon(m, dx, dps) =>
-        State.getGlobal(m, dx) match
+        State.getGlobalDirect(m, dx) match
           case Some(GlobalEntry.Data(_, _, _, _, _, _, _, singleCon)) =>
             singleCon match
               case None =>
@@ -766,7 +766,7 @@ object Elaboration:
                   s"cannot project from ${ctx.pretty1(vty)}, type has multiple constructors"
                 )
               case Some(cx) =>
-                State.getGlobal(m, cx) match
+                State.getGlobalDirect(m, cx) match
                   case Some(GlobalEntry.Con(_, _, _, params, _, _, _, _, _)) =>
                     p match
                       case ProjType.Indexed(i) if i >= params.size =>
@@ -822,12 +822,12 @@ object Elaboration:
       case V.TypeCon(m, dx, ps) => (m, dx, ps.map((t, _) => t))
       case _ =>
         err(s"expected datatype in match but got ${ctx.pretty1(vscrutty)}")
-    val (dps, cons) = State.getGlobal(m, dx) match
+    val (dps, cons) = State.getGlobalDirect(m, dx) match
       case Some(GlobalEntry.Data(_, _, dps, cs, _, _, _, _)) => (dps, cs.toSet)
       case _                                                 => impossible()
     val psenv = Env(ps)
     inline def conTypes(m: Name, cx: Name): Seq[VTy] =
-      State.getGlobal(m, cx) match
+      State.getGlobalDirect(m, cx) match
         case Some(GlobalEntry.Con(_, _, _, params, _, _, _, _, _)) =>
           params.map((_, ty) => eval1(ty)(using psenv))
         case _ => impossible()
@@ -998,16 +998,19 @@ object Elaboration:
     debug(s"elaborate module ${mod.name}")
     State.enterModule(mod.name)
     mod.moduleAliases.foreach((m, r) => State.addModuleRenaming(m, r))
-    mod.imports.foreach { case (p1, p2, m, x, r) =>
+    mod.imports.foreach { case (p1, p2, rex, m, x, r) =>
       val ctx = Ctx.empty(mod.pos)
       val y = r.getOrElse(x)
       if !State.moduleExists(m) then
         err(s"undefined module $m in imports")(using ctx.enter(p1))
       else if !State.moduleHasName(m, x) then
         err(s"undefined name $m.$x in imports")(using ctx.enter(p2))
+      else if !State.checkAccessibility(m, x) then
+        err(s"inaccessible name $m.$x in imports")(using ctx.enter(p2))
       else if State.hasImport(y) then
         err(s"duplicate name in imports: $y")(using ctx.enter(p2))
       else State.addImport(m, x, y)
+      if rex then State.addReexport(mod.name, y, m, x)
     }
     mod.defs.toSeq.foreach(elaborate)
 
