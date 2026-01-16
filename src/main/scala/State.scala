@@ -167,6 +167,9 @@ object State:
   def addModuleRenaming(globalName: Name, innerName: Name): Unit =
     moduleCtx.get.modules += innerName -> globalName
 
+  def hasImport(x: Name): Boolean =
+    moduleCtx.get.imports.contains(x)
+
   def addImport(m: Name, x: Name, r: Name): Unit =
     moduleCtx.get.imports += r -> (m, x)
 

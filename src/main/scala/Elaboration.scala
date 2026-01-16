@@ -901,7 +901,8 @@ object Elaboration:
     d match
       case Surface.Def.Def0(pos, pub, x, mty, v) =>
         given ctx: Ctx = Ctx.empty(pos)
-        if State.currentModuleHasName(x) then err(s"duplicate definition $x")
+        if State.currentModuleHasName(x) || State.hasImport(x) then
+          err(s"duplicate definition $x")
         val (ev, ty, cv, vty, vcv) = mty match
           case None =>
             val (ev, vty, vcv) = infer0(v)
@@ -922,7 +923,8 @@ object Elaboration:
         )
       case Surface.Def.Def1(pos, pub, x, mty, v) =>
         given ctx: Ctx = Ctx.empty(pos)
-        if State.currentModuleHasName(x) then err(s"duplicate definition $x")
+        if State.currentModuleHasName(x) || State.hasImport(x) then
+          err(s"duplicate definition $x")
         val (ev, ty, vv, vty) = mty match
           case None =>
             val (ev, vty) = infer1(v)
@@ -937,7 +939,8 @@ object Elaboration:
         State.addGlobal(GlobalEntry.Def1(pub, x, ev, ty, vv, vty))
       case Surface.Def.Data(pos, pub, x, ps, cs) =>
         given ctx: Ctx = Ctx.empty(pos)
-        if State.currentModuleHasName(x) then err(s"duplicate definition $x")
+        if State.currentModuleHasName(x) || State.hasImport(x) then
+          err(s"duplicate definition $x")
         val unitCons = cs.filter(c => c.params.isEmpty)
         val unitCon =
           if unitCons.size == 1 then Some(unitCons.head.name) else None
@@ -961,7 +964,8 @@ object Elaboration:
         cs.zipWithIndex.foreach {
           case (Surface.Constructor(pos, cpub, cx, cps), ix) =>
             given conctx: Ctx = datactx.enter(pos)
-            if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
+            if State.currentModuleHasName(cx) || State.hasImport(cx) then
+              err(s"duplicate name $cx")
             val tyapp = ps.indices.foldRight(ty)((i, ty) =>
               T1.App(ty, T1.Var(mkIx(i)), Expl)
             )
@@ -991,18 +995,23 @@ object Elaboration:
         freeze()
 
   private def elaborate(mod: Surface.Module): Unit =
+    debug(s"elaborate module ${mod.name}")
     State.enterModule(mod.name)
     mod.moduleAliases.foreach((m, r) => State.addModuleRenaming(m, r))
-    mod.imports.foreach { case (x, (p1, p2, m, r)) =>
+    mod.imports.foreach { case (p1, p2, m, x, r) =>
       val ctx = Ctx.empty(mod.pos)
-      if (!State.moduleExists(m))
+      val y = r.getOrElse(x)
+      if !State.moduleExists(m) then
         err(s"undefined module $m in imports")(using ctx.enter(p1))
-      else if (!State.moduleHasName(m, x))
+      else if !State.moduleHasName(m, x) then
         err(s"undefined name $m.$x in imports")(using ctx.enter(p2))
-      else State.addImport(m, x, r.getOrElse(x))
+      else if State.hasImport(y) then
+        err(s"duplicate name in imports: $y")(using ctx.enter(p2))
+      else State.addImport(m, x, y)
     }
     mod.defs.toSeq.foreach(elaborate)
 
   def elaborate(mod: Seq[Surface.Module]): Unit =
+    debug(s"elaborate modules ${mod.map(_.name).mkString("[", ",", "]")}")
     mod.foreach(elaborate)
     checkUnsolvedMetas()(using Ctx.empty(PosInfo(0, 0)))

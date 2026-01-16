@@ -6,7 +6,7 @@ object Surface:
       pos: PosInfo,
       name: Name,
       deps: Set[Name],
-      imports: Map[Name, (PosInfo, PosInfo, Name, Option[Name])],
+      imports: Seq[(PosInfo, PosInfo, Name, Name, Option[Name])],
       moduleAliases: Map[Name, Name],
       defs: Defs
   ):

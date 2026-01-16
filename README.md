@@ -15,7 +15,6 @@ https://github.com/AndrasKovacs/cctt
 - [x] Operators
 - [x] Modules
 - [x] Public/private
-- [ ] Detect duplications between defs and imports, and inbetween imports
 - [ ] Re-exporting
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations

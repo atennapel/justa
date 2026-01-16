@@ -632,7 +632,8 @@ object Parser:
           s"module name does not match file name or path, expected $mod but got $x"
         )
       val deps = mutable.Set.empty[Name]
-      val imps = mutable.Map.empty[Name, (PosInfo, PosInfo, Name, Option[Name])]
+      val imps =
+        mutable.ArrayBuffer.empty[(PosInfo, PosInfo, Name, Name, Option[Name])]
       val moduleAliases = mutable.Map.empty[Name, Name]
       while tryKeyword(IMPORT) do
         val m = name()
@@ -640,6 +641,6 @@ object Parser:
         moduleAliases += m -> xr
         deps += m
         if trySymbol(L_PAREN) then
-          imports().foreach((p1, p2, x, r) => imps += x -> (p1, p2, m, r))
+          imports().foreach((p1, p2, x, r) => imps += ((p1, p2, m, x, r)))
       val ds = defs()
-      Module(p, x, deps.toSet, imps.toMap, moduleAliases.toMap, ds)
+      Module(p, x, deps.toSet, imps.toSeq, moduleAliases.toMap, ds)
