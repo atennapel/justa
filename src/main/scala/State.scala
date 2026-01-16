@@ -60,6 +60,7 @@ object State:
   // globals
   enum GlobalEntry:
     case Def0(
+        pub: Boolean,
         x: Name,
         tm: Tm0,
         ty: Ty,
@@ -69,6 +70,7 @@ object State:
         vcv: VTy
     )
     case Def1(
+        pub: Boolean,
         x: Name,
         tm: Tm1,
         ty: Ty,
@@ -76,6 +78,7 @@ object State:
         vty: VTy
     )
     case Data(
+        pub: Boolean,
         x: Name,
         params: Seq[Name],
         cons: Seq[Name],
@@ -85,6 +88,7 @@ object State:
         singleCon: Option[Name]
     )
     case Con(
+        pub: Boolean,
         x: Name,
         typarams: Seq[Name],
         params: Seq[(Bind, Ty)],
@@ -96,12 +100,16 @@ object State:
     )
 
     def name: Name = this match
-      case Def0(x, _, _, _, _, _, _)   => x
-      case Def1(x, _, _, _, _)         => x
-      case Data(x, _, _, _, _, _, _)   => x
-      case Con(x, _, _, _, _, _, _, _) => x
+      case Def0(_, x, _, _, _, _, _, _)   => x
+      case Def1(_, x, _, _, _, _)         => x
+      case Data(_, x, _, _, _, _, _, _)   => x
+      case Con(_, x, _, _, _, _, _, _, _) => x
 
-    def isPublic: Boolean = true
+    def isPublic: Boolean = this match
+      case Def0(p, _, _, _, _, _, _, _)   => p
+      case Def1(p, _, _, _, _, _)         => p
+      case Data(p, _, _, _, _, _, _, _)   => p
+      case Con(p, _, _, _, _, _, _, _, _) => p
 
   // modules
   private final case class ModuleCtx(
@@ -143,8 +151,8 @@ object State:
 
   def conIndex(mod: Name, dx: Name, cx: Name): Int =
     getGlobal(mod, dx) match
-      case Some(GlobalEntry.Data(_, _, xs, _, _, _, _)) => xs.indexOf(cx)
-      case _                                            => impossible()
+      case Some(GlobalEntry.Data(_, _, _, xs, _, _, _, _)) => xs.indexOf(cx)
+      case _                                               => impossible()
   inline def conIndex(dx: Name, cx: Name): Int = conIndex(currentModule, dx, cx)
 
   def allGlobals(): Map[Name, Seq[GlobalEntry]] =

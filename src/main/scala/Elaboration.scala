@@ -352,12 +352,12 @@ object Elaboration:
           forceAll1(ty) match
             case V.TypeCon(m, dx, dps) =>
               State.getGlobal(m, dx) match
-                case Some(GlobalEntry.Data(_, _, _, _, _, unitCon, _)) =>
+                case Some(GlobalEntry.Data(_, _, _, _, _, _, unitCon, _)) =>
                   unitCon match
                     case Some(cx) =>
                       State.getGlobal(m, cx) match
                         case Some(
-                              GlobalEntry.Con(_, _, _, _, _, tm, _, _)
+                              GlobalEntry.Con(_, _, _, _, _, _, tm, _, _)
                             ) =>
                           dps
                             .foldLeft(tm) { case (tm, (ty, _)) =>
@@ -578,13 +578,13 @@ object Elaboration:
             (m, x, State.GlobalLookupFailure.GlobalIsNotAccessible)
           ) =>
         err(s"inaccessible variable $m.$x")
-      case Right((m, GlobalEntry.Def0(_, _, _, _, _, ty, cv))) =>
+      case Right((m, GlobalEntry.Def0(_, _, _, _, _, _, ty, cv))) =>
         Infer0(T0.Global(m, x), ty, cv)
-      case Right((m, GlobalEntry.Def1(_, _, _, v, ty))) =>
+      case Right((m, GlobalEntry.Def1(_, _, _, _, v, ty))) =>
         Infer1(T1.Global(m, x, v), ty)
-      case Right((_, GlobalEntry.Data(_, _, _, tm, ty, _, _))) =>
+      case Right((_, GlobalEntry.Data(_, _, _, _, tm, ty, _, _))) =>
         Infer1(tm, ty)
-      case Right((_, GlobalEntry.Con(_, _, _, _, _, tm, _, ty))) =>
+      case Right((_, GlobalEntry.Con(_, _, _, _, _, _, tm, _, ty))) =>
         Infer1(tm, ty)
 
   private def infer(tm: S)(using ctx: Ctx): Infer =
@@ -759,7 +759,7 @@ object Elaboration:
     forceAll1(vty) match
       case V.TypeCon(m, dx, dps) =>
         State.getGlobal(m, dx) match
-          case Some(GlobalEntry.Data(_, _, _, _, _, _, singleCon)) =>
+          case Some(GlobalEntry.Data(_, _, _, _, _, _, _, singleCon)) =>
             singleCon match
               case None =>
                 err(
@@ -767,7 +767,7 @@ object Elaboration:
                 )
               case Some(cx) =>
                 State.getGlobal(m, cx) match
-                  case Some(GlobalEntry.Con(_, _, params, _, _, _, _, _)) =>
+                  case Some(GlobalEntry.Con(_, _, _, params, _, _, _, _, _)) =>
                     p match
                       case ProjType.Indexed(i) if i >= params.size =>
                         err(
@@ -823,12 +823,12 @@ object Elaboration:
       case _ =>
         err(s"expected datatype in match but got ${ctx.pretty1(vscrutty)}")
     val (dps, cons) = State.getGlobal(m, dx) match
-      case Some(GlobalEntry.Data(_, dps, cs, _, _, _, _)) => (dps, cs.toSet)
-      case _                                              => impossible()
+      case Some(GlobalEntry.Data(_, _, dps, cs, _, _, _, _)) => (dps, cs.toSet)
+      case _                                                 => impossible()
     val psenv = Env(ps)
     inline def conTypes(m: Name, cx: Name): Seq[VTy] =
       State.getGlobal(m, cx) match
-        case Some(GlobalEntry.Con(_, _, params, _, _, _, _, _)) =>
+        case Some(GlobalEntry.Con(_, _, _, params, _, _, _, _, _)) =>
           params.map((_, ty) => eval1(ty)(using psenv))
         case _ => impossible()
     inline def goBranch(m: Name, cx: Name, ps: Seq[Bind], b: S)(using
@@ -887,10 +887,19 @@ object Elaboration:
     // checkUnsolvedMetas()
     State.freezeMetas()
 
+  private def checkAccessibility(ty: VTy)(using ctx: Ctx): Unit =
+    debug(s"checkAccessibility ${ctx.pretty1(ty)}")
+    def checkGlobal(m: Name, x: Name): Option[String] =
+      if !State.checkAccessibility(m, x) then
+        Some(s"escaping private definition $m.$x in type: ${ctx.pretty1(ty)}")
+      else None
+    val errs = allGlobals(ty).flatMap(checkGlobal)
+    if errs.nonEmpty then err(errs.mkString("\n"))
+
   private def elaborate(d: Surface.Def): Unit =
     debug(s"elaborate $d")
     d match
-      case Surface.Def.Def0(pos, x, mty, v) =>
+      case Surface.Def.Def0(pos, pub, x, mty, v) =>
         given ctx: Ctx = Ctx.empty(pos)
         if State.currentModuleHasName(x) then err(s"duplicate definition $x")
         val (ev, ty, cv, vty, vcv) = mty match
@@ -907,10 +916,11 @@ object Elaboration:
             val ev = check0(v, vty, vcv)(using ctx)
             (ev, ety, cv, vty, vcv)
         freeze()
+        if pub then checkAccessibility(vty)
         State.addGlobal(
-          GlobalEntry.Def0(x, ev, ty, cv, ctx.eval0(ev), vty, vcv)
+          GlobalEntry.Def0(pub, x, ev, ty, cv, ctx.eval0(ev), vty, vcv)
         )
-      case Surface.Def.Def1(pos, x, mty, v) =>
+      case Surface.Def.Def1(pos, pub, x, mty, v) =>
         given ctx: Ctx = Ctx.empty(pos)
         if State.currentModuleHasName(x) then err(s"duplicate definition $x")
         val (ev, ty, vv, vty) = mty match
@@ -923,8 +933,9 @@ object Elaboration:
             val ev = check1(v, vty)
             (ev, ety, ctx.eval1(ev), vty)
         freeze()
-        State.addGlobal(GlobalEntry.Def1(x, ev, ty, vv, vty))
-      case Surface.Def.Data(pos, x, ps, cs) =>
+        if pub then checkAccessibility(vty)
+        State.addGlobal(GlobalEntry.Def1(pub, x, ev, ty, vv, vty))
+      case Surface.Def.Data(pos, pub, x, ps, cs) =>
         given ctx: Ctx = Ctx.empty(pos)
         if State.currentModuleHasName(x) then err(s"duplicate definition $x")
         val unitCons = cs.filter(c => c.params.isEmpty)
@@ -934,12 +945,21 @@ object Elaboration:
         val ty = T1.TypeCon(State.currentModule, x)
         val vty = ps.foldRight(V.TypeV)((_, rt) => V.fun1(V.TypeV, rt))
         State.addGlobal(
-          GlobalEntry.Data(x, ps, cs.map(_.name), ty, vty, unitCon, singleCon)
+          GlobalEntry.Data(
+            pub,
+            x,
+            ps,
+            cs.map(_.name),
+            ty,
+            vty,
+            unitCon,
+            singleCon
+          )
         )
         val datactx =
           ps.foldLeft(ctx)((ctx, x) => ctx.bind1(DoBind(x), T1.TypeV, V.TypeV))
         cs.zipWithIndex.foreach {
-          case (Surface.Constructor(pos, cx, cps), ix) =>
+          case (Surface.Constructor(pos, cpub, cx, cps), ix) =>
             given conctx: Ctx = datactx.enter(pos)
             if State.currentModuleHasName(cx) then err(s"duplicate name $cx")
             val tyapp = ps.indices.foldRight(ty)((i, ty) =>
@@ -956,6 +976,7 @@ object Elaboration:
             val vcty = conctx.eval1(cty)
             State.addGlobal(
               GlobalEntry.Con(
+                cpub,
                 cx,
                 ps,
                 eps,
@@ -983,4 +1004,5 @@ object Elaboration:
     mod.defs.toSeq.foreach(elaborate)
 
   def elaborate(mod: Seq[Surface.Module]): Unit =
-    mod.map(elaborate)
+    mod.foreach(elaborate)
+    checkUnsolvedMetas()(using Ctx.empty(PosInfo(0, 0)))

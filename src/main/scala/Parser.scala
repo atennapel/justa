@@ -564,32 +564,41 @@ object Parser:
           case null => null
           case t    => Seq((DontBind, t))
 
-    private def dataCon(): Constructor =
+    private def dataCon(dataPub: Boolean): Constructor =
       val p = pos
+      val pub =
+        if tryKeyword(PRIV) then
+          if dataPub then false
+          else
+            err(
+              s"unnecessary priv for constructor, datatype is already private"
+            )
+        else dataPub
       val cx = nameOrOp()
       val ps = list(dataParam()).toSeq.flatten
-      Constructor(p, cx, ps)
+      Constructor(p, pub, cx, ps)
 
-    private def data(pos: PosInfo): Def =
+    private def data(pos: PosInfo, pub: Boolean): Def =
       val dx = nameOrOp()
       val ps = list(tryName())
       val continue = if trySymbol(COLON_EQUALS) then { trySymbol(PIPE); true }
       else trySymbol(PIPE)
       val cons = if continue then
-        val hd = dataCon()
+        val hd = dataCon(pub)
         val tl = mutable.ArrayBuffer.empty[Constructor]
-        while trySymbol(PIPE) do tl += dataCon()
+        while trySymbol(PIPE) do tl += dataCon(pub)
         hd +: tl.toSeq
       else Seq.empty
-      Def.Data(pos, dx, ps.toSeq, cons)
+      Def.Data(pos, pub, dx, ps.toSeq, cons)
 
     private def tryDef(): Def | Null =
       val p = pos
+      val pub = tryKeyword(PUB)
       if tryKeyword(DEF) then
         val (meta, x, ty, body) = defn()
-        if meta then Def.Def1(p, x, Option(ty), body)
-        else Def.Def0(p, x, Option(ty), body)
-      else if tryKeyword(DATA) then data(p)
+        if meta then Def.Def1(p, pub, x, Option(ty), body)
+        else Def.Def0(p, pub, x, Option(ty), body)
+      else if tryKeyword(DATA) then data(p, pub)
       else null
 
     private def defs(): Defs = Defs(list(tryDef()).toSeq)

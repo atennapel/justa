@@ -12,11 +12,11 @@ object Unstaging:
       .allGlobals()
       .map { (m, sds) =>
         val ds = sds.flatMap {
-          case GlobalEntry.Def0(x, tm, _, _, _, vty, _) =>
+          case GlobalEntry.Def0(pub, x, tm, _, _, _, vty, _) =>
             val nty = goCTy(vty)
             val ntm = unstage(tm)
-            Some(Def(x, nty, ntm))
-          case GlobalEntry.Con(cx, typarams, params, dx, _, _, _, _) =>
+            Some(Def(pub, x, nty, ntm))
+          case GlobalEntry.Con(_, cx, typarams, params, dx, _, _, _, _) =>
             State.setMono(m, dx, cx) { menv =>
               val env =
                 Env(
@@ -59,7 +59,7 @@ object Unstaging:
       case Tm0.IntLit(v) => Tm.IntLit(v)
       case Tm0.Global(m, x) =>
         State.getGlobal(m, x) match
-          case Some(GlobalEntry.Def0(_, _, _, _, _, vty, _)) =>
+          case Some(GlobalEntry.Def0(_, _, _, _, _, _, vty, _)) =>
             Tm.Global(m, x, goCTy(vty))
           case _ => impossible()
 

@@ -35,8 +35,9 @@ object IR:
     override def toString: String = defs.mkString("\n")
     def toSeq: Seq[Def] = defs
 
-  final case class Def(name: Name, ty: CTy, value: Tm):
-    override def toString: String = s"def $name : $ty = $value"
+  final case class Def(pub: Boolean, name: Name, ty: CTy, value: Tm):
+    override def toString: String =
+      s"${if pub then "pub " else ""}def $name : $ty = $value"
 
   enum Cases:
     case Ext(x: Name, ps: Seq[(LocalName, VTy, Int)], body: Tm, rest: Cases)

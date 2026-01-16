@@ -45,18 +45,19 @@ object Lifting:
   private def liftDef(mod: Name, d: Def): Seq[JVM.Def] =
     debug(s"liftDef $mod.${d.name}")
     newDefs.clear()
-    val Def(name, ty, v) = d
+    val Def(pub, name, ty, v) = d
     given emit: Emit = new Emit(d.name)
     given Supply = new Supply(0)
     given Ren = renParams(ty)
     given (Name, Name) = (mod, name)
     val value = go(removeLams(ty, v), true, Some(lamTypes(v)))
     val retty = goVTy(ty.ret)
+    val acc = if pub then JVM.Access.Pub else JVM.Access.Priv
     val cdef =
-      if ty.params.isEmpty && !ty.io then JVM.Def.Value(name, retty, value)
+      if ty.params.isEmpty && !ty.io then JVM.Def.Value(acc, name, retty, value)
       else
         val ps = ty.params.zipWithIndex.map((ty, ix) => (ix, goVTy(ty)))
-        JVM.Def.Function(name, ps, retty, value)
+        JVM.Def.Function(acc, name, ps, retty, value)
     newDefs.toSeq ++ emit.toSeq :+ cdef
 
   private inline def renParams(ty: CTy, ren: Ren = Map.empty)(using
@@ -162,7 +163,7 @@ object Lifting:
           given ren: Ren = renLifted(freeps ++ lamTypes(v))
           given Name = y
           val body = go(removeLams(ty, v), true)
-          JVM.Def.Function(y, ps, goVTy(ty.ret), body)
+          JVM.Def.Function(JVM.Access.Synth, y, ps, goVTy(ty.ret), body)
         }
         go(b, tail)(using
           ren = ren + (x -> LiftedFun(currentDef._1, y, freeps))
@@ -206,7 +207,7 @@ object Lifting:
             ))
           given Name = y
           val body = go(removeLams(ty, v), true)
-          JVM.Def.Function(y, ps, goVTy(ty.ret), body)
+          JVM.Def.Function(JVM.Access.Synth, y, ps, goVTy(ty.ret), body)
         }
         go(b, tail)(using
           ren = ren + (x -> LiftedFun(currentDef._1, y, freeps))
@@ -266,6 +267,7 @@ object Lifting:
         case _         => impossible()
     }
 
+  @tailrec
   private def renToplevel(
       lams: Seq[(Int, CTy)],
       top: Seq[(Int, CTy)],
@@ -274,7 +276,8 @@ object Lifting:
     (lams, top) match
       case ((x, _) :: rest1, (y, _) :: rest2) =>
         renToplevel(rest1, rest2, ren + (x -> RenVar(y)))
-      case _ => impossible()
+      case (Nil, Nil) => ren
+      case _          => impossible()
 
   private def shouldNotBeLifted(
       toplevel: Option[Seq[(Int, CTy)]],
@@ -423,9 +426,9 @@ object Lifting:
   private val newDefs = mutable.ArrayBuffer.empty[JVM.Def]
 
   private def monomorphize(m: Name, dx: Name, ps: Seq[IR.VTy]): JVM.Ty =
-    val xs = State.getGlobal(m, dx) match
-      case Some(GlobalEntry.Data(_, _, xs, _, _, _, _)) => xs
-      case _                                            => impossible()
+    val (pub, xs) = State.getGlobal(m, dx) match
+      case Some(GlobalEntry.Data(pub, _, _, xs, _, _, _, _)) => (pub, xs)
+      case _                                                 => impossible()
     val (nx, alreadyDone) = tryMonomorphize(m, dx, ps)
     if !alreadyDone then
       val menv: State.MonoEnv =
@@ -435,9 +438,13 @@ object Lifting:
           State
             .getMonoConParams(m, dx, cx, menv)
             .map((x, ty) => (x.toOption, goVTy(ty)))
-        JVM.Constructor(cx, ets)
+        val acc =
+          if State.checkAccessibility(m, cx) then JVM.Access.Pub
+          else JVM.Access.Priv
+        JVM.Constructor(acc, cx, ets)
       }
-      newDefs += JVM.Def.Data(nx, ecs)
+      val acc = if pub then JVM.Access.Pub else JVM.Access.Priv
+      newDefs += JVM.Def.Data(acc, nx, ecs)
     JVM.Ty.Data(m, nx)
 
   private def tryMonomorphize(

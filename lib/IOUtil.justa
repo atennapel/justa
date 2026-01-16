@@ -2,11 +2,11 @@ module IOUtil
 
 import Prelude (vtype)
 
-def return = returnIO
-def bind = bindIO
+pub def return = returnIO
+pub def bind = bindIO
 
-def seq {A B} (a : IO A) (b : IO B) : IO B =
+pub def seq {A B} (a : IO A) (b : IO B) : IO B =
   bind a \_ => b
 
-def map {A B : vtype} (f : A -> B) (io : IO A) : IO B =
+pub def map {A B : vtype} (f : A -> B) (io : IO A) : IO B =
   bind io \x => return (f x)

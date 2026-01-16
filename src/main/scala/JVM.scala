@@ -20,37 +20,51 @@ object JVM:
 
   type LocalName = Int
 
+  enum Access:
+    case Pub
+    case Priv
+    case Synth
+
+    override def toString: String = this match
+      case Pub   => "pub"
+      case Priv  => "priv"
+      case Synth => "synth"
+
   final case class Constructor(
+      acc: Access,
       name: Name,
       params: Seq[(Option[Name], Ty)]
   ):
     override def toString: String = params match
-      case Nil => s"$name"
+      case Nil => s"$acc $name"
       case _ =>
         val ps = params
           .map((x, t) => s"(${x.getOrElse("_")} : $t)")
           .mkString(" ")
-        s"$name $ps"
+        s"$acc $name $ps"
 
   enum Def:
-    case Value(name: Name, ty: Ty, value: Tm)
+    case Value(acc: Access, name: Name, ty: Ty, value: Tm)
     case Function(
+        acc: Access,
         name: Name,
         params: Seq[(LocalName, Ty)],
         retty: Ty,
         body: Tm
     )
-    case Data(name: Name, constructors: Seq[Constructor])
+    case Data(acc: Access, name: Name, constructors: Seq[Constructor])
 
     override def toString: String = this match
-      case Value(x, t, v) =>
-        s"def $x : $t = $v"
-      case Function(x, Nil, t, b) =>
-        s"def $x () : $t = $b"
-      case Function(x, ps, t, b) =>
-        s"def $x ${ps.map((x, ty) => s"('$x : $ty)").mkString(" ")} : $t = $b"
-      case Data(x, Nil) => s"data $x"
-      case Data(x, cs)  => s"data $x = ${cs.mkString(" | ")}"
+      case Value(acc, x, t, v) =>
+        s"$acc def $x : $t = $v"
+      case Function(acc, x, Nil, t, b) =>
+        s"$acc def $x () : $t = $b"
+      case Function(acc, x, ps, t, b) =>
+        s"$acc def $x ${ps.map((x, ty) => s"('$x : $ty)").mkString(" ")} : $t = $b"
+      case Data(acc, x, Nil) =>
+        s"$acc data $x"
+      case Data(acc, x, cs) =>
+        s"$acc data $x = ${cs.mkString(" | ")}"
 
   enum Cases:
     case Ext(x: Name, ps: Seq[(LocalName, Ty, Int)], body: Tm, rest: Cases)

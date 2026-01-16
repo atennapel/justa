@@ -90,6 +90,8 @@ object Lexer:
     case IMPORT
     case DEF
     case DATA
+    case PUB
+    case PRIV
     case LET
     case REC
     case IF
@@ -120,6 +122,8 @@ object Lexer:
         case IMPORT   => "import"
         case DEF      => "def"
         case DATA     => "data"
+        case PUB      => "pub"
+        case PRIV     => "priv"
         case LET      => "let"
         case REC      => "rec"
         case IF       => "if"
@@ -169,6 +173,8 @@ object Lexer:
         case "import"   => IMPORT
         case "def"      => DEF
         case "data"     => DATA
+        case "pub"      => PUB
+        case "priv"     => PRIV
         case "let"      => LET
         case "rec"      => REC
         case "if"       => IF

@@ -5,6 +5,7 @@ import Core.{Val1 as V1, Val0 as V0, Tm1 as T1, Tm0 as T0}
 import State.MetaEntry
 
 import scala.annotation.tailrec
+import scala.collection.mutable
 
 object Evaluation:
   // closure application
@@ -267,13 +268,13 @@ object Evaluation:
       case V0.Case(rty, dty, s, cs) =>
         def goCases(cs: Cases)(using env: Env): Cases =
           cs match
+            case Cases.Empty        => Cases.Empty
+            case Cases.Otherwise(b) => Cases.Otherwise(go0(eval0(b)))
             case Cases.Ext(x, ps, b, r) =>
               val (innerlvl, innerenv) = addParams(ps)
               val nps = ps.map((x, ty) => (x, go1(eval1(ty))))
               val rb = readback0(eval0(b)(using innerenv))(using innerlvl)
               Cases.Ext(x, nps, rb, goCases(r))
-            case Cases.Otherwise(b) => Cases.Otherwise(go0(eval0(b)))
-            case Cases.Empty        => Cases.Empty
         T0.Case(
           go1(rty),
           go1(dty),
@@ -302,3 +303,69 @@ object Evaluation:
     readback0(eval0(tm)(using Env.Empty))(using lvl0, UnfoldOption.Unstage)
   inline def unstageUnder(tm: T0, env: Env): T0 =
     readback0(eval0(tm)(using env))(using mkLvl(env.size), UnfoldOption.Unstage)
+
+  def allGlobals(v: V1): Set[(Name, Name)] =
+    val set = mutable.Set.empty[(Name, Name)]
+    inline def goClos1(c: Clos1)(using lvl: Lvl): Unit =
+      go1(c(V1.Var(lvl)))(using lvl + 1)
+    inline def goClos0(c: Clos0)(using lvl: Lvl): Unit =
+      go0(c(V0.Var(lvl)))(using lvl + 1)
+    @tailrec
+    def goSp(sp: Spine)(using lvl: Lvl): Unit =
+      sp match
+        case Spine.Empty           => ()
+        case Spine.App(sp, a, _)   => go1(a); goSp(sp)
+        case Spine.MetaApp1(sp, a) => go1(a); goSp(sp)
+        case Spine.MetaApp0(sp, a) => go0(a); goSp(sp)
+    def goHead(h: Head): Unit =
+      h match
+        case Head.Var(_)         => ()
+        case Head.Prim(_)        => ()
+        case Head.TypeCon(m, x)  => set += ((m, x))
+        case Head.Con(m, dx, cx) => set += ((m, dx)); set += ((m, cx))
+    def goUnfoldHead(h: UnfoldHead)(using lvl: Lvl): Unit =
+      h match
+        case UnfoldHead.Global(m, x, v) => set += ((m, x)); go1(v)
+    def go1(v: V1)(using lvl: Lvl): Unit =
+      v match
+        case V1.Rigid(h, sp)      => goHead(h); goSp(sp)
+        case V1.Unfold(h, sp, _)  => goUnfoldHead(h); goSp(sp)
+        case V1.Pi(_, _, ty, b)   => go1(ty); goClos1(b)
+        case V1.Lam(_, _, ty, b)  => go1(ty); goClos1(b)
+        case V1.Fun(pty, cv, rty) => go1(pty); go1(cv); go1(rty)
+        case V1.Lift(cv, ty)      => go1(cv); go1(ty)
+        case V1.Quote(tm)         => go0(tm)
+        case V1.MetaPi1(ty, b)    => go1(ty); goClos1(b)
+        case V1.MetaPi0(ty, b)    => go1(ty); goClos1(b)
+        case V1.MetaLam1(b)       => goClos1(b)
+        case V1.MetaLam0(b)       => goClos1(b)
+        case V1.Flex(m, sp) =>
+          State.getMeta(m) match
+            case MetaEntry.Unsolved(_)  => goSp(sp)
+            case MetaEntry.Solved(v, _) => go1(vspine(v, sp))
+    def go0(v: V0)(using lvl: Lvl): Unit =
+      v match
+        case V0.Global(m, x)         => set += ((m, x))
+        case V0.Var(_)               => ()
+        case V0.IntLit(_)            => ()
+        case V0.Let(_, ty, v, b)     => go1(ty); go0(v); goClos0(b)
+        case V0.LetRec(_, ty, v, b)  => go1(ty); goClos0(v); goClos0(b)
+        case V0.Lam(_, ty, b)        => go1(ty); goClos0(b)
+        case V0.App(f, a)            => go0(f); go0(a)
+        case V0.If(rty, c, t, f)     => go1(rty); go0(c); go0(t); go0(f)
+        case V0.Select(rty, s, x, i) => go1(rty); go0(s)
+        case V0.Splice(tm)           => go1(tm)
+        case V0.Case(rty, dty, s, cs) =>
+          go1(rty); go1(dty); go0(s)
+          def goCases(cs: Cases)(using env: Env): Unit =
+            cs match
+              case Cases.Empty        => ()
+              case Cases.Otherwise(b) => go0(eval0(b))
+              case Cases.Ext(x, ps, b, r) =>
+                val (innerlvl, innerenv) = addParams(ps)
+                val nps = ps.foreach((_, ty) => go1(eval1(ty)))
+                val rb = go0(eval0(b)(using innerenv))(using innerlvl)
+                goCases(r)
+          goCases(cs.cases)(using cs.env)
+    go1(v)(using lvl0)
+    set.toSet

@@ -19,36 +19,38 @@ object Surface:
 
   final case class Constructor(
       pos: PosInfo,
+      pub: Boolean,
       name: Name,
       params: Seq[(Bind, Ty)]
   ):
     override def toString: String =
       params match
-        case Nil => s"$name"
+        case Nil => s"${if pub then "" else "priv "}$name"
         case _ =>
           val ps = params
             .map((x, t) => s"($x : $t)")
             .mkString(" ")
-          s"$name $ps"
+          s"${if pub then "" else "priv "}$name $ps"
 
   enum Def:
-    case Def0(pos: PosInfo, name: Name, ty: Option[Ty], value: Tm)
-    case Def1(pos: PosInfo, name: Name, ty: Option[Ty], value: Tm)
+    case Def0(pos: PosInfo, pub: Boolean, name: Name, ty: Option[Ty], value: Tm)
+    case Def1(pos: PosInfo, pub: Boolean, name: Name, ty: Option[Ty], value: Tm)
     case Data(
         pos: PosInfo,
+        pub: Boolean,
         name: Name,
         params: Seq[Name],
         cons: Seq[Constructor]
     )
 
     override def toString: String = this match
-      case Def0(_, x, t, v) =>
-        s"def $x${t.map(t => s" : $t").getOrElse("")} := $v"
-      case Def1(_, x, t, v) =>
-        s"def $x${t.map(t => s" : $t").getOrElse("")} = $v"
-      case Data(_, x, ps, cs) =>
+      case Def0(_, p, x, t, v) =>
+        s"${if p then "public " else ""}def $x${t.map(t => s" : $t").getOrElse("")} := $v"
+      case Def1(_, p, x, t, v) =>
+        s"${if p then "pub " else ""}def $x${t.map(t => s" : $t").getOrElse("")} = $v"
+      case Data(_, p, x, ps, cs) =>
         val css = cs.mkString(" | ")
-        s"data $x ${ps.mkString(" ")} := $css"
+        s"${if p then "pub " else ""}data $x ${ps.mkString(" ")} := $css"
 
   enum ArgInfo:
     case Named(name: Name)

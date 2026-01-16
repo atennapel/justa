@@ -72,9 +72,11 @@ object Main:
         throw err
 
   private def showPos(text: String, pos: PosInfo): String =
-    val line = text.lines.toArray.apply(pos.line - 1)
-    val indicator = " " * (pos.column - 1)
-    s"$line\n$indicator^"
+    if pos.line < 1 || pos.column < 1 then ""
+    else
+      val line = text.lines.toArray.apply(pos.line - 1)
+      val indicator = " " * (pos.column - 1)
+      s"$line\n$indicator^"
 
   // util
   private inline def err(msg: String): Nothing =

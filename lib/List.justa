@@ -3,54 +3,54 @@ module List
 import Prelude (vtype, not, (&&), (||), (+), (*), Option, None, Some, Unit, U)
 import IOUtil (return, bind, seq)
 
-data List A := Nil | (::) (head : A) (tail : List A)
+pub data List A := Nil | (::) (head : A) (tail : List A)
 
-def singleton {A : vtype} (x : A) : List A = x :: Nil
+pub def singleton {A : vtype} (x : A) : List A = x :: Nil
 
-def isEmpty {A : vtype} : List A -> Bool =
+pub def isEmpty {A : vtype} : List A -> Bool =
   match
   | Nil => True
   | _ => False
 
-def nonEmpty {A} (l : List A) : Bool = not (isEmpty l)
+pub def nonEmpty {A} (l : List A) : Bool = not (isEmpty l)
 
-def head {A} (l : List A) : Option A =
+pub def head {A} (l : List A) : Option A =
   match l
   | Nil => None
   | hd :: _ => Some hd
 
-def reverse {A} (l : List A) : List A =
+pub def reverse {A} (l : List A) : List A =
   let rec go (l : List A) (acc : List A) :=
     match l
     | Nil => acc
     | hd :: tl => go tl (hd :: acc);
   go l Nil
 
-def foldr {A : vtype} {k} {B : type k} (n : B) (c : A -> B -> B) (l : List A) : B =
+pub def foldr {A : vtype} {k} {B : type k} (n : B) (c : A -> B -> B) (l : List A) : B =
   let rec go (l : List A) :=
     match l
     | Nil => n
     | hd :: tl => c hd (go tl);
   go l
 
-def foldl {A B : vtype} (n : B) (c : B -> A -> B) (l : List A) : B =
+pub def foldl {A B : vtype} (n : B) (c : B -> A -> B) (l : List A) : B =
   foldr (\acc => acc) (\hd go acc => go (c acc hd)) l n
 
-def map {A B : vtype} (f : A -> B) (l : List A) : List B =
+pub def map {A B : vtype} (f : A -> B) (l : List A) : List B =
   foldr Nil (\hd tl => f hd :: tl) l
 
-def append {A} (a b : List A) : List A = foldr b (::) a
+pub def append {A} (a b : List A) : List A = foldr b (::) a
 
-def sum l := foldl 0 (+) l
-def product l := foldl 0 (*) l
-def all l := foldl True (&&) l
-def any l := foldl False (||) l
+pub def sum l := foldl 0 (+) l
+pub def product l := foldl 0 (*) l
+pub def all l := foldl True (&&) l
+pub def any l := foldl False (||) l
 
-def traverseIO {A B : vtype} (f : A -> IO B) (l : List A) : IO (List B) =
+pub def traverseIO {A B : vtype} (f : A -> IO B) (l : List A) : IO (List B) =
   foldr (return Nil) (\hd tl => bind (f hd) \fhd => bind tl \ftl => return (fhd :: ftl)) l
 
-def traverseIO_ {A B : vtype} (f : A -> IO B) (l : List A) : IO Unit =
+pub def traverseIO_ {A B : vtype} (f : A -> IO B) (l : List A) : IO Unit =
   foldr (return U) (\hd tl => seq (f hd) tl) l
 
-def foldlIO {A B : vtype} (start : B) (f : B -> A -> IO B) (l : List A) : IO B =
+pub def foldlIO {A B : vtype} (start : B) (f : B -> A -> IO B) (l : List A) : IO B =
   foldr (\acc => return acc) (\hd tl acc => bind (f acc hd) tl) l start

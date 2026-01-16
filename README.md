@@ -14,6 +14,9 @@ https://github.com/AndrasKovacs/cctt
 - [x] Lambda match
 - [x] Operators
 - [x] Modules
+- [x] Public/private
+- [ ] Detect duplications between defs and imports, and inbetween imports
+- [ ] Re-exporting
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
@@ -21,4 +24,4 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Mutual recursion
 - [ ] Pattern matching
 - [ ] Instance search
-- [ ] Public/private
+- [ ] String and label types

@@ -1,40 +1,40 @@
 module Prelude
 
-def vtype = type val
-def ctype = type comp
+pub def vtype = type val
+pub def ctype = type comp
 
-def id {A} (x : A) = x
-def const {A B} (x y : A) = x
+pub def id {A} (x : A) = x
+pub def const {A B : meta} (x y : A) = x
 
-def not b = if b then False else True
-def (&&) a b = if a then b else False
-def (||) a b = if a then True else b
+pub def not b = if b then False else True
+pub def (&&) a b = if a then b else False
+pub def (||) a b = if a then True else b
 
-def cond {k} {A : type k} (a b : A) (c : Bool) : A =
+pub def cond {k} {A : type k} (a b : A) (c : Bool) : A =
   if c then a else b
 
-def (<) a b = lt a b
-def (+) a b = add a b
-def (*) a b = mul a b
-def (-) a b = sub a b
+pub def (<) a b = lt a b
+pub def (+) a b = add a b
+pub def (*) a b = mul a b
+pub def (-) a b = sub a b
 
-def factorial (n : Int) :=
+pub def factorial (n : Int) :=
   let rec go (n : Int) (acc : Int) :=
     if n < 2 then acc
     else go (n - 1) (acc * n);
   go n 1
 
-data Void
+pub data Void
 
-def absurd {k} {A : type k} (v : Void) : A = match v {}
+pub def absurd {k} {A : type k} (v : Void) : A = match v {}
 
-data Unit := U
+pub data Unit := U
 
-data Option A := None | Some (value : A)
+pub data Option A := None | Some (value : A)
 
-data Either A B := Left A | Right B
+pub data Either A B := Left A | Right B
 
-data Pair A B := MkPair (fst : A) (snd : B)
+pub data Pair A B := MkPair (fst : A) (snd : B)
 
-def fst {A B} (p : Pair A B) : A = p.fst
-def snd {A B} (p : Pair A B) : B = p.snd
+pub def fst {A B} (p : Pair A B) : A = p.fst
+pub def snd {A B} (p : Pair A B) : B = p.snd

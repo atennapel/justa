@@ -24,7 +24,7 @@ object Simplification:
     val (ps, nargs, nscope) = eta(d.ty)(using Set.empty)
     val expanded = go(d.value, nargs)(using nscope, Map.empty)
     val simp = correctUsages(simplify(lams(ps, expanded)))
-    Def(d.name, d.ty, simp)
+    Def(d.pub, d.name, d.ty, simp)
 
   @tailrec
   private def simplify(t: Tm): Tm =
