@@ -32,6 +32,7 @@ object Simplification:
     val next = go(correctUsages(t), Nil)(using Set.empty, Map.empty)
     if next == t then t else simplify(next)
 
+  // TODO: add all eliminators in args
   private def go(t: Tm, args: Seq[Tm])(using scope: Scope, subst: Subst): Tm =
     t match
       case Tm.Global(_, _, _) => args.foldLeft(t)(Tm.App.apply)
@@ -53,6 +54,15 @@ object Simplification:
         subst.get(x) match
           case Some(tm) if tm != t => go(tm, args)
           case _                   => args.foldLeft(t)(Tm.App.apply)
+
+      case Tm.Select(ty, Tm.If(_, c, t, f), i) =>
+        go(Tm.If(CTy(ty), c, Tm.Select(ty, f, i), Tm.Select(ty, t, i)), args)
+      case Tm.Select(ty, Tm.Let(x, u, ty2, v, b), i) =>
+        go(Tm.Let(x, u, ty2, v, Tm.Select(ty, b, i)), args)
+      case Tm.Select(ty, Tm.LetRec(x, u, ty2, v, b), i) =>
+        go(Tm.LetRec(x, u, ty2, v, Tm.Select(ty, b, i)), args)
+      case Tm.Select(_, Tm.Con(_, _, _, _, _, cargs), i) => go(cargs(i), args)
+      case Tm.Select(ty, s, i) => Tm.Select(ty, go(s, Nil), i)
 
       case Tm.If(_, Tm.BoolLit(b), t, f) =>
         if b then go(t, args) else go(f, args)
@@ -137,9 +147,10 @@ object Simplification:
         else (x, go(b0, args)(using scope + x, subst - x))
         Tm.BindIO(y, -1, ty, v, b)
 
-      case Tm.Select(_, Tm.Con(_, _, _, _, _, cargs), i) => go(cargs(i), args)
-      case Tm.Select(ty, s, i) => Tm.Select(ty, go(s, Nil), i)
-
+      case Tm.Case(rty, dty, Tm.Let(x, u, vty, v, b), cs) =>
+        go(Tm.Let(x, u, vty, v, Tm.Case(rty, dty, b, cs)), args)
+      case Tm.Case(rty, dty, Tm.LetRec(x, u, vty, v, b), cs) =>
+        go(Tm.LetRec(x, u, vty, v, Tm.Case(rty, dty, b, cs)), args)
       case Tm.Case(_, _, Tm.Con(_, _, cx, _, _, cargs), cs) =>
         @tailrec
         def lookup(
