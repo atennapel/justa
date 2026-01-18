@@ -3,6 +3,12 @@ import Common.*
 import scala.annotation.tailrec
 
 object Core:
+  final case class ProjType(name: Option[Name], ix: Int):
+    override def toString: String =
+      name match
+        case None    => ix.toString
+        case Some(x) => x.toString
+
   enum Cases:
     case Ext(x: Name, ps: Seq[(Bind, Ty)], body: Tm0, rest: Cases)
     case Otherwise(body: Tm0)
@@ -37,7 +43,9 @@ object Core:
 
     case If(rty: Ty, cond: Tm0, ifTrue: Tm0, ifFalse: Tm0)
     case Case(rty: Ty, dty: Ty, scrut: Tm0, cases: Cases)
-    case Select(rty: Ty, scrut: Tm0, x: Option[Name], i: Int)
+
+    case RecordCon(ty: Ty, fields: Seq[Tm0])
+    case Proj(rty: Ty, scrut: Tm0, p: ProjType)
 
     case Wk1(tm: Tm0)
     case Wk0(tm: Tm0)
@@ -71,8 +79,8 @@ object Core:
       case Wk0(tm)                    => s"Wk00($tm)"
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
-      case Select(_, s, None, i)      => s"$s.$i"
-      case Select(_, s, Some(x), _)   => s"$s.$x"
+      case Proj(_, s, p)              => s"$s.$p"
+      case RecordCon(_, fs)           => fs.mkString("[", ", ", "]")
 
   type Ty = Tm1
   enum Tm1:
@@ -91,6 +99,11 @@ object Core:
 
     case Lift(cv: Ty, ty: Ty)
     case Quote(tm: Tm0)
+
+    case RecordTy1(fields: Assoc[Ty])
+    case RecordTy0(fields: Assoc[Ty])
+    case RecordCon(fields: Seq[Tm1])
+    case Proj(tm: Tm1, proj: ProjType)
 
     case Wk0(tm: Tm1)
     case Wk1(tm: Tm1)
@@ -132,16 +145,22 @@ object Core:
       case Fun(pty, _, rty)        => s"($pty -> $rty)"
       case Lift(_, ty)             => s"^$ty"
       case Quote(tm)               => s"`$tm"
-      case Wk0(tm)                 => s"Wk01($tm)"
-      case Wk1(tm)                 => s"Wk11($tm)"
-      case Meta(id)                => s"?$id"
-      case MetaPi1(t, b)           => s"($t 1-> $b)"
-      case MetaLam1(b)             => s"(\\1 => $b)"
-      case MetaPi0(t, b)           => s"($t 0-> $b)"
-      case MetaLam0(b)             => s"(\\0 => $b)"
-      case MetaApp0(f, a)          => s"($f 0 $a)"
-      case MetaApp1(f, a)          => s"($f 1 $a)"
-      case AppPruning(id, p)       => s"(?$id ...(${p.size}))"
+      case RecordTy1(fs) =>
+        fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
+      case RecordTy0(fs) =>
+        fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
+      case RecordCon(fs)     => fs.mkString("[", ", ", "]")
+      case Proj(tm, p)       => s"$tm.$p"
+      case Wk0(tm)           => s"Wk01($tm)"
+      case Wk1(tm)           => s"Wk11($tm)"
+      case Meta(id)          => s"?$id"
+      case MetaPi1(t, b)     => s"($t 1-> $b)"
+      case MetaLam1(b)       => s"(\\1 => $b)"
+      case MetaPi0(t, b)     => s"($t 0-> $b)"
+      case MetaLam0(b)       => s"(\\0 => $b)"
+      case MetaApp0(f, a)    => s"($f 0 $a)"
+      case MetaApp1(f, a)    => s"($f 1 $a)"
+      case AppPruning(id, p) => s"(?$id ...(${p.size}))"
 
   object Tm1:
     val CV = Prim(Primitive.CV)
@@ -201,6 +220,12 @@ object Core:
   object Clos1:
     def apply(tm: Tm1)(using env: Env): Clos1 = Clos(env, tm)
 
+  final case class ClosRec(env: Env, fields: Assoc[Ty]):
+    def add(v: Val1): ClosRec = ClosRec(Env.Ext1(env, v), fields.tail)
+  object ClosRec:
+    def apply(fields: Assoc[Ty])(using env: Env): ClosRec =
+      ClosRec(env, fields)
+
   enum Val0:
     case Var(lvl: Lvl)
     case Global(mod: Name, name: Name)
@@ -211,7 +236,8 @@ object Core:
     case App(fn: Val0, arg: Val0)
     case If(rty: VTy, cond: Val0, ifTrue: Val0, ifFalse: Val0)
     case Case(rty: VTy, dty: VTy, scrut: Val0, cases: ClosCases)
-    case Select(rty: VTy, scrut: Val0, x: Option[Name], i: Int)
+    case Proj(rty: VTy, scrut: Val0, p: ProjType)
+    case RecordCon(ty: VTy, fields: Seq[Val0])
     case Splice(tm: Val1)
 
   enum Head:
@@ -226,6 +252,7 @@ object Core:
   enum Spine:
     case Empty
     case App(sp: Spine, arg: Val1, icit: Icit)
+    case Proj(sp: Spine, proj: ProjType)
     case MetaApp1(sp: Spine, arg: Val1)
     case MetaApp0(sp: Spine, arg: Val0)
 
@@ -234,6 +261,7 @@ object Core:
       def go(acc: Int, sp: Spine): Int = sp match
         case Empty           => acc
         case App(sp, _, _)   => go(acc + 1, sp)
+        case Proj(sp, _)     => go(acc + 1, sp)
         case MetaApp1(sp, _) => go(acc + 1, sp)
         case MetaApp0(sp, _) => go(acc + 1, sp)
       go(0, this)
@@ -243,6 +271,7 @@ object Core:
       def go(acc: Spine, sp: Spine): Spine = sp match
         case Empty           => acc
         case App(sp, v, i)   => go(App(acc, v, i), sp)
+        case Proj(sp, p)     => go(Proj(acc, p), sp)
         case MetaApp1(sp, v) => go(MetaApp1(acc, v), sp)
         case MetaApp0(sp, v) => go(MetaApp0(acc, v), sp)
       go(Empty, this)
@@ -273,6 +302,10 @@ object Core:
     case Lift(cv: VTy, ty: VTy)
 
     case Quote(tm: Val0)
+
+    case RecordTy1(fields: ClosRec)
+    case RecordTy0(fields: Assoc[VTy])
+    case RecordCon(fields: Seq[Val1])
 
     case MetaPi1(ty: VTy, body: Clos1)
     case MetaPi0(ty: VTy, body: Clos1)

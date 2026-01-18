@@ -273,7 +273,7 @@ object Unification:
       case V0.App(f, a)           => T0.App(go0(f), go0(a))
       case V0.If(ty, c, t, f)     => T0.If(go1(ty), go0(c), go0(t), go0(f))
       case V0.Splice(v)           => go1(v).splice
-      case V0.Select(ty, s, x, i) => T0.Select(go1(ty), go0(s), x, i)
+      case V0.Proj(ty, s, p)      => T0.Proj(go1(ty), go0(s), p)
       case V0.Case(rty, dty, s, cs) =>
         def addParams(
             ps: Seq[(Bind, Ty)]
@@ -400,7 +400,7 @@ object Unification:
       case (V0.App(f1, a1), V0.App(f2, a2)) => unify0(f1, f2); unify0(a1, a2)
       case (V0.If(ty1, c1, t1, f1), V0.If(ty2, c2, t2, f2)) =>
         unify1(ty1, ty2); unify0(c1, c2); unify0(t1, t2); unify0(f1, f2)
-      case (V0.Select(t1, s1, _, i1), V0.Select(t2, s2, _, i2)) if i1 == i2 =>
+      case (V0.Proj(t1, s1, p1), V0.Proj(t2, s2, p2)) if p1.ix == p2.ix =>
         unify1(t1, t2); unify0(s1, s2)
       case (V0.Case(rty1, dty1, s1, cases1), V0.Case(rty2, dty2, s2, cases2)) =>
         unify1(rty1, rty2); unify1(dty1, dty2); unify0(s1, s2)

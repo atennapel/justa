@@ -10,7 +10,8 @@ import Core.{
   Val1 as V,
   Tm1 as T1,
   Tm0 as T0,
-  Cases
+  Cases,
+  ProjType
 }
 import Evaluation.*
 import Surface.Tm as S
@@ -20,7 +21,6 @@ import State.GlobalEntry
 import Debug.debug
 
 import scala.annotation.tailrec
-import Surface.ProjType
 
 object Elaboration:
   final class ElaborateError(val pos: PosInfo, val module: Name, msg: String)
@@ -738,10 +738,27 @@ object Elaboration:
 
         case S.UnitLit(_)       => err("cannot infer unit")
         case S.EmptyRecord(_)   => err("cannot infer empty record")
-        case S.Tuple(_, _)      => ???
-        case S.RecordTy(_, _)   => ???
-        case S.RecordCon1(_, _) => ???
-        case S.RecordCon0(_, _) => ???
+        case S.RecordCon1(_, _) => err("cannot infer meta record")
+
+        case S.Tuple(_, _) => ???
+
+        case S.RecordTy(_, _) => ???
+
+        case S.RecordCon0(_, fields) =>
+          val xs = fields.map(_._1)
+          if xs.toSet.size != xs.size then err(s"duplicate name in record")
+          def go(fs: Assoc[S]): (Seq[T0], Assoc[VTy]) =
+            fs match
+              case Nil => (Nil, Nil)
+              case (x, tm) :: rest =>
+                val (etm, vty, vcv) = infer0(tm)
+                unify(vcv, V.Val)
+                val (efields, tfields) = go(rest)
+                (etm +: efields, (x, vty) +: tfields)
+          val (efields, tfields) = go(fields)
+          val vty = V.RecordTy0(tfields)
+          val ty = ctx.readback1(vty)
+          Infer0(T0.RecordCon(ty, efields), vty, V.TypeV)
 
   private def inferProj(tm: S, p: Surface.ProjType)(using ctx: Ctx): Infer =
     debug(s"inferProj $tm.$p")
@@ -749,13 +766,13 @@ object Elaboration:
       case Infer0(etm, vty, _) =>
         val (cx, x, i, vrty) = inferProjTy(vty, p)
         val rty = ctx.readback1(vrty)
-        Infer0(T0.Select(rty, etm, x, i), vrty, V.Val)
+        Infer0(T0.Proj(rty, etm, ProjType(x, i)), vrty, V.Val)
       case Infer1(etm, vty) =>
         forceAll1(vty) match
           case V.Lift(_, vty2) =>
             val (cx, x, i, vrty) = inferProjTy(vty2, p)
             val rty = ctx.readback1(vrty)
-            Infer0(T0.Select(rty, etm.splice, x, i), vrty, V.Val)
+            Infer0(T0.Proj(rty, etm.splice, ProjType(x, i)), vrty, V.Val)
           case _ => err(s"cannot project from ${ctx.pretty1(vty)}")
 
   private def inferProjTy(vty: VTy, p: Surface.ProjType)(using
@@ -774,14 +791,14 @@ object Elaboration:
                 State.getGlobalDirect(m, cx) match
                   case Some(GlobalEntry.Con(_, _, _, params, _, _, _, _, _)) =>
                     p match
-                      case ProjType.Indexed(i) if i >= params.size =>
+                      case Surface.ProjType.Indexed(i) if i >= params.size =>
                         err(
                           s"cannot project from ${ctx.pretty1(vty)}, not enough parameters in constructor $cx"
                         )
-                      case ProjType.Indexed(i) =>
+                      case Surface.ProjType.Indexed(i) =>
                         val rty = eval1(params(i)._2)(using Env(dps.map(_._1)))
                         (cx, None, i, rty)
-                      case ProjType.Named(x) =>
+                      case Surface.ProjType.Named(x) =>
                         params.zipWithIndex.find { case ((y, _), _) =>
                           y.equals(x)
                         } match

@@ -60,15 +60,16 @@ object Pretty:
       ns: Seq[Bind]
   ): String =
     tm match
-      case T0.Var(_)             => pretty0(tm)
-      case T0.Global(_, _)       => pretty0(tm)
-      case T0.IntLit(_)          => pretty0(tm)
-      case T0.Splice(_)          => pretty0(tm)
-      case T0.App(_, _) if app   => pretty0(tm)
-      case T0.Select(_, _, _, _) => pretty0(tm)
-      case T0.Wk0(tm)            => prettyParen0(tm, app)(using ns.tail)
-      case T0.Wk1(tm)            => prettyParen0(tm, app)(using ns.tail)
-      case _                     => s"(${pretty0(tm)})"
+      case T0.Var(_)           => pretty0(tm)
+      case T0.Global(_, _)     => pretty0(tm)
+      case T0.IntLit(_)        => pretty0(tm)
+      case T0.Splice(_)        => pretty0(tm)
+      case T0.App(_, _) if app => pretty0(tm)
+      case T0.Proj(_, _, _)    => pretty0(tm)
+      case Tm0.RecordCon(_, _) => pretty0(tm)
+      case T0.Wk0(tm)          => prettyParen0(tm, app)(using ns.tail)
+      case T0.Wk1(tm)          => prettyParen0(tm, app)(using ns.tail)
+      case _                   => s"(${pretty0(tm)})"
 
   @tailrec
   def prettyParen1(tm: Tm1, app: Boolean = false)(using
@@ -87,6 +88,10 @@ object Pretty:
       case T1.App(_, _, _) if app   => pretty1(tm)
       case T1.MetaApp1(_, _) if app => pretty1(tm)
       case T1.MetaApp0(_, _) if app => pretty1(tm)
+      case T1.RecordTy1(_)          => pretty1(tm)
+      case T1.RecordTy0(_)          => pretty1(tm)
+      case T1.RecordCon(_)          => pretty1(tm)
+      case T1.Proj(_, _)            => pretty1(tm)
       case T1.Wk0(tm)               => prettyParen1(tm, app)(using ns.tail)
       case T1.Wk1(tm)               => prettyParen1(tm, app)(using ns.tail)
       case _                        => s"(${pretty1(tm)})"
@@ -126,8 +131,8 @@ object Pretty:
     case T0.Wk1(tm) => pretty0(tm)(using ns.tail)
     case T0.Wk0(tm) => pretty0(tm)(using ns.tail)
 
-    case T0.Select(_, s, None, i)    => s"${prettyParen0(s)}.$i"
-    case T0.Select(_, s, Some(x), i) => s"${prettyParen0(s)}.$x"
+    case Tm0.RecordCon(_, fs) => fs.map(pretty0).mkString("[", ", ", "]")
+    case T0.Proj(_, s, p)     => s"${prettyParen0(s)}.$p"
 
     case T0.Case(_, _, s, Cases.Empty) => s"match $s {}"
     case T0.Case(_, _, s, cs) =>
@@ -143,6 +148,13 @@ object Pretty:
           case Cases.Otherwise(b) => s"_ => ${pretty0(b)}"
           case Cases.Empty        => s""
       s"match ${pretty0(s)} { ${go(cs)} }"
+
+  private def goRec(ns: Seq[Bind], fs: Assoc[Ty]): Seq[String] =
+    fs match
+      case Nil => Nil
+      case (x, t) :: rest =>
+        val nns = DoBind(x) +: ns
+        s"$x : ${pretty1(t)(using ns)}" +: goRec(nns, rest)
 
   def pretty1(tm: Tm1)(using ns: Seq[Bind]): String = tm match
     case T1.Var(ix) =>
@@ -171,6 +183,12 @@ object Pretty:
 
     case T1.Lift(_, t) => s"^${prettyParen1(t)}"
     case T1.Quote(t)   => s"`${prettyParen0(t)}"
+
+    case Tm1.RecordTy1(fs) => goRec(ns, fs).mkString("[", ", ", "]")
+    case Tm1.RecordTy0(fs) =>
+      fs.map((x, t) => s"$x : ${pretty1(t)}").mkString("[", ", ", "]")
+    case Tm1.RecordCon(fs) => fs.map(pretty1).mkString("[", ", ", "]")
+    case Tm1.Proj(tm, p)   => s"${prettyParen1(tm)}.$p"
 
     case T1.Wk0(tm) => pretty1(tm)(using ns.tail)
     case T1.Wk1(tm) => pretty1(tm)(using ns.tail)

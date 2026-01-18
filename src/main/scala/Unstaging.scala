@@ -97,7 +97,9 @@ object Unstaging:
 
       case Tm0.If(rty, c, t, f) => Tm.If(goCTy(rty), go(c), go(t), go(f))
 
-      case Tm0.Select(rty, s, _, i) => Tm.Select(goTy(rty), go(s), i)
+      case Tm0.Proj(rty, s, p) => Tm.Select(goTy(rty), go(s), p.ix)
+
+      case Tm0.RecordCon(ty, fs) => ???
 
       case Tm0.Case(rty, dty, s, cs) =>
         def goCases(cs: Core.Cases): Cases =

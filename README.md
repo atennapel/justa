@@ -19,7 +19,7 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Record types
 - [ ] Meta datatypes
 - [ ] Identity types
-- [ ] Clean up usages of Nil and use Seq instead
+- [ ] Clean up usages of Nil and use Seq (or Vector or List) instead
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
@@ -31,3 +31,4 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Import all(-hiding), re-export all(-hiding)
 - [ ] Accept trailing and leading commas where it makes sense
 - [ ] Row-types records (and variants)?
+- [ ] Give more context for cv unification errors in elaboration
