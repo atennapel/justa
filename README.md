@@ -16,6 +16,10 @@ https://github.com/AndrasKovacs/cctt
 - [x] Modules
 - [x] Public/private
 - [x] Re-exporting
+- [ ] Record types
+- [ ] Meta datatypes
+- [ ] Identity types
+- [ ] Clean up usages of Nil and use Seq instead
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
@@ -25,3 +29,5 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Instance search
 - [ ] String and label types
 - [ ] Import all(-hiding), re-export all(-hiding)
+- [ ] Accept trailing and leading commas where it makes sense
+- [ ] Row-types records (and variants)?

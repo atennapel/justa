@@ -594,8 +594,6 @@ object Elaboration:
         case S.Prim(_, p)   => Infer1(T1.Prim(p), inferPrimType(p))
         case S.IntLit(_, v) => Infer0(T0.IntLit(v), V.Int, V.Val)
 
-        case S.UnitLit(_) => err("cannot infer unit")
-
         case S.Var(_, x) =>
           ctx.lookup(x) match
             case Some(NameInfo.Name0(x, ty, cv)) =>
@@ -737,6 +735,13 @@ object Elaboration:
           val exty = ctx.eval1(freshMeta(V.Type(excv)))
           val etm = checkMatch(s, cs, exty, excv)
           Infer0(etm, exty, excv)
+
+        case S.UnitLit(_)       => err("cannot infer unit")
+        case S.EmptyRecord(_)   => err("cannot infer empty record")
+        case S.Tuple(_, _)      => ???
+        case S.RecordTy(_, _)   => ???
+        case S.RecordCon1(_, _) => ???
+        case S.RecordCon0(_, _) => ???
 
   private def inferProj(tm: S, p: Surface.ProjType)(using ctx: Ctx): Infer =
     debug(s"inferProj $tm.$p")

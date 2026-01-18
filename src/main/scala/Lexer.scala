@@ -19,6 +19,8 @@ object Lexer:
     case R_PAREN
     case L_BRACE
     case R_BRACE
+    case L_BRACKET
+    case R_BRACKET
     case COLON
     case SEMICOLON
     case EQUALS
@@ -40,6 +42,8 @@ object Lexer:
         case R_PAREN      => ")"
         case L_BRACE      => "{"
         case R_BRACE      => "}"
+        case L_BRACKET    => "["
+        case R_BRACKET    => "]"
         case COLON        => ":"
         case SEMICOLON    => ";"
         case EQUALS       => "="
@@ -62,6 +66,8 @@ object Lexer:
         case ")" => R_PAREN
         case "{" => L_BRACE
         case "}" => R_BRACE
+        case "[" => L_BRACKET
+        case "]" => R_BRACKET
         case _   => null
     def parse(symbol: String): Symbol | Null =
       symbol match

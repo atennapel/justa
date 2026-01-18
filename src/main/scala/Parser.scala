@@ -196,6 +196,12 @@ object Parser:
                   else if trySymbol(CARET) then Tm.Lift(p, atom())
                   else if trySymbol(GRAVE) then Tm.Quote(p, atom())
                   else if trySymbol(DOLLAR) then Tm.Splice(p, atom())
+                  else if trySymbol(L_BRACKET) then
+                    if trySymbol(R_BRACKET) then Tm.EmptyRecord(p)
+                    else
+                      val tm = record(p)
+                      symbol(R_BRACKET)
+                      tm
                   else if trySymbol(L_PAREN) then
                     val p2 = pos
                     tryOp() match
@@ -269,6 +275,48 @@ object Parser:
         i += 1
       }
       null
+
+    private val RecordKindNone = 0
+    private val RecordKind0 = 1
+    private val RecordKind1 = 2
+    private val RecordKindTy = 3
+    private inline def recordKindSymbol(k: Int): Symbol =
+      k match
+        case RecordKind0  => COLON_EQUALS
+        case RecordKind1  => EQUALS
+        case RecordKindTy => COLON
+    private def record(p: PosInfo): Tm =
+      backtrack {
+        val xs = list(tryName())
+        val kind =
+          if trySymbol(COLON_EQUALS) then RecordKind0
+          else if trySymbol(EQUALS) then RecordKind1
+          else if trySymbol(COLON) then RecordKindTy
+          else RecordKindNone
+        if kind == RecordKindNone then null
+        else
+          val sym = recordKindSymbol(kind)
+          val tm = expr()
+          val tl = mutable.ArrayBuffer.empty[(Seq[Name], Tm)]
+          while trySymbol(COMMA) do
+            val xs = list(tryName())
+            symbol(sym)
+            val tm = expr()
+            tl += ((xs.toSeq, tm))
+          val fields = ((xs, tm) +: tl.toSeq).flatMap { (xs, tm) =>
+            xs.map(x => (x, tm))
+          }
+          kind match
+            case RecordKindTy => Tm.RecordTy(pos, fields)
+            case RecordKind1  => Tm.RecordCon1(pos, fields)
+            case RecordKind0  => Tm.RecordCon0(pos, fields)
+      } match
+        case null =>
+          val hd = expr()
+          val tl = mutable.ArrayBuffer.empty[Tm]
+          while trySymbol(COMMA) do tl += expr()
+          Tm.Tuple(p, hd +: tl.toSeq)
+        case tm => tm
 
     private def tryAtom(): Tm | Null =
       tryAtomInner() match
