@@ -153,15 +153,19 @@ object Parser:
       else DoBind(nameOrOp())
 
     private def tryBind(): Bind | Null =
-      if trySymbol(UNDERSCORE) then DontBind
-      else if trySymbol(L_PAREN) then
-        val x = op()
-        symbol(R_PAREN)
-        DoBind(Name.op(x))
-      else
-        tryName() match
-          case null => null
-          case x    => DoBind(x)
+      backtrack {
+        if trySymbol(UNDERSCORE) then DontBind
+        else if trySymbol(L_PAREN) then
+          tryOp() match
+            case null => null
+            case x =>
+              if trySymbol(R_PAREN) then DoBind(Name.op(x))
+              else null
+        else
+          tryName() match
+            case null => null
+            case x    => DoBind(x)
+      }
 
     private def tryBindPos(): (PosInfo, Bind) | Null =
       val p = pos
@@ -458,14 +462,17 @@ object Parser:
         if trySymbol(R_PAREN) then null
         else
           val p = pos
-          val x = (p, bind())
-          val xs = list(tryBindPos())
-          xs.insert(0, x)
-          if trySymbol(COLON) then
-            val ty = expr()
-            symbol(R_PAREN)
-            (Expl, xs, ty)
-          else null
+          tryBind() match
+            case null => null
+            case bx =>
+              val x = (p, bx)
+              val xs = list(tryBindPos())
+              xs.insert(0, x)
+              if trySymbol(COLON) then
+                val ty = expr()
+                symbol(R_PAREN)
+                (Expl, xs, ty)
+              else null
       else if trySymbol(L_BRACE) then
         val (xs, prety) = grouping()
         val p = pos
