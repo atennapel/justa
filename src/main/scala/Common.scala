@@ -150,6 +150,10 @@ object Common:
     case ReturnIO
     case BindIO
 
+    case Id
+    case Refl
+    case ElimId
+
     override def toString: String = this match
       case Meta     => "meta"
       case Type     => "type"
@@ -167,6 +171,9 @@ object Common:
       case IO       => "IO"
       case ReturnIO => "returnIO"
       case BindIO   => "bindIO"
+      case Id       => "Id"
+      case Refl     => "refl"
+      case ElimId   => "elimId"
 
   enum RuntimePrimitive derives CanEqual:
     case Lt

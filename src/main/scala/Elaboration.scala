@@ -811,6 +811,57 @@ object Elaboration:
                 V.fun1(V.liftC(V.Fun(a, V.Comp, V.IO(b))), V.liftC(V.IO(b)))
               )
           )
+      ),
+    // {A B : meta} -> A -> B -> meta
+    Primitive.Id -> V.piI(
+      "A",
+      V.Meta,
+      a => V.piI("B", V.Meta, b => V.fun1(a, V.fun1(b, V.Meta)))
+    ),
+    // {A : meta} {x : A} -> Id {A} {A} x x
+    Primitive.Refl -> V.piI(
+      "A",
+      V.Meta,
+      a => V.piI("x", a, x => V.Id(a, a, x, x))
+    ),
+    /*
+    {A : meta} {x : A}
+      (P : {y : A} -> Id {A} {A} x y -> meta)
+      (h : P {x} (refl {A} {x}))
+      {y : A}
+      (p : Id {A} {A} x y)
+      -> P {y} p
+     */
+    Primitive.ElimId ->
+      V.piI(
+        "A",
+        V.Meta,
+        a =>
+          V.piI(
+            "x",
+            a,
+            x =>
+              V.pi(
+                "P",
+                V.piI("y", a, y => V.fun1(V.Id(a, a, x, y), V.Meta)),
+                pp =>
+                  V.pi(
+                    "h",
+                    vappE(vappI(pp, x), V.Refl(a, x)),
+                    h =>
+                      V.piI(
+                        "y",
+                        a,
+                        y =>
+                          V.pi(
+                            "p",
+                            V.Id(a, a, x, y),
+                            p => vappE(vappI(pp, y), p)
+                          )
+                      )
+                  )
+              )
+          )
       )
   )
 

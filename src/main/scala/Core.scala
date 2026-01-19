@@ -1,4 +1,5 @@
 import Common.*
+import Common.Icit.*
 
 import scala.annotation.tailrec
 
@@ -135,19 +136,19 @@ object Core:
       case t        => Tm0.Splice(t)
 
     override def toString: String = this match
-      case Var(ix)                 => s"'$ix"
-      case Global(m, x, _)         => s"$m.$x"
-      case Prim(p)                 => s"$p"
-      case TypeCon(m, x)           => s"$m.$x"
-      case Con(m, _, x)            => s"$m.$x"
-      case Let(x, ty, v, b)        => s"(let $x : $ty = $v; $b)"
-      case Pi(x, i, ty, b)         => s"(${i.wrap(s"$x : $ty")} -> $b)"
-      case Lam(x, i, ty, b)        => s"(\\${i.wrap(s"$x : $ty")} => $b)"
-      case App(fn, arg, Icit.Expl) => s"($fn $arg)"
-      case App(fn, arg, i)         => s"($fn ${i.wrap(arg)})"
-      case Fun(pty, _, rty)        => s"($pty -> $rty)"
-      case Lift(_, ty)             => s"^$ty"
-      case Quote(tm)               => s"`$tm"
+      case Var(ix)            => s"'$ix"
+      case Global(m, x, _)    => s"$m.$x"
+      case Prim(p)            => s"$p"
+      case TypeCon(m, x)      => s"$m.$x"
+      case Con(m, _, x)       => s"$m.$x"
+      case Let(x, ty, v, b)   => s"(let $x : $ty = $v; $b)"
+      case Pi(x, i, ty, b)    => s"(${i.wrap(s"$x : $ty")} -> $b)"
+      case Lam(x, i, ty, b)   => s"(\\${i.wrap(s"$x : $ty")} => $b)"
+      case App(fn, arg, Expl) => s"($fn $arg)"
+      case App(fn, arg, i)    => s"($fn ${i.wrap(arg)})"
+      case Fun(pty, _, rty)   => s"($pty -> $rty)"
+      case Lift(_, ty)        => s"^$ty"
+      case Quote(tm)          => s"`$tm"
       case RecordTy1(fs) =>
         fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
       case RecordTy0(fs) =>
@@ -169,8 +170,8 @@ object Core:
     val CV = Prim(Primitive.CV)
     val Val = Prim(Primitive.Val)
     val Comp = Prim(Primitive.Comp)
-    val TypeV = App(Prim(Primitive.Type), Val, Icit.Expl)
-    val TypeC = App(Prim(Primitive.Type), Comp, Icit.Expl)
+    val TypeV = App(Prim(Primitive.Type), Val, Expl)
+    val TypeC = App(Prim(Primitive.Type), Comp, Expl)
 
     val RecordTy1Empty = RecordTy1(Nil)
     val RecordTy0Empty = RecordTy0(Nil)
@@ -260,27 +261,30 @@ object Core:
     case Empty
     case App(sp: Spine, arg: Val1, icit: Icit)
     case Proj(sp: Spine, proj: ProjType)
+    case ElimId(sp: Spine, a: Val1, x: Val1, pp: Val1, h: Val1, y: Val1)
     case MetaApp1(sp: Spine, arg: Val1)
     case MetaApp0(sp: Spine, arg: Val0)
 
     def size: Int =
       @tailrec
       def go(acc: Int, sp: Spine): Int = sp match
-        case Empty           => acc
-        case App(sp, _, _)   => go(acc + 1, sp)
-        case Proj(sp, _)     => go(acc + 1, sp)
-        case MetaApp1(sp, _) => go(acc + 1, sp)
-        case MetaApp0(sp, _) => go(acc + 1, sp)
+        case Empty                      => acc
+        case App(sp, _, _)              => go(acc + 1, sp)
+        case Proj(sp, _)                => go(acc + 1, sp)
+        case ElimId(sp, a, x, pp, h, y) => go(acc + 1, sp)
+        case MetaApp1(sp, _)            => go(acc + 1, sp)
+        case MetaApp0(sp, _)            => go(acc + 1, sp)
       go(0, this)
 
     def reverse: Spine =
       @tailrec
       def go(acc: Spine, sp: Spine): Spine = sp match
-        case Empty           => acc
-        case App(sp, v, i)   => go(App(acc, v, i), sp)
-        case Proj(sp, p)     => go(Proj(acc, p), sp)
-        case MetaApp1(sp, v) => go(MetaApp1(acc, v), sp)
-        case MetaApp0(sp, v) => go(MetaApp0(acc, v), sp)
+        case Empty                      => acc
+        case App(sp, v, i)              => go(App(acc, v, i), sp)
+        case Proj(sp, p)                => go(Proj(acc, p), sp)
+        case ElimId(sp, a, x, pp, h, y) => go(ElimId(acc, a, x, pp, h, y), sp)
+        case MetaApp1(sp, v)            => go(MetaApp1(acc, v), sp)
+        case MetaApp0(sp, v)            => go(MetaApp0(acc, v), sp)
       go(Empty, this)
 
     def isEmpty: Boolean = this match
@@ -361,24 +365,70 @@ object Core:
 
     object Type:
       def apply(cv: Val1): Val1 =
-        Rigid(Head.Prim(Primitive.Type), Spine.App(Spine.Empty, cv, Icit.Expl))
+        Rigid(Head.Prim(Primitive.Type), Spine.App(Spine.Empty, cv, Expl))
       def unapply(value: Val1): Option[Val1] = value match
         case Rigid(
               Head.Prim(Primitive.Type),
-              Spine.App(Spine.Empty, cv, Icit.Expl)
+              Spine.App(Spine.Empty, cv, Expl)
             ) =>
           Some(cv)
         case _ => None
 
     object IO:
       def apply(ty: Val1): Val1 =
-        Rigid(Head.Prim(Primitive.IO), Spine.App(Spine.Empty, ty, Icit.Expl))
+        Rigid(Head.Prim(Primitive.IO), Spine.App(Spine.Empty, ty, Expl))
       def unapply(value: Val1): Option[Val1] = value match
         case Rigid(
               Head.Prim(Primitive.IO),
-              Spine.App(Spine.Empty, ty, Icit.Expl)
+              Spine.App(Spine.Empty, ty, Expl)
             ) =>
           Some(ty)
+        case _ => None
+
+    object Id:
+      def apply(ty1: Val1, ty2: Val1, v1: Val1, v2: Val1): Val1 =
+        Rigid(
+          Head.Prim(Primitive.Id),
+          Spine.App(
+            Spine
+              .App(
+                Spine.App(Spine.App(Spine.Empty, ty1, Impl), ty2, Impl),
+                v1,
+                Expl
+              ),
+            v2,
+            Expl
+          )
+        )
+      def unapply(value: Val1): Option[(Val1, Val1, Val1, Val1)] = value match
+        case Rigid(
+              Head.Prim(Primitive.Id),
+              Spine.App(
+                Spine
+                  .App(
+                    Spine.App(Spine.App(Spine.Empty, ty1, Impl), ty2, Impl),
+                    v1,
+                    Expl
+                  ),
+                v2,
+                Expl
+              )
+            ) =>
+          Some((ty1, ty2, v1, v2))
+        case _ => None
+
+    object Refl:
+      def apply(ty: Val1, v: Val1): Val1 =
+        Rigid(
+          Head.Prim(Primitive.Refl),
+          Spine.App(Spine.App(Spine.Empty, ty, Impl), v, Impl)
+        )
+      def unapply(value: Val1): Option[(Val1, Val1)] = value match
+        case Rigid(
+              Head.Prim(Primitive.Refl),
+              Spine.App(Spine.App(Spine.Empty, ty, Impl), v, Impl)
+            ) =>
+          Some((ty, v))
         case _ => None
 
     val Meta = Prim(Primitive.Meta)
@@ -399,14 +449,14 @@ object Core:
     private inline def bind(x: String): Bind =
       if x == "_" then Bind.DontBind else Bind.DoBind(Name(x))
     def lam1(x: String, ty: VTy, b: Val1 => Val1): Val1 =
-      Val1.Lam(bind(x), Icit.Expl, ty, Clos1.Fun(b))
+      Val1.Lam(bind(x), Expl, ty, Clos1.Fun(b))
     def lamI(x: String, ty: VTy, b: Val1 => Val1): Val1 =
-      Val1.Lam(bind(x), Icit.Impl, ty, Clos1.Fun(b))
+      Val1.Lam(bind(x), Impl, ty, Clos1.Fun(b))
     def fun1(ty: VTy, rt: VTy): VTy =
-      Val1.Pi(Bind.DontBind, Icit.Expl, ty, Clos1.Fun(_ => rt))
+      Val1.Pi(Bind.DontBind, Expl, ty, Clos1.Fun(_ => rt))
     def pi(x: String, ty: VTy, b: VTy => VTy): VTy =
-      Val1.Pi(bind(x), Icit.Expl, ty, Clos1.Fun(b))
+      Val1.Pi(bind(x), Expl, ty, Clos1.Fun(b))
     def piI(x: String, ty: VTy, b: Val1 => VTy): VTy =
-      Val1.Pi(bind(x), Icit.Impl, ty, Clos1.Fun(b))
+      Val1.Pi(bind(x), Impl, ty, Clos1.Fun(b))
     def liftV(ty: VTy): VTy = Lift(Val, ty)
     def liftC(ty: VTy): VTy = Lift(Comp, ty)

@@ -277,6 +277,9 @@ object Parser:
             case IO       => return Primitive.IO
             case RETURNIO => return Primitive.ReturnIO
             case BINDIO   => return Primitive.BindIO
+            case ID       => return Primitive.Id
+            case REFL     => return Primitive.Refl
+            case ELIMID   => return Primitive.ElimId
             case _        => return null
         i += 1
       }

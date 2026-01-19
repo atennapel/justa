@@ -17,8 +17,9 @@ https://github.com/AndrasKovacs/cctt
 - [x] Public/private
 - [x] Re-exporting
 - [x] Record types
+- [x] Identity type
+- [ ] Fix parsing of ((op) arg) and (f arg)
 - [ ] Meta datatypes
-- [ ] Identity types
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism

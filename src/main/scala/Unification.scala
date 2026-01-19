@@ -110,7 +110,8 @@ object Unification:
         case Spine.MetaApp1(sp, v) =>
           val data = go(sp)
           invert1(v, V.Var(data._1), Expl, data)
-        case Spine.Proj(_, p) => err(s"projection in spine: .$p")
+        case Spine.Proj(_, p)               => err(s"projection in spine: .$p")
+        case Spine.ElimId(_, _, _, _, _, _) => err(s"elimId in spine")
     val (dom, _, sub, pr, isLinear) = go(sp)
     (PSub(None, dom, lvl, sub), if isLinear then None else Some(pr))
 
@@ -218,9 +219,11 @@ object Unification:
               case NeedsPruning => err("failed to prune")
               case _            => (Some(ptm(psubst1(t))) :: sp2, OKNonRenaming)
       sp match
-        case Spine.Empty         => (Nil, OKRenaming)
-        case Spine.Proj(_, p)    => err(s"cannot prune because of project .$p")
-        case Spine.App(sp, v, i) => go1(sp, v, t => Prune1(t, i))
+        case Spine.Empty      => (Nil, OKRenaming)
+        case Spine.Proj(_, p) => err(s"cannot prune because of projection .$p")
+        case Spine.ElimId(_, _, _, _, _, _) =>
+          err(s"cannot prune because of elimId")
+        case Spine.App(sp, v, i)   => go1(sp, v, t => Prune1(t, i))
         case Spine.MetaApp1(sp, v) => go1(sp, v, t => PruneMeta1(t))
         case Spine.MetaApp0(sp, v) =>
           val (sp2, status) = go(sp)
@@ -269,6 +272,10 @@ object Unification:
         go(sp)
           .orElse(Some((sp, Spine.Empty)))
           .map((l, r) => (l, Spine.Proj(r, p)))
+      case Spine.ElimId(sp, a, x, pp, h, y) =>
+        go(sp)
+          .orElse(Some((sp, Spine.Empty)))
+          .map((l, r) => (l, Spine.ElimId(r, a, x, pp, h, y)))
     go(sp).fold((sp, Spine.Empty))(x => x)
 
   // partial substitution action
@@ -324,6 +331,29 @@ object Unification:
       case Spine.Proj(sp, p)     => T1.Proj(psubstSpine(h, sp), p)
       case Spine.MetaApp1(sp, v) => T1.MetaApp1(psubstSpine(h, sp), psubst1(v))
       case Spine.MetaApp0(sp, v) => T1.MetaApp0(psubstSpine(h, sp), psubst0(v))
+      case Spine.ElimId(sp, a, x, pp, hh, y) =>
+        val p = psubstSpine(h, sp)
+        T1.App(
+          T1.App(
+            T1.App(
+              T1.App(
+                T1.App(
+                  T1.App(T1.Prim(Primitive.ElimId), psubst1(a), Impl),
+                  psubst1(x),
+                  Impl
+                ),
+                psubst1(pp),
+                Expl
+              ),
+              psubst1(hh),
+              Expl
+            ),
+            psubst1(y),
+            Impl
+          ),
+          p,
+          Expl
+        )
 
   private def psubst1(v: V)(using psub: PSub): T1 =
     inline def go0(v: V0) = psubst0(v)
@@ -387,6 +417,13 @@ object Unification:
           case (Spine.MetaApp0(s1, a), Spine.MetaApp0(s2, b)) =>
             unify0(a, b); go(x, s1, s2)
           case (Spine.Proj(s1, p1), Spine.Proj(s2, p2)) if p1.ix == p2.ix =>
+            go(x, s1, s2)
+          case (
+                Spine.ElimId(s1, a1, x1, pp1, h1, y1),
+                Spine.ElimId(s2, a2, x2, pp2, h2, y2)
+              ) =>
+            unify1(a1, a2); unify1(x1, x2); unify1(pp1, pp2); unify1(h1, h2)
+            unify1(y1, y2)
             go(x, s1, s2)
           case _ => err(s"solve ?$m, spine mismatch")
       forceAll1(rhs) match
@@ -503,7 +540,9 @@ object Unification:
               )
             case _ => None
         case (Spine.Proj(_, _), Spine.Proj(_, _)) => None
-        case _                                    => impossible()
+        case (Spine.ElimId(_, _, _, _, _, _), Spine.ElimId(_, _, _, _, _, _)) =>
+          None
+        case _ => impossible()
     val (sp1inner, outer1) = splitSpine(sp1)
     val (sp2inner, outer2) = splitSpine(sp2)
     if outer1.isEmpty && outer2.isEmpty then
@@ -527,6 +566,13 @@ object Unification:
         unify1(top1, sp1, top2, sp2); unify0(a1, a2)
       case (Spine.MetaApp1(sp1, a1), Spine.MetaApp1(sp2, a2)) =>
         unify1(top1, sp1, top2, sp2); unify1(a1, a2)
+      case (
+            Spine.ElimId(sp1, a1, x1, pp1, h1, y1),
+            Spine.ElimId(sp2, a2, x2, pp2, h2, y2)
+          ) =>
+        unify1(top1, sp1, top2, sp2)
+        unify1(a1, a2); unify1(x1, x2); unify1(pp1, pp2); unify1(h1, h2)
+        unify1(y1, y2)
       case _ => err(s"spine mismatch ${readback1n(top1)} ~ ${readback1n(top2)}")
 
   private inline def unfoldHeadEquals(a: UnfoldHead, b: UnfoldHead): Boolean =

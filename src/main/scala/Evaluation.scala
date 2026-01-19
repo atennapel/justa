@@ -75,18 +75,34 @@ object Evaluation:
     case _ => impossible()
 
   def vproj(tm: Val1, p: ProjType): Val1 = tm match
-    case Val1.RecordCon(fs) => fs(p.ix)
-    case Val1.Rigid(h, sp)  => Val1.Rigid(h, Spine.Proj(sp, p))
-    case Val1.Unfold(h, sp, v) =>
-      Val1.Unfold(h, Spine.Proj(sp, p), () => vproj(v(), p))
+    case V1.RecordCon(fs) => fs(p.ix)
+    case V1.Rigid(h, sp)  => V1.Rigid(h, Spine.Proj(sp, p))
+    case V1.Flex(h, sp)   => V1.Flex(h, Spine.Proj(sp, p))
+    case V1.Unfold(h, sp, v) =>
+      V1.Unfold(h, Spine.Proj(sp, p), () => vproj(v(), p))
     case _ => impossible()
   inline def vprojIx(tm: Val1, ix: Int, name: Option[Name] = None): Val1 =
     vproj(tm, ProjType(name, ix))
 
+  def velimid(a: V1, x: V1, pp: V1, h: V1, y: V1, p: V1): V1 =
+    p match
+      case V1.Refl(_, _)    => h
+      case V1.Rigid(hh, sp) => V1.Rigid(hh, Spine.ElimId(sp, a, x, pp, h, y))
+      case V1.Flex(hh, sp)  => V1.Flex(hh, Spine.ElimId(sp, a, x, pp, h, y))
+      case V1.Unfold(hh, sp, v) =>
+        V1.Unfold(
+          hh,
+          Spine.ElimId(sp, a, x, pp, h, y),
+          () => velimid(a, x, pp, h, y, v())
+        )
+      case _ => impossible()
+
   private def vspine(v: V1, sp: Spine): V1 = sp match
-    case Spine.Empty           => v
-    case Spine.App(sp, a, i)   => vapp1(vspine(v, sp), a, i)
-    case Spine.Proj(sp, p)     => vproj(vspine(v, sp), p)
+    case Spine.Empty         => v
+    case Spine.App(sp, a, i) => vapp1(vspine(v, sp), a, i)
+    case Spine.Proj(sp, p)   => vproj(vspine(v, sp), p)
+    case Spine.ElimId(sp, a, x, pp, h, y) =>
+      velimid(a, x, pp, h, y, vspine(v, sp))
     case Spine.MetaApp1(sp, a) => vmetaapp1(vspine(v, sp), a)
     case Spine.MetaApp0(sp, a) => vmetaapp0(vspine(v, sp), a)
 
@@ -127,7 +143,6 @@ object Evaluation:
       case T1.Var(ix) => var1(ix)
       case T1.Global(m, x, v) =>
         V1.Unfold(UnfoldHead.Global(m, x, v), Spine.Empty, () => v)
-      case T1.Prim(p)          => V1.Prim(p)
       case T1.TypeCon(m, x)    => V1.TypeCon(m, x)
       case T1.Con(m, dx, cx)   => V1.Con(m, dx, cx)
       case T1.Let(x, ty, v, b) => eval1(b)(using Env.Ext1(env, eval1(v)))
@@ -151,6 +166,39 @@ object Evaluation:
       case T1.MetaApp1(f, a) => vmetaapp1(eval1(f), eval1(a))
       case T1.MetaApp0(f, a) => vmetaapp0(eval1(f), eval0(a))
       case T1.AppPruning(m, p) => vappPruning(vmeta(m), p)
+
+      case T1.Prim(Primitive.ElimId) =>
+        V1.lamI(
+          "A",
+          V1.Meta,
+          a =>
+            V1.lamI(
+              "x",
+              a,
+              x =>
+                V1.lam1(
+                  "P",
+                  V1.piI("y", a, y => V1.fun1(V1.Id(a, a, x, y), V1.Meta)),
+                  pp =>
+                    V1.lam1(
+                      "h",
+                      vappE(vappI(pp, x), V1.Refl(a, x)),
+                      h =>
+                        V1.lamI(
+                          "y",
+                          a,
+                          y =>
+                            V1.lam1(
+                              "p",
+                              V1.Id(a, a, x, y),
+                              p => velimid(a, x, pp, h, y, p)
+                            )
+                        )
+                    )
+                )
+            )
+        )
+      case T1.Prim(p) => V1.Prim(p)
 
   // forcing
   def force1(v: V1): V1 = v match
@@ -220,7 +268,30 @@ object Evaluation:
   ): T1 = sp match
     case Spine.Empty         => h
     case Spine.App(sp, v, i) => T1.App(readbackSpine(h, sp), readback1(v), i)
-    case Spine.Proj(sp, p)   => Tm1.Proj(readbackSpine(h, sp), p)
+    case Spine.Proj(sp, p)   => T1.Proj(readbackSpine(h, sp), p)
+    case Spine.ElimId(sp, a, x, pp, hh, y) =>
+      val p = readbackSpine(h, sp)
+      T1.App(
+        T1.App(
+          T1.App(
+            T1.App(
+              T1.App(
+                T1.App(T1.Prim(Primitive.ElimId), readback1(a), Impl),
+                readback1(x),
+                Impl
+              ),
+              readback1(pp),
+              Expl
+            ),
+            readback1(hh),
+            Expl
+          ),
+          readback1(y),
+          Impl
+        ),
+        p,
+        Expl
+      )
     case Spine.MetaApp1(sp, v) =>
       T1.MetaApp1(readbackSpine(h, sp), readback1(v))
     case Spine.MetaApp0(sp, v) =>
@@ -341,9 +412,11 @@ object Evaluation:
     @tailrec
     def goSp(sp: Spine)(using lvl: Lvl): Unit =
       sp match
-        case Spine.Empty           => ()
-        case Spine.App(sp, a, _)   => go1(a); goSp(sp)
-        case Spine.Proj(sp, _)     => goSp(sp)
+        case Spine.Empty         => ()
+        case Spine.App(sp, a, _) => go1(a); goSp(sp)
+        case Spine.Proj(sp, _)   => goSp(sp)
+        case Spine.ElimId(sp, a, x, pp, h, y) =>
+          go1(a); go1(x); go1(pp); go1(h); go1(y); goSp(sp)
         case Spine.MetaApp1(sp, a) => go1(a); goSp(sp)
         case Spine.MetaApp0(sp, a) => go0(a); goSp(sp)
     def goHead(h: Head): Unit =
