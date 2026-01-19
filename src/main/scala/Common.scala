@@ -90,6 +90,8 @@ object Common:
     def apply(x: String): Bind =
       if x.startsWith("_") then Bind.DontBind else Bind.DoBind(Name(x))
 
+  type AssocBind[T] = Seq[(Bind, T)]
+
   // icit
   enum Icit:
     case Expl

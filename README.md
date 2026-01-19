@@ -16,7 +16,8 @@ https://github.com/AndrasKovacs/cctt
 - [x] Modules
 - [x] Public/private
 - [x] Re-exporting
-- [ ] Record types
+- [x] Record types
+- [ ] Use more advanced unification from: https://github.com/atennapel/tynka/blob/main/src/main/scala/core/Unification.scala
 - [ ] Meta datatypes
 - [ ] Identity types
 - [ ] Clean up usages of Nil and use Seq (or Vector or List) instead
@@ -30,6 +31,7 @@ https://github.com/AndrasKovacs/cctt
 - [ ] String and label types
 - [ ] Import all(-hiding), re-export all(-hiding)
 - [ ] Accept trailing and leading commas where it makes sense
-- [ ] Row-types records (and variants)?
 - [ ] Give more context for cv unification errors in elaboration
-- [ ] Use more advanced unification from: https://github.com/atennapel/tynka/blob/main/src/main/scala/core/Unification.scala
+- [ ] Support record syntax for product-like datatypes
+- [ ] Row-types records (and variants)?
+- [ ] Generate private anonymous records if possible

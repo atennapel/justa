@@ -16,6 +16,7 @@ object Lifting:
     JVM.Module(mod.name, liftDefs(mod.name, mod.defs))
 
   private def liftDefs(mod: Name, ds: Defs): JVM.Defs =
+    currentModule = mod
     JVM.Defs(ds.toSeq.flatMap(d => liftDef(mod, d)))
 
   private final class Emit(
@@ -113,6 +114,9 @@ object Lifting:
       case Tm.Con(m, _, cx, ix, dty, args) =>
         val (mdx, dx) = goData(dty)
         JVM.Tm.Con(mdx, dx, cx, ix, args.map(go(_, false)))
+      case Tm.Record(dty, args) =>
+        val (mdx, dx) = goData(dty)
+        JVM.Tm.Con(mdx, dx, JVM.RecordConName, 0, args.map(go(_, false)))
 
       case Tm.Select(_, s, i) => JVM.Tm.Select(go(s, false), i)
 
@@ -308,6 +312,7 @@ object Lifting:
       case VTy.Bool             => JVM.Ty.Bool
       case VTy.Int              => JVM.Ty.Int
       case VTy.Data(m, x, args) => monomorphize(m, x, args)
+      case VTy.Record(fs)       => monomorphizeRec(fs)
 
   private def goData(dty: VTy): (Name, Name) =
     goVTy(dty) match
@@ -362,6 +367,8 @@ object Lifting:
 
       case Tm.Con(_, _, _, _, _, args) =>
         args.map(free).foldLeft(Nil)(merge)
+      case Tm.Record(_, args) =>
+        args.map(free).foldLeft(Nil)(merge)
 
       case Tm.Case(_, _, s, cs) =>
         def go(cs: Cases): List[(LocalName, CTy)] =
@@ -399,6 +406,8 @@ object Lifting:
         isUsedInTailOnly(x, tail, f)
       case Tm.Con(_, _, _, _, _, args) =>
         args.forall(isUsedInTailOnly(x, false, _))
+      case Tm.Record(_, args) =>
+        args.forall(isUsedInTailOnly(x, false, _))
 
       case Tm.Select(_, s, _) => isUsedInTailOnly(x, false, s)
 
@@ -421,9 +430,13 @@ object Lifting:
         isUsedInTailOnly(x, false, s) && go(cs)
 
   // monomorphization
-  private type MonoKey = (Name, Name, Seq[IR.VTy])
-  private val monoStore = mutable.Map.empty[MonoKey, Name]
+  private var currentModule: Name = null
   private val newDefs = mutable.ArrayBuffer.empty[JVM.Def]
+
+  private type MonoKey = (Name, Name, Seq[IR.VTy])
+  private type MonoRecKey = Seq[IR.VTy]
+  private val monoStore = mutable.Map.empty[MonoKey, Name]
+  private val monoRecStore = mutable.Map.empty[MonoRecKey, Name]
 
   private def monomorphize(m: Name, dx: Name, ps: Seq[IR.VTy]): JVM.Ty =
     val (pub, xs) = State.getGlobalDirect(m, dx) match
@@ -445,7 +458,7 @@ object Lifting:
       }
       val acc = if pub then JVM.Access.Pub else JVM.Access.Priv
       newDefs += JVM.Def.Data(acc, nx, ecs)
-    JVM.Ty.Data(m, nx)
+    JVM.Ty.Data(currentModule, nx)
 
   private def tryMonomorphize(
       mod: Name,
@@ -460,6 +473,25 @@ object Lifting:
         monoStore += k -> x
         (x, false)
 
+  private def monomorphizeRec(fs: AssocBind[VTy]): JVM.Ty =
+    val (nx, alreadyDone) = tryMonomorphizeRec(fs.map((_, t) => t))
+    if !alreadyDone then
+      val con = JVM.Constructor(
+        JVM.Access.Pub,
+        JVM.RecordConName,
+        fs.map((x, t) => (x.toOption, goVTy(t)))
+      )
+      newDefs += JVM.Def.Data(JVM.Access.Pub, nx, List(con))
+    JVM.Ty.Data(currentModule, nx)
+
+  private def tryMonomorphizeRec(ps: Seq[IR.VTy]): (Name, Boolean) =
+    monoRecStore.get(ps) match
+      case Some(x) => (x, true)
+      case None =>
+        val x = createName(Name("anonrec"), ps)
+        monoRecStore += ps -> x
+        (x, false)
+
   private def createName(name: Name, ps: Seq[IR.VTy]): Name =
     def paramStr(p: IR.VTy): String = p match
       case VTy.Bool            => "Bool"
@@ -467,5 +499,7 @@ object Lifting:
       case VTy.Data(m, x, Nil) => s"$m$$$x"
       case VTy.Data(m, x, args) =>
         s"$m$$${x}_${args.map(paramStr).mkString("_")}"
+      case VTy.Record(fs) =>
+        s"anonrec_${fs.map((_, t) => paramStr(t)).mkString("_")}"
     if ps.isEmpty then name
     else Name(s"${name}_${ps.map(paramStr).mkString("_")}")

@@ -5,12 +5,14 @@ object IR:
     case Bool
     case Int
     case Data(mod: Name, name: Name, args: Seq[VTy])
+    case Record(fields: AssocBind[VTy])
 
     override def toString: String = this match
       case Bool             => "Bool"
       case Int              => "Int"
       case Data(m, x, Nil)  => s"$m.$x"
       case Data(m, x, args) => s"($m.$x ${args.mkString(" ")})"
+      case Record(fs) => fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
 
   final case class CTy(params: Seq[VTy], io: Boolean, ret: VTy):
     def head: VTy = params.head
@@ -77,6 +79,7 @@ object IR:
 
     case Con(mod: Name, dx: Name, cx: Name, ix: Int, ty: VTy, args: Seq[Tm])
     case Case(rty: CTy, dty: VTy, scrut: Tm, cases: Cases)
+    case Record(dty: VTy, args: Seq[Tm])
     case Select(rty: VTy, scrut: Tm, i: Int)
 
     case ReturnIO(ty: VTy, value: Tm)
@@ -97,6 +100,7 @@ object IR:
       case Con(m, _, cx, _, _, args)  => s"($m.$cx ${args.mkString(" ")})"
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
+      case Record(_, args)            => args.mkString("[", ", ", "]")
       case Select(_, s, i)            => s"$s.$i"
       case ReturnIO(ty, v)            => s"(returnIO $v)"
       case BindIO(x, _, ty, v, b)     => s"(bindIO '$x : $ty = $v; $b)"

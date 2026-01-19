@@ -287,7 +287,7 @@ object Parser:
         case RecordKindTy => COLON
     private def record(p: PosInfo): Tm =
       backtrack {
-        val xs = list(tryName())
+        val xs = list(tryBind())
         val kind =
           if trySymbol(COLON_EQUALS) then RecordKind0
           else if trySymbol(EQUALS) then RecordKind1
@@ -297,19 +297,28 @@ object Parser:
         else
           val sym = recordKindSymbol(kind)
           val tm = expr()
-          val tl = mutable.ArrayBuffer.empty[(Seq[Name], Tm)]
+          val tl = mutable.ArrayBuffer.empty[(Seq[Bind], Tm)]
           while trySymbol(COMMA) do
-            val xs = list(tryName())
+            val xs = list(tryBind())
             symbol(sym)
             val tm = expr()
             tl += ((xs.toSeq, tm))
           val fields = ((xs, tm) +: tl.toSeq).flatMap { (xs, tm) =>
             xs.map(x => (x, tm))
           }
+          inline def checkIfNames(): Unit =
+            fields.foreach((x, _) =>
+              if x == DontBind then
+                err("records literals cannot contain fields named _")
+            )
           kind match
             case RecordKindTy => Tm.RecordTy(pos, fields)
-            case RecordKind1  => Tm.RecordCon1(pos, fields)
-            case RecordKind0  => Tm.RecordCon0(pos, fields)
+            case RecordKind1 =>
+              checkIfNames()
+              Tm.RecordCon1(pos, fields.map((x, t) => (x.toName, t)))
+            case RecordKind0 =>
+              checkIfNames()
+              Tm.RecordCon0(pos, fields.map((x, t) => (x.toName, t)))
       } match
         case null =>
           val hd = expr()

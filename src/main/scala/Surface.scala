@@ -96,7 +96,7 @@ object Surface:
 
     case UnitLit(_pos: PosInfo)
     case EmptyRecord(_pos: PosInfo)
-    case RecordTy(_pos: PosInfo, fields: Assoc[Ty])
+    case RecordTy(_pos: PosInfo, fields: AssocBind[Ty])
     case RecordCon1(_pos: PosInfo, fields: Assoc[Tm])
     case RecordCon0(_pos: PosInfo, fields: Assoc[Tm])
     case Tuple(_pos: PosInfo, fields: Seq[Tm])

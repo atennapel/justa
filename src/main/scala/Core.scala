@@ -82,6 +82,9 @@ object Core:
       case Proj(_, s, p)              => s"$s.$p"
       case RecordCon(_, fs)           => fs.mkString("[", ", ", "]")
 
+  object Tm0:
+    val RecordConEmpty = RecordCon(Tm1.RecordTy0Empty, Nil)
+
   type Ty = Tm1
   enum Tm1:
     case Var(ix: Ix)
@@ -100,8 +103,8 @@ object Core:
     case Lift(cv: Ty, ty: Ty)
     case Quote(tm: Tm0)
 
-    case RecordTy1(fields: Assoc[Ty])
-    case RecordTy0(fields: Assoc[Ty])
+    case RecordTy1(fields: AssocBind[Ty])
+    case RecordTy0(fields: AssocBind[Ty])
     case RecordCon(fields: Seq[Tm1])
     case Proj(tm: Tm1, proj: ProjType)
 
@@ -169,6 +172,10 @@ object Core:
     val TypeV = App(Prim(Primitive.Type), Val, Icit.Expl)
     val TypeC = App(Prim(Primitive.Type), Comp, Icit.Expl)
 
+    val RecordTy1Empty = RecordTy1(Nil)
+    val RecordTy0Empty = RecordTy0(Nil)
+    val RecordConEmpty = RecordCon(Nil)
+
   enum Locals:
     case Empty
     case Def(locs: Locals, ty: Ty, value: Tm1)
@@ -220,10 +227,10 @@ object Core:
   object Clos1:
     def apply(tm: Tm1)(using env: Env): Clos1 = Clos(env, tm)
 
-  final case class ClosRec(env: Env, fields: Assoc[Ty]):
+  final case class ClosRec(env: Env, fields: AssocBind[Ty]):
     def add(v: Val1): ClosRec = ClosRec(Env.Ext1(env, v), fields.tail)
   object ClosRec:
-    def apply(fields: Assoc[Ty])(using env: Env): ClosRec =
+    def apply(fields: AssocBind[Ty])(using env: Env): ClosRec =
       ClosRec(env, fields)
 
   enum Val0:
@@ -304,7 +311,7 @@ object Core:
     case Quote(tm: Val0)
 
     case RecordTy1(fields: ClosRec)
-    case RecordTy0(fields: Assoc[VTy])
+    case RecordTy0(fields: AssocBind[VTy])
     case RecordCon(fields: Seq[Val1])
 
     case MetaPi1(ty: VTy, body: Clos1)
@@ -383,6 +390,10 @@ object Core:
 
     val TypeV = Type(Val)
     val TypeC = Type(Comp)
+
+    inline def RecordTy1Empty(using env: Env) = RecordTy1(ClosRec(Nil))
+    val RecordTy0Empty = RecordTy0(Nil)
+    val RecordConEmpty = RecordCon(Nil)
 
     // helpers
     private inline def bind(x: String): Bind =

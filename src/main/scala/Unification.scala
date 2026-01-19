@@ -318,8 +318,8 @@ object Unification:
     inline def goClos(c: Clos1) = psubst1(c(V.Var(psub.cod)))(using psub.lift1)
     inline def goClos0(c: Clos1) =
       psubst1(c(V0.Var(psub.cod)))(using psub.lift1)
-    def goRec(c: ClosRec): Assoc[Ty] =
-      def go(env: Env, psub: PSub, fs: Assoc[Ty]): Assoc[Ty] =
+    def goRec(c: ClosRec): AssocBind[Ty] =
+      def go(env: Env, psub: PSub, fs: AssocBind[Ty]): AssocBind[Ty] =
         fs match
           case Nil => Nil
           case (x, ty) :: rest =>
@@ -505,9 +505,9 @@ object Unification:
       def go(
           lvl: Lvl,
           env1: Env,
-          f1: Assoc[Ty],
+          f1: AssocBind[Ty],
           env2: Env,
-          f2: Assoc[Ty]
+          f2: AssocBind[Ty]
       ): Unit =
         (f1, f2) match
           case (Nil, Nil) => ()

@@ -239,8 +239,8 @@ object Evaluation:
       case UnfoldOption.Metas   => forceMetas1(v)
       case UnfoldOption.None    => force1(v)
       case UnfoldOption.Unstage => forceUnstage1(v)
-    def goRec(c: ClosRec): Assoc[Ty] =
-      def go(env: Env, lvl: Lvl, fs: Assoc[Ty]): Assoc[Ty] =
+    def goRec(c: ClosRec): AssocBind[Ty] =
+      def go(env: Env, lvl: Lvl, fs: AssocBind[Ty]): AssocBind[Ty] =
         fs match
           case Nil => Nil
           case (x, ty) :: rest =>
@@ -356,7 +356,7 @@ object Evaluation:
       h match
         case UnfoldHead.Global(m, x, v) => set += ((m, x)); go1(v)
     def goRec(c: ClosRec)(using lvl: Lvl): Unit =
-      def go(env: Env, lvl: Lvl, fs: Assoc[Ty]): Unit =
+      def go(env: Env, lvl: Lvl, fs: AssocBind[Ty]): Unit =
         fs match
           case Nil => ()
           case (x, ty) :: rest =>

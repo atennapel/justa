@@ -50,6 +50,8 @@ object Simplification:
       case Tm.Con(m, dx, cx, ix, dty, args) =>
         Tm.Con(m, dx, cx, ix, dty, args.map(a => go(a, Nil)))
 
+      case Tm.Record(ty, args) => Tm.Record(ty, args.map(a => go(a, Nil)))
+
       case Tm.Local(x, ty) =>
         subst.get(x) match
           case Some(tm) if tm != t => go(tm, args)
@@ -62,6 +64,7 @@ object Simplification:
       case Tm.Select(ty, Tm.LetRec(x, u, ty2, v, b), i) =>
         go(Tm.LetRec(x, u, ty2, v, Tm.Select(ty, b, i)), args)
       case Tm.Select(_, Tm.Con(_, _, _, _, _, cargs), i) => go(cargs(i), args)
+      case Tm.Select(_, Tm.Record(_, cargs), i)          => go(cargs(i), args)
       case Tm.Select(ty, s, i) => Tm.Select(ty, go(s, Nil), i)
 
       case Tm.If(_, Tm.BoolLit(b), t, f) =>
@@ -237,6 +240,7 @@ object Simplification:
     case Tm.BoolLit(_)                   => true
     case Tm.IntLit(_)                    => true
     case Tm.Con(_, _, _, _, _, Nil)      => true
+    case Tm.Record(_, Nil)               => true
     case Tm.ReturnIO(_, v) if isSmall(v) => true
     case _                               => false
 
@@ -270,6 +274,12 @@ object Simplification:
   private inline def correctUsages(t: Tm): Tm = correctUsagesRec(t)._1
 
   private def correctUsagesRec(t: Tm): (Tm, Usages) =
+    def fold(args: Seq[Tm]): (Seq[Tm], Usages) =
+      args.foldLeft[(Seq[Tm], Usages)]((Nil, Map.empty)) {
+        case ((cargs, usages), arg) =>
+          val (a, ua) = correctUsagesRec(arg)
+          (cargs :+ a, mergeUsages(usages, ua))
+      }
     t match
       case Tm.Global(_, _, _) => (t, Map.empty)
       case Tm.Prim(_)         => (t, Map.empty)
@@ -296,13 +306,12 @@ object Simplification:
         val (f, uf) = correctUsagesRec(f0)
         (Tm.If(ty, c, t, f), mergeUsages(uc, mergeUsages(ut, uf)))
       case Tm.Con(m, dx, cx, ix, dty, args) =>
-        val (cargs, usages) =
-          args.foldLeft[(Seq[Tm], Usages)]((Nil, Map.empty)) {
-            case ((cargs, usages), arg) =>
-              val (a, ua) = correctUsagesRec(arg)
-              (cargs :+ a, mergeUsages(usages, ua))
-          }
+        val (cargs, usages) = fold(args)
         (Tm.Con(m, dx, cx, ix, dty, cargs), usages)
+
+      case Tm.Record(ty, args) =>
+        val (cargs, usages) = fold(args)
+        (Tm.Record(ty, cargs), usages)
 
       case Tm.Select(ty, s, i) =>
         val (cs, us) = correctUsagesRec(s)

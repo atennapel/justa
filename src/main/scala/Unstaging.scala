@@ -99,7 +99,7 @@ object Unstaging:
 
       case Tm0.Proj(rty, s, p) => Tm.Select(goTy(rty), go(s), p.ix)
 
-      case Tm0.RecordCon(ty, fs) => ???
+      case Tm0.RecordCon(ty, fs) => Tm.Record(goTy(ty), fs.map(go))
 
       case Tm0.Case(rty, dty, s, cs) =>
         def goCases(cs: Core.Cases): Cases =
@@ -205,5 +205,6 @@ object Unstaging:
       case V.Int  => VTy.Int
       case V.TypeCon(m, x, args) =>
         VTy.Data(m, x, args.map((a, _) => goVTy(a, menv)))
-      case V.Var(lvl) => menv(lvl)
-      case _          => impossible()
+      case V.Var(lvl)      => menv(lvl)
+      case V.RecordTy0(fs) => VTy.Record(fs.map((x, t) => (x, goVTy(t))))
+      case _               => impossible()

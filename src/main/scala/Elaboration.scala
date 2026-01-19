@@ -11,7 +11,8 @@ import Core.{
   Tm1 as T1,
   Tm0 as T0,
   Cases,
-  ProjType
+  ProjType,
+  ClosRec
 }
 import Evaluation.*
 import Surface.Tm as S
@@ -144,8 +145,74 @@ object Elaboration:
       )
     )
 
+  private def liftRec(ts: AssocBind[VTy])(using ctx: Ctx): ClosRec =
+    def go(lvl: Lvl, ts: AssocBind[VTy]): AssocBind[Ty] =
+      ts match
+        case Nil => Nil
+        case (x, ty) :: tl =>
+          val ety = T1.Lift(T1.Val, readback1(ty)(using lvl, UnfoldOption.None))
+          (x, ety) +: go(lvl + 1, tl)
+    ClosRec(ctx.env, go(ctx.lvl, ts))
+
+  private def quoteRec[A](ty: Ty, tm: T1, fs: AssocBind[A])(using
+      ctx: Ctx
+  ): T1 =
+    def go(fs: AssocBind[A], ix: Int): List[T1] =
+      fs match
+        case Nil => Nil
+        case (x, _) :: tl =>
+          val p = T0.Proj(ty, tm.splice, ProjType(x.toOption, ix))
+          p.quote :: go(tl, ix + 1)
+    T1.RecordCon(go(fs, 0))
+
+  private def spliceRec[A](ty: Ty, tm: T1, fs: AssocBind[A])(using
+      ctx: Ctx
+  ): T1 =
+    def go(fs: AssocBind[A], ix: Int): Seq[T0] =
+      fs match
+        case Nil => Nil
+        case (x, _) :: tl =>
+          val p = T1.Proj(tm, ProjType(x.toOption, ix)).splice
+          p +: go(tl, ix + 1)
+    T0.RecordCon(ty, go(fs, 0)).quote
+
   // coercion
   private def coe(t: T1, a1: VTy, a2: VTy)(using ctx: Ctx): T1 =
+    def goRec1(tm: T1, ix: Int, fs1: ClosRec, fs2: ClosRec)(using
+        ctx: Ctx
+    ): Seq[(Boolean, Bind, T1)] =
+      (fs1.fields, fs2.fields) match
+        case (Nil, Nil) => Nil
+        case ((x, ty1) :: tl1, (y, ty2) :: tl2) if x == y =>
+          val va1 = eval1(ty1)(using fs1.env)
+          val va2 = eval1(ty2)(using fs2.env)
+          val tm1 = T1.Proj(tm, ProjType(x.toOption, ix))
+          val vt1 = ctx.eval1(tm1)
+          go(tm1, va1, va2) match
+            case None =>
+              (false, x, tm1) +: goRec1(
+                tm,
+                ix + 1,
+                ClosRec(Env.Ext1(fs1.env, vt1), tl1),
+                ClosRec(Env.Ext1(fs2.env, vt1), tl2)
+              )
+            case Some(coet1) =>
+              (true, x, coet1) +: goRec1(
+                tm,
+                ix + 1,
+                ClosRec(Env.Ext1(fs1.env, vt1), tl1),
+                ClosRec(Env.Ext1(fs2.env, ctx.eval1(coet1)), tl2)
+              )
+        case _ =>
+          err(s"coercion failure: ${ctx.pretty1(a1)} ~ ${ctx.pretty1(a2)}")
+
+    def refineRec0(fs: AssocBind[Ty])(using ctx: Ctx): AssocBind[VTy] =
+      fs match
+        case Nil => Nil
+        case (x, ty) :: tl =>
+          val ety = ctx.eval1(freshMeta(V.TypeV))
+          (x, ety) +: refineRec0(tl)
+
     def go(t: T1, a1: VTy, a2: VTy)(using ctx: Ctx): Option[T1] =
       debug(
         s"coe ${ctx.pretty1(t)} from ${ctx.pretty1(a1)} to ${ctx.pretty1(a2)}"
@@ -180,6 +247,12 @@ object Elaboration:
                 )
               )
 
+        case (V.RecordTy1(ts1), V.RecordTy1(ts2)) =>
+          val fs = goRec1(t, 0, ts1, ts2)
+          if fs.exists((b, _, _) => b) then
+            Some(T1.RecordCon(fs.map((_, _, t) => t)))
+          else None
+
         case (V.Lift(_, V.Fun(a, cv, b)), V.Pi(x, _, _, _)) =>
           Some(coe(quoteFun(x, a, t), liftFun(a, b, cv), a2))
         case (V.Lift(_, V.Fun(a, cv, b)), _) =>
@@ -188,6 +261,13 @@ object Elaboration:
           Some(spliceFun(x, t1, coe(t, a1, liftFun(t1, t2, cv))))
         case (_, V.Lift(_, V.Fun(t1, cv, t2))) =>
           Some(spliceFun(DontBind, t1, coe(t, a1, liftFun(t1, t2, cv))))
+
+        case (V.Lift(_, ty @ V.RecordTy0(fs)), a) =>
+          val qty = ctx.readback1(ty)
+          Some(coe(quoteRec(qty, t, fs), V.RecordTy1(liftRec(fs)), a))
+        case (a, V.Lift(_, ty @ V.RecordTy0(fs))) =>
+          val qty = ctx.readback1(ty)
+          Some(spliceRec(qty, coe(t, a, V.RecordTy1(liftRec(fs))), fs))
 
         case (pi @ V.Pi(x, Expl, a, b), V.Lift(cv, a2)) =>
           unify(cv, V.Comp)
@@ -207,6 +287,17 @@ object Elaboration:
           val fun = V.Fun(a1, va2cv, a2)
           unify(a, fun)
           go(t, V.Lift(V.Comp, fun), pi)
+
+        case (V.RecordTy1(ClosRec(env, as)), V.Lift(cv2, a2)) =>
+          unify(cv2, V.Val)
+          val as2 = refineRec0(as)
+          unify(a2, V.RecordTy0(as2))
+          go(t, V.RecordTy1(ClosRec(env, as)), V.Lift(V.Val, V.RecordTy0(as2)))
+        case (V.Lift(cv, a), V.RecordTy1(ClosRec(env, as))) =>
+          unify(cv, V.Val)
+          val as2 = refineRec0(as)
+          unify(a, V.RecordTy0(as2))
+          go(t, V.Lift(V.Val, V.RecordTy0(as2)), V.RecordTy1(ClosRec(env, as)))
 
         case (_, _) => unify(a1, a2); None
 
@@ -289,6 +380,36 @@ object Elaboration:
           case _            => false
       case _ => false
 
+  private def orderFields[T](
+      topty: VTy,
+      fs: Assoc[S],
+      ts: AssocBind[T]
+  )(using ctx: Ctx): Assoc[S] =
+    if fs.size != ts.size then
+      err(
+        s"record fields mismatch, checking against type: ${ctx.pretty1(topty)}"
+      )
+    val xs = fs.map(_._1)
+    if xs.toSet.size != xs.size then
+      err(
+        s"duplicate name in record, checking against type: ${ctx.pretty1(topty)}"
+      )
+    def go(ts: AssocBind[T]): Assoc[S] =
+      ts match
+        case Nil => Nil
+        case (x, _) :: _ if x == DontBind =>
+          err(
+            s"cannot re-order because record type has unnamed field: ${ctx.pretty1(topty)}"
+          )
+        case (x, _) :: tl =>
+          fs.find((y, _) => x.toName == y) match
+            case None =>
+              err(
+                s"expected $x in record, checking against type: ${ctx.pretty1(topty)}"
+              )
+            case Some(hd) => hd +: go(tl) // TODO: contemplate occ of _
+    go(ts)
+
   // checking
   private def check0(tm: S, ty: VTy, cv: VTy)(using ctx: Ctx): T0 =
     debug(s"check0 $tm : ${ctx.pretty1(ty)} : ${ctx.pretty1(cv)}")
@@ -370,7 +491,44 @@ object Elaboration:
                         s"cannot check unit against ${ctx.pretty1(ty)}, datatype does not have a 0-parameter constructor"
                       )
                 case _ => impossible()
+            case V.RecordTy0(Nil) => T0.RecordConEmpty
             case _ => err(s"cannot check unit against ${ctx.pretty1(ty)}")
+
+        case S.EmptyRecord(_) =>
+          unify(cv, V.Val)
+          unify(ty, V.RecordTy0Empty)
+          T0.RecordConEmpty
+
+        case S.Tuple(_, fs) =>
+          forceAll1(ty) match
+            case V.RecordTy0(ts) =>
+              def go(fs: Seq[S], ts: AssocBind[VTy]): Seq[T0] =
+                (fs, ts) match
+                  case (Nil, Nil) => Nil
+                  case (tm :: fs, (y, vty) :: ts) =>
+                    check0(tm, vty, V.Val) +: go(fs, ts)
+                  case _ =>
+                    err(
+                      s"record field mismatch, checking against type: ${ctx.pretty1(ty)}"
+                    )
+              T0.RecordCon(ctx.readback1(ty), go(fs, ts))
+            case _ => err(s"cannot check tuple against ${ctx.pretty1(ty)}")
+
+        case S.RecordCon0(_, fs0) =>
+          forceAll1(ty) match
+            case V.RecordTy0(ts) =>
+              val fs = orderFields(ty, fs0, ts)
+              def go(fs: Assoc[S], ts: AssocBind[VTy]): Seq[T0] =
+                (fs, ts) match
+                  case (Nil, Nil) => Nil
+                  case ((x, tm) :: fs, (y, vty) :: ts) if x == y.toName =>
+                    check0(tm, vty, V.Val) +: go(fs, ts)
+                  case _ =>
+                    err(
+                      s"record field mismatch, checking against type: ${ctx.pretty1(ty)}"
+                    )
+              T0.RecordCon(ctx.readback1(ty), go(fs, ts))
+            case _ => err(s"cannot check record against ${ctx.pretty1(ty)}")
 
         case tm =>
           infer(tm) match
@@ -455,9 +613,97 @@ object Elaboration:
           val y = x.orElse(DoBind(Name("x")))
           T1.Lam(y, Expl, ra, casetm.quote)
 
+        case (S.UnitLit(_), V.RecordTy1(ClosRec(_, Nil))) => T1.RecordConEmpty
+
+        case (S.EmptyRecord(_), V.Type(cv)) =>
+          unify(cv, V.Val); T1.RecordTy0Empty
+        case (S.EmptyRecord(_), V.Meta) => T1.RecordTy1Empty
+
+        case (S.EmptyRecord(_), V.RecordTy1(ts)) =>
+          T1.RecordCon(checkTuple1(ty, Nil, ts))
+        case (S.Tuple(_, fs), V.RecordTy1(ts)) =>
+          T1.RecordCon(checkTuple1(ty, fs, ts))
+
+        case (S.RecordTy(_, fs), V.Type(vcv)) =>
+          val xs = fs.map(_._1)
+          if xs.toSet.size != xs.size then err(s"duplicate name in record type")
+          unify(vcv, V.Val)
+          def go(fs: AssocBind[S]): AssocBind[Ty] =
+            fs match
+              case Nil => Nil
+              case (x, ty) :: rest =>
+                val ety = check1(ty, V.TypeV)
+                (x, ety) +: go(rest)
+          T1.RecordTy0(go(fs))
+
+        case (S.RecordTy(_, fs), V.Meta) =>
+          val xs = fs.map(_._1)
+          if xs.toSet.size != xs.size then err(s"duplicate name in record type")
+          def go(ctx: Ctx, fs: AssocBind[S]): AssocBind[Ty] =
+            fs match
+              case Nil => Nil
+              case (x, ty) :: rest =>
+                val ety = check1(ty, V.Meta)(using ctx)
+                val vty = ctx.eval1(ety)
+                (x, ety) +: go(ctx.bind1(x, ety, vty), rest)
+          T1.RecordTy1(go(ctx, fs))
+
+        case (S.Tuple(_, fs), V.Type(vcv)) =>
+          unify(vcv, V.Val)
+          T1.RecordTy0(fs.map(ty => (DontBind, check1(ty, V.TypeV))))
+
+        case (S.Tuple(_, fs), V.Meta) =>
+          def go(fs: Seq[S])(using ctx: Ctx): AssocBind[Ty] =
+            fs match
+              case Nil => Nil
+              case ty :: rest =>
+                val ety = check1(ty, V.Meta)
+                val nctx = ctx.bind1(DontBind, ety, ctx.eval1(ety))
+                (DontBind, ety) +: go(rest)(using nctx)
+          T1.RecordTy1(go(fs))
+
+        case (S.RecordCon1(_, fs0), topty @ V.RecordTy1(ts)) =>
+          val fs = orderFields(topty, fs0, ts.fields)
+          def go(
+              env: Env,
+              fs: Assoc[S],
+              ts: AssocBind[Ty]
+          ): List[T1] =
+            (fs, ts) match
+              case (Nil, Nil) => Nil
+              case ((x, tm) :: fs, (y, ty) :: ts) if x == y.toName =>
+                val vty = eval1(ty)(using env)
+                val qty = ctx.readback1(vty)
+                val etm = check1(tm, vty)
+                val vtm = ctx.eval1(etm)
+                val rest = go(Env.Ext1(env, vtm), fs, ts)
+                etm :: rest
+              case _ =>
+                err(
+                  s"record fields mismatch, checking against type: ${ctx.pretty1(topty)}"
+                )
+          T1.RecordCon(go(ts.env, fs, ts.fields))
+
         case (tm, _) =>
           val (etm, vty) = insert(infer1(tm))
           coe(etm, vty, ty)
+
+  private def checkTuple1(topty: VTy, fs: Seq[S], ts: ClosRec)(using
+      ctx: Ctx
+  ): Seq[T1] =
+    def go(env: Env, fs: Seq[S], ts: AssocBind[Ty]): Seq[T1] =
+      (fs, ts) match
+        case (Nil, Nil) => Nil
+        case (tm :: fs, (x, ty) :: ts) =>
+          val vty = eval1(ty)(using env)
+          val qty = ctx.readback1(vty)
+          val etm = check1(tm, vty)
+          val vtm = ctx.eval1(etm)
+          val rest = go(Env.Ext1(env, vtm), fs, ts)
+          etm +: rest
+        case _ =>
+          err(s"failed to check tuple against type: ${ctx.pretty1(topty)}")
+    go(ts.env, fs, ts.fields)
 
   // inference
   private def infer0(tm: S)(using ctx: Ctx): (T0, VTy, VTy) =
@@ -482,6 +728,8 @@ object Elaboration:
               (T0.Lam(x, ety, eb), V.Fun(vty, vcv, vrt), V.Comp)
 
         case S.Hole(_, _) => err("cannot infer hole")
+
+        case S.EmptyRecord(_) => (T0.RecordConEmpty, V.RecordTy0Empty, V.Val)
 
         case tm =>
           insert(infer(tm)) match
@@ -739,22 +987,20 @@ object Elaboration:
         case S.UnitLit(_)       => err("cannot infer unit")
         case S.EmptyRecord(_)   => err("cannot infer empty record")
         case S.RecordCon1(_, _) => err("cannot infer meta record")
-
-        case S.Tuple(_, _) => ???
-
-        case S.RecordTy(_, _) => ???
+        case S.Tuple(_, _)      => err("cannot infer tuple")
+        case S.RecordTy(_, _)   => err("cannot infer record type")
 
         case S.RecordCon0(_, fields) =>
           val xs = fields.map(_._1)
           if xs.toSet.size != xs.size then err(s"duplicate name in record")
-          def go(fs: Assoc[S]): (Seq[T0], Assoc[VTy]) =
+          def go(fs: Assoc[S]): (Seq[T0], AssocBind[VTy]) =
             fs match
               case Nil => (Nil, Nil)
               case (x, tm) :: rest =>
                 val (etm, vty, vcv) = infer0(tm)
                 unify(vcv, V.Val)
                 val (efields, tfields) = go(rest)
-                (etm +: efields, (x, vty) +: tfields)
+                (etm +: efields, (x.toBind, vty) +: tfields)
           val (efields, tfields) = go(fields)
           val vty = V.RecordTy0(tfields)
           val ty = ctx.readback1(vty)
@@ -764,20 +1010,23 @@ object Elaboration:
     debug(s"inferProj $tm.$p")
     insertPi(infer(tm)) match
       case Infer0(etm, vty, _) =>
-        val (cx, x, i, vrty) = inferProjTy(vty, p)
+        val (x, i, vrty) = inferProjTy0(vty, p)
         val rty = ctx.readback1(vrty)
         Infer0(T0.Proj(rty, etm, ProjType(x, i)), vrty, V.Val)
       case Infer1(etm, vty) =>
         forceAll1(vty) match
           case V.Lift(_, vty2) =>
-            val (cx, x, i, vrty) = inferProjTy(vty2, p)
+            val (x, i, vrty) = inferProjTy0(vty2, p)
             val rty = ctx.readback1(vrty)
             Infer0(T0.Proj(rty, etm.splice, ProjType(x, i)), vrty, V.Val)
+          case V.RecordTy1(fs) =>
+            val (x, i, vrty) = inferProjTy1(etm, fs, p)
+            Infer1(T1.Proj(etm, ProjType(x, i)), vrty)
           case _ => err(s"cannot project from ${ctx.pretty1(vty)}")
 
-  private def inferProjTy(vty: VTy, p: Surface.ProjType)(using
+  private def inferProjTy0(vty: VTy, p: Surface.ProjType)(using
       ctx: Ctx
-  ): (Name, Option[Name], Int, VTy) =
+  ): (Option[Name], Int, VTy) =
     forceAll1(vty) match
       case V.TypeCon(m, dx, dps) =>
         State.getGlobalDirect(m, dx) match
@@ -797,7 +1046,7 @@ object Elaboration:
                         )
                       case Surface.ProjType.Indexed(i) =>
                         val rty = eval1(params(i)._2)(using Env(dps.map(_._1)))
-                        (cx, None, i, rty)
+                        (None, i, rty)
                       case Surface.ProjType.Named(x) =>
                         params.zipWithIndex.find { case ((y, _), _) =>
                           y.equals(x)
@@ -808,10 +1057,48 @@ object Elaboration:
                             )
                           case Some(((_, ty), i)) =>
                             val rty = eval1(ty)(using Env(dps.map(_._1)))
-                            (cx, Some(x), i, rty)
+                            (Some(x), i, rty)
                   case _ => impossible()
           case _ => impossible()
+      case V.RecordTy0(fs) =>
+        @tailrec
+        def go(fs: AssocBind[VTy], ix: Int): (Option[Name], Int, VTy) =
+          fs match
+            case Nil => err(s"failed to project .$p")
+            case (x, ty) :: fs =>
+              val found = p match
+                case Surface.ProjType.Named(y)     => nameEquals(x, y)
+                case Surface.ProjType.Indexed(ix2) => ix == ix2
+              if found then (x.toOption, ix, ty)
+              else go(fs, ix + 1)
+        go(fs, 0)
       case _ => err(s"cannot project from ${ctx.pretty1(vty)}")
+
+  private def inferProjTy1(tm: T1, clos: ClosRec, p: Surface.ProjType)(using
+      ctx: Ctx
+  ): (Option[Name], Int, VTy) =
+    @tailrec
+    def go(
+        env: Env,
+        fs: AssocBind[Ty],
+        ix: Int
+    ): (Option[Name], Int, VTy) =
+      fs match
+        case Nil => err(s"failed to project .$p")
+        case (x, ty) :: fs =>
+          val found = p match
+            case Surface.ProjType.Named(y)     => nameEquals(x, y)
+            case Surface.ProjType.Indexed(ix2) => ix == ix2
+          if found then (x.toOption, ix, eval1(ty)(using env))
+          else
+            val proj = ctx.eval1(T1.Proj(tm, ProjType(x.toOption, ix)))
+            go(Env.Ext1(env, proj), fs, ix + 1)
+    go(clos.env, clos.fields, 0)
+
+  private inline def nameEquals(x: Bind, y: Name): Boolean =
+    x match
+      case DontBind  => false
+      case DoBind(x) => x == y
 
   private def checkMatch(
       scrut: S,

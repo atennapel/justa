@@ -1,6 +1,8 @@
 import Common.*
 
 object JVM:
+  val RecordConName = Name("Mk")
+
   enum Ty:
     case Bool
     case Int

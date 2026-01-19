@@ -149,11 +149,11 @@ object Pretty:
           case Cases.Empty        => s""
       s"match ${pretty0(s)} { ${go(cs)} }"
 
-  private def goRec(ns: Seq[Bind], fs: Assoc[Ty]): Seq[String] =
+  private def goRec(ns: Seq[Bind], fs: AssocBind[Ty]): Seq[String] =
     fs match
       case Nil => Nil
       case (x, t) :: rest =>
-        val nns = DoBind(x) +: ns
+        val nns = x +: ns
         s"$x : ${pretty1(t)(using ns)}" +: goRec(nns, rest)
 
   def pretty1(tm: Tm1)(using ns: Seq[Bind]): String = tm match
