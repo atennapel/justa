@@ -135,5 +135,5 @@ object Main:
         ) match
           case None => err(s"failed to resolve module dependency cycle")
           case Some((m, i)) =>
-            m +: go(modules.patch(i, Nil, 1), available + m.name)
+            m :: go(modules.patch(i, Nil, 1), available + m.name)
     go(modules, Set.empty)

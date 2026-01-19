@@ -245,7 +245,7 @@ object Evaluation:
           case Nil => Nil
           case (x, ty) :: rest =>
             val qty = readback1(eval1(ty)(using env))(using lvl)
-            (x, qty) +: go(Env.Ext1(env, V1.Var(lvl)), lvl + 1, rest)
+            (x, qty) :: go(Env.Ext1(env, V1.Var(lvl)), lvl + 1, rest)
       go(c.env, lvl, c.fields)
     force(v) match
       case V1.Rigid(hd, sp) =>

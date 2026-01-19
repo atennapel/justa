@@ -151,7 +151,7 @@ object Elaboration:
         case Nil => Nil
         case (x, ty) :: tl =>
           val ety = T1.Lift(T1.Val, readback1(ty)(using lvl, UnfoldOption.None))
-          (x, ety) +: go(lvl + 1, tl)
+          (x, ety) :: go(lvl + 1, tl)
     ClosRec(ctx.env, go(ctx.lvl, ts))
 
   private def quoteRec[A](ty: Ty, tm: T1, fs: AssocBind[A])(using
@@ -173,7 +173,7 @@ object Elaboration:
         case Nil => Nil
         case (x, _) :: tl =>
           val p = T1.Proj(tm, ProjType(x.toOption, ix)).splice
-          p +: go(tl, ix + 1)
+          p :: go(tl, ix + 1)
     T0.RecordCon(ty, go(fs, 0)).quote
 
   // coercion
@@ -190,14 +190,14 @@ object Elaboration:
           val vt1 = ctx.eval1(tm1)
           go(tm1, va1, va2) match
             case None =>
-              (false, x, tm1) +: goRec1(
+              (false, x, tm1) :: goRec1(
                 tm,
                 ix + 1,
                 ClosRec(Env.Ext1(fs1.env, vt1), tl1),
                 ClosRec(Env.Ext1(fs2.env, vt1), tl2)
               )
             case Some(coet1) =>
-              (true, x, coet1) +: goRec1(
+              (true, x, coet1) :: goRec1(
                 tm,
                 ix + 1,
                 ClosRec(Env.Ext1(fs1.env, vt1), tl1),
@@ -211,7 +211,7 @@ object Elaboration:
         case Nil => Nil
         case (x, ty) :: tl =>
           val ety = ctx.eval1(freshMeta(V.TypeV))
-          (x, ety) +: refineRec0(tl)
+          (x, ety) :: refineRec0(tl)
 
     def go(t: T1, a1: VTy, a2: VTy)(using ctx: Ctx): Option[T1] =
       debug(
@@ -330,7 +330,7 @@ object Elaboration:
     else
       val (t1, cv, t2) = ensureFun(a, acv)
       val (ps, rcv, rt) = ensureFunN(n - 1, t2, cv)
-      (t1 +: ps, rcv, rt)
+      (t1 :: ps, rcv, rt)
 
   private def ensureLift(t: VTy)(using ctx: Ctx): (VTy, VTy) =
     forceAll1(t) match
@@ -407,7 +407,7 @@ object Elaboration:
               err(
                 s"expected $x in record, checking against type: ${ctx.pretty1(topty)}"
               )
-            case Some(hd) => hd +: go(tl) // TODO: contemplate occ of _
+            case Some(hd) => hd :: go(tl) // TODO: contemplate occ of _
     go(ts)
 
   // checking
@@ -506,7 +506,7 @@ object Elaboration:
                 (fs, ts) match
                   case (Nil, Nil) => Nil
                   case (tm :: fs, (y, vty) :: ts) =>
-                    check0(tm, vty, V.Val) +: go(fs, ts)
+                    check0(tm, vty, V.Val) :: go(fs, ts)
                   case _ =>
                     err(
                       s"record field mismatch, checking against type: ${ctx.pretty1(ty)}"
@@ -522,7 +522,7 @@ object Elaboration:
                 (fs, ts) match
                   case (Nil, Nil) => Nil
                   case ((x, tm) :: fs, (y, vty) :: ts) if x == y.toName =>
-                    check0(tm, vty, V.Val) +: go(fs, ts)
+                    check0(tm, vty, V.Val) :: go(fs, ts)
                   case _ =>
                     err(
                       s"record field mismatch, checking against type: ${ctx.pretty1(ty)}"
@@ -633,7 +633,7 @@ object Elaboration:
               case Nil => Nil
               case (x, ty) :: rest =>
                 val ety = check1(ty, V.TypeV)
-                (x, ety) +: go(rest)
+                (x, ety) :: go(rest)
           T1.RecordTy0(go(fs))
 
         case (S.RecordTy(_, fs), V.Meta) =>
@@ -645,7 +645,7 @@ object Elaboration:
               case (x, ty) :: rest =>
                 val ety = check1(ty, V.Meta)(using ctx)
                 val vty = ctx.eval1(ety)
-                (x, ety) +: go(ctx.bind1(x, ety, vty), rest)
+                (x, ety) :: go(ctx.bind1(x, ety, vty), rest)
           T1.RecordTy1(go(ctx, fs))
 
         case (S.Tuple(_, fs), V.Type(vcv)) =>
@@ -659,7 +659,7 @@ object Elaboration:
               case ty :: rest =>
                 val ety = check1(ty, V.Meta)
                 val nctx = ctx.bind1(DontBind, ety, ctx.eval1(ety))
-                (DontBind, ety) +: go(rest)(using nctx)
+                (DontBind, ety) :: go(rest)(using nctx)
           T1.RecordTy1(go(fs))
 
         case (S.RecordCon1(_, fs0), topty @ V.RecordTy1(ts)) =>
@@ -700,7 +700,7 @@ object Elaboration:
           val etm = check1(tm, vty)
           val vtm = ctx.eval1(etm)
           val rest = go(Env.Ext1(env, vtm), fs, ts)
-          etm +: rest
+          etm :: rest
         case _ =>
           err(s"failed to check tuple against type: ${ctx.pretty1(topty)}")
     go(ts.env, fs, ts.fields)
@@ -865,8 +865,8 @@ object Elaboration:
                         ctx.enter(pos)
                       )
                     case (pos, Surface.ProjType.Named(x)) :: tl =>
-                      x +: createMod(tl)
-                val xs = x +: createMod(tl)
+                      x :: createMod(tl)
+                val xs = x :: createMod(tl)
                 val m = Name(xs.init.mkString("."))
                 inferGlobal(Some(m), xs.last)(using ctx.enter(tl.last._1))
               else inferProj(tm, p)
@@ -1000,7 +1000,7 @@ object Elaboration:
                 val (etm, vty, vcv) = infer0(tm)
                 unify(vcv, V.Val)
                 val (efields, tfields) = go(rest)
-                (etm +: efields, (x.toBind, vty) +: tfields)
+                (etm :: efields, (x.toBind, vty) :: tfields)
           val (efields, tfields) = go(fields)
           val vty = V.RecordTy0(tfields)
           val ty = ctx.readback1(vty)

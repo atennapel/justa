@@ -72,7 +72,7 @@ object Simplification:
       case Tm.If(ty, c, t, f) =>
         Tm.If(ty.drop(args.size), go(c, Nil), go(t, args), go(f, args))
 
-      case Tm.App(f, a) => go(f, go(a, Nil) +: args)
+      case Tm.App(f, a) => go(f, go(a, Nil) :: args)
 
       case Tm.Lam(x, u, ty, b) if args.nonEmpty =>
         go(Tm.Let(x, u, CTy(ty), args.head, b), args.tail)

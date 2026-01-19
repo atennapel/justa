@@ -258,7 +258,7 @@ object Lifting:
 
   private def lamTypes(tm: Tm): List[(Int, CTy)] =
     tm match
-      case Tm.Lam(x, _, ty, b) => (x, CTy(ty)) +: lamTypes(b)
+      case Tm.Lam(x, _, ty, b) => (x, CTy(ty)) :: lamTypes(b)
       case _                   => Nil
 
   private def renameLamTypes(

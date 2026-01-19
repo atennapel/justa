@@ -28,7 +28,7 @@ object IR:
     def apply(ret: VTy): CTy = CTy(Nil, false, ret)
     def apply(param: VTy, ret: VTy): CTy = CTy(List(param), false, ret)
     def apply(param: VTy, ret: CTy): CTy =
-      CTy(param +: ret.params, ret.io, ret.ret)
+      CTy(param :: ret.params, ret.io, ret.ret)
 
   final case class Module(name: Name, defs: Defs):
     override def toString: String = s"module $name\n$defs"

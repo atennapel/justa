@@ -309,7 +309,7 @@ object Parser:
             symbol(sym)
             val tm = expr()
             tl += ((xs.toList, tm))
-          val fields = ((xs, tm) +: tl.toList).flatMap { (xs, tm) =>
+          val fields = ((xs, tm) :: tl.toList).flatMap { (xs, tm) =>
             xs.map(x => (x, tm))
           }
           inline def checkIfNames(): Unit =
@@ -330,7 +330,7 @@ object Parser:
           val hd = expr()
           val tl = mutable.ArrayBuffer.empty[Tm]
           while trySymbol(COMMA) do tl += expr()
-          Tm.Tuple(p, hd +: tl.toList)
+          Tm.Tuple(p, hd :: tl.toList)
         case tm => tm
 
     private def tryAtom(): Tm | Null =
@@ -579,7 +579,7 @@ object Parser:
           val tl = mutable.ArrayBuffer.empty[(PosInfo, Bind, List[Bind], Tm)]
           while trySymbol(PIPE) do tl += pcase()
           if startedWithBracket then symbol(R_BRACE)
-          hd +: tl.toList
+          hd :: tl.toList
       Tm.Match(p, scrut, cs)
 
     private def expr(): Tm =
@@ -621,7 +621,7 @@ object Parser:
         symbol(COLON)
         val ty = expr()
         symbol(R_PAREN)
-        (x +: xs.toList).map(x => (x, ty))
+        (x :: xs.toList).map(x => (x, ty))
       else
         tryAtom() match
           case null => null
@@ -650,7 +650,7 @@ object Parser:
         val hd = dataCon(pub)
         val tl = mutable.ArrayBuffer.empty[Constructor]
         while trySymbol(PIPE) do tl += dataCon(pub)
-        hd +: tl.toList
+        hd :: tl.toList
       else Nil
       Def.Data(pos, pub, dx, ps.toList, cons)
 

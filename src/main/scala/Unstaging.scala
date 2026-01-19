@@ -68,13 +68,13 @@ object Unstaging:
       case Tm0.Let(x, ty, v, b) =>
         val y = supply.next()
         val ct = goCTy(ty)
-        Tm.Let(y, -1, ct, go(v), go(b)(using ct +: tenv, extVEnv, y +: ren))
+        Tm.Let(y, -1, ct, go(v), go(b)(using ct :: tenv, extVEnv, y :: ren))
       case Tm0.LetRec(x, ty, v, b) =>
         val y = supply.next()
         val ct = goCTy(ty)
-        val nextTEnv = ct +: tenv
+        val nextTEnv = ct :: tenv
         val nextVEnv = extVEnv
-        val nextRen = y +: ren
+        val nextRen = y :: ren
         Tm.LetRec(
           y,
           -1,
@@ -90,7 +90,7 @@ object Unstaging:
           y,
           -1,
           goTy(ty),
-          go(b)(using CTy(vt) +: tenv, extVEnv, y +: ren)
+          go(b)(using CTy(vt) :: tenv, extVEnv, y :: ren)
         )
 
       case Tm0.App(fn, arg) => Tm.App(go(fn), go(arg))
@@ -123,9 +123,9 @@ object Unstaging:
                     addParamsRec(
                       rest,
                       newps :+ (x, vt, -1),
-                      CTy(vt) +: tenv,
+                      CTy(vt) :: tenv,
                       Env.Ext0(env, V0.Var(mkLvl(env.size))),
-                      x +: ren
+                      x :: ren
                     )
               inline def addParams(
                   ps: List[(Bind, Tm1)]
@@ -158,13 +158,13 @@ object Unstaging:
                 args: List[(Tm1, Icit)] = Nil
             ): (Tm1, List[(Tm1, Icit)]) =
               tm match
-                case Tm1.App(f, a, i) => apps(f, (a, i) +: args)
+                case Tm1.App(f, a, i) => apps(f, (a, i) :: args)
                 case Tm1.Prim(_)      => (tm, args)
                 case Tm1.Con(_, _, _) => (tm, args)
                 case _                => impossible()
             def takeImpl(args: List[(Tm1, Icit)]): List[Tm1] =
               args match
-                case (a, Icit.Impl) :: tl => a +: takeImpl(tl)
+                case (a, Icit.Impl) :: tl => a :: takeImpl(tl)
                 case _                    => Nil
             def stWithEnv(t: Tm1, e: Env) = unstageUnder(t.splice, e)
             inline def st(t: Tm1) = stWithEnv(t, venv)

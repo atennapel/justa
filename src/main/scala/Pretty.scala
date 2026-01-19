@@ -22,22 +22,22 @@ object Pretty:
   private def prettyPi(tm: Ty)(using ns: List[Bind]): String = tm match
     case T1.Fun(a, _, b) => s"${prettyParen1(a, true)} -> ${prettyPi(b)}"
     case T1.Pi(DontBind, Expl, t, b) =>
-      s"${prettyParen1(t, true)} -> ${prettyPi(b)(using DontBind +: ns)}"
+      s"${prettyParen1(t, true)} -> ${prettyPi(b)(using DontBind :: ns)}"
     case T1.Pi(bx @ DoBind(x), Expl, t, b) =>
-      s"($x : ${pretty1(t)}) -> ${prettyPi(b)(using bx +: ns)}"
+      s"($x : ${pretty1(t)}) -> ${prettyPi(b)(using bx :: ns)}"
     case T1.Pi(x, i, t, b) =>
-      s"${i.wrap(s"$x : ${pretty1(t)}")} -> ${prettyPi(b)(using x +: ns)}"
+      s"${i.wrap(s"$x : ${pretty1(t)}")} -> ${prettyPi(b)(using x :: ns)}"
     case T1.MetaPi1(t, b) =>
-      s"${prettyParen1(t, true)} 1-> ${prettyPi(b)(using DontBind +: ns)}"
+      s"${prettyParen1(t, true)} 1-> ${prettyPi(b)(using DontBind :: ns)}"
     case T1.MetaPi0(t, b) =>
-      s"${prettyParen1(t, true)} 0-> ${prettyPi(b)(using DontBind +: ns)}"
+      s"${prettyParen1(t, true)} 0-> ${prettyPi(b)(using DontBind :: ns)}"
     case rest => pretty1(rest)
 
   private def prettyLam0(tm: Tm0)(using ns: List[Bind]): String =
     def go(tm: Tm0, first: Boolean = false)(using ns: List[Bind]): String =
       tm match
         case T0.Lam(x, _, b) =>
-          s"${if first then "" else " "}$x${go(b)(using x +: ns)}"
+          s"${if first then "" else " "}$x${go(b)(using x :: ns)}"
         case rest => s" => ${pretty0(rest)}"
     s"\\${go(tm, true)}"
 
@@ -45,13 +45,13 @@ object Pretty:
     def go(tm: Tm1, first: Boolean = false)(using ns: List[Bind]): String =
       tm match
         case T1.Lam(x, Expl, _, b) =>
-          s"${if first then "" else " "}$x${go(b)(using x +: ns)}"
+          s"${if first then "" else " "}$x${go(b)(using x :: ns)}"
         case T1.Lam(x, Impl, _, b) =>
-          s"${if first then "" else " "}{$x}${go(b)(using x +: ns)}"
+          s"${if first then "" else " "}{$x}${go(b)(using x :: ns)}"
         case T1.MetaLam1(b) =>
-          s"${if first then "" else " "}1${go(b)(using DontBind +: ns)}"
+          s"${if first then "" else " "}1${go(b)(using DontBind :: ns)}"
         case T1.MetaLam0(b) =>
-          s"${if first then "" else " "}0${go(b)(using DontBind +: ns)}"
+          s"${if first then "" else " "}0${go(b)(using DontBind :: ns)}"
         case rest => s" => ${pretty1(rest)}"
     s"\\${go(tm, true)}"
 
@@ -99,12 +99,12 @@ object Pretty:
   private inline def prettyLift0(x: Bind, tm: Tm0)(using
       ns: List[Bind]
   ): String =
-    pretty0(tm)(using x +: ns)
+    pretty0(tm)(using x :: ns)
 
   private inline def prettyLift1(x: Bind, tm: Tm1)(using
       ns: List[Bind]
   ): String =
-    pretty1(tm)(using x +: ns)
+    pretty1(tm)(using x :: ns)
 
   def pretty0(tm: Tm0)(using ns: List[Bind]): String = tm match
     case T0.Var(ix) =>
@@ -153,8 +153,8 @@ object Pretty:
     fs match
       case Nil => Nil
       case (x, t) :: rest =>
-        val nns = x +: ns
-        s"$x : ${pretty1(t)(using ns)}" +: goRec(nns, rest)
+        val nns = x :: ns
+        s"$x : ${pretty1(t)(using ns)}" :: goRec(nns, rest)
 
   def pretty1(tm: Tm1)(using ns: List[Bind]): String = tm match
     case T1.Var(ix) =>
