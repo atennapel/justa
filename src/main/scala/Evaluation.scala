@@ -208,7 +208,7 @@ object Evaluation:
     case v                  => v
 
   // readback
-  enum UnfoldOption:
+  enum UnfoldOption derives CanEqual:
     case All
     case Metas
     case None

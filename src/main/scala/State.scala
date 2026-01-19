@@ -207,7 +207,7 @@ object State:
   def addImport(m: Name, x: Name, r: Name): Unit =
     moduleCtx.get.imports += r -> (m, x)
 
-  enum GlobalLookupFailure:
+  enum GlobalLookupFailure derives CanEqual:
     case ModuleNotFound
     case GlobalNotFound
     case GlobalIsNotAccessible

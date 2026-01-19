@@ -1,7 +1,7 @@
 import Common.*
 
 object IR:
-  enum VTy:
+  enum VTy derives CanEqual:
     case Bool
     case Int
     case Data(mod: Name, name: Name, args: List[VTy])
@@ -41,7 +41,7 @@ object IR:
     override def toString: String =
       s"${if pub then "pub " else ""}def $name : $ty = $value"
 
-  enum Cases:
+  enum Cases derives CanEqual:
     case Ext(x: Name, ps: List[(LocalName, VTy, Int)], body: Tm, rest: Cases)
     case Otherwise(body: Tm)
     case Empty
@@ -62,7 +62,7 @@ object IR:
       case _     => false
 
   type LocalName = Int
-  enum Tm:
+  enum Tm derives CanEqual:
     case Local(ix: LocalName, ty: CTy)
     case Global(mod: Name, name: Name, ty: CTy)
     case Prim(prim: RuntimePrimitive)

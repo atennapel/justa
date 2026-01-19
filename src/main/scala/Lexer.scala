@@ -14,7 +14,7 @@ object Lexer:
     state.tokenize()
     state.tokens
 
-  enum Symbol:
+  enum Symbol derives CanEqual:
     case L_PAREN
     case R_PAREN
     case L_BRACE
@@ -91,7 +91,7 @@ object Lexer:
         case "."  => PERIOD
         case _    => null
 
-  enum Keyword:
+  enum Keyword derives CanEqual:
     case MODULE
     case IMPORT
     case DEF
@@ -238,7 +238,7 @@ object Lexer:
     val opHead = "`~!@#$%^&*-+=\\|:;,<.>?/"
     val opTail = opHead
 
-  private enum LexState:
+  private enum LexState derives CanEqual:
     case Start
     case Comment
     case BlockComment1
@@ -256,12 +256,12 @@ object Lexer:
       val tokens: mutable.ArrayBuffer[Token] = mutable.ArrayBuffer.empty,
       acc: mutable.StringBuilder = new mutable.StringBuilder()
   ):
-    private inline def take: Char | Null =
-      if ix >= text.length then null
+    private inline def take: Char =
+      if ix >= text.length then '\u0000'
       else text(ix)
 
-    private inline def takeSkip: Char | Null =
-      if ix + 1 >= text.length then null
+    private inline def takeSkip: Char =
+      if ix + 1 >= text.length then '\u0000'
       else text(ix + 1)
 
     private inline def skip(isNewline: Boolean = false): Unit =
@@ -290,23 +290,23 @@ object Lexer:
       state match
         case LexState.Comment =>
           take match
-            case null => add(EOF(pos))
-            case '\n' => skip(); to(LexState.Start); tokenize()
-            case _    => skip(); tokenize()
+            case '\u0000' => add(EOF(pos))
+            case '\n'     => skip(); to(LexState.Start); tokenize()
+            case _        => skip(); tokenize()
         case LexState.BlockComment1 =>
           take match
-            case null => add(EOF(pos))
-            case '-'  => skip(); to(LexState.BlockComment2); tokenize()
-            case _    => skip(); tokenize()
+            case '\u0000' => add(EOF(pos))
+            case '-'      => skip(); to(LexState.BlockComment2); tokenize()
+            case _        => skip(); tokenize()
         case LexState.BlockComment2 =>
           take match
-            case null => add(EOF(pos))
-            case '}'  => skip(); to(LexState.Start); tokenize()
-            case '-'  => skip(); tokenize()
-            case _    => skip(); to(LexState.BlockComment1); tokenize()
+            case '\u0000' => add(EOF(pos))
+            case '}'      => skip(); to(LexState.Start); tokenize()
+            case '-'      => skip(); tokenize()
+            case _        => skip(); to(LexState.BlockComment1); tokenize()
         case LexState.Start =>
           take match
-            case null =>
+            case '\u0000' =>
               add(EOF(pos))
             case '#' if tokens.isEmpty && takeSkip == '!' =>
               skip(); skip(); to(LexState.Comment); tokenize()

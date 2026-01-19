@@ -52,7 +52,7 @@ object Surface:
         val css = cs.mkString(" | ")
         s"${if p then "pub " else ""}data $x ${ps.mkString(" ")} := $css"
 
-  enum ArgInfo:
+  enum ArgInfo derives CanEqual:
     case Named(name: Name)
     case Icit(icit: Common.Icit)
   object ArgInfo:

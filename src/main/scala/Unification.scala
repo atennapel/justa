@@ -183,7 +183,7 @@ object Unification:
     solveMetaVar(m, solution)
     m2
 
-  private enum SpinePruneStatus:
+  private enum SpinePruneStatus derives CanEqual:
     case OKRenaming
     case OKNonRenaming
     case NeedsPruning

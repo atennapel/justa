@@ -9,7 +9,7 @@ object Core:
         case None    => ix.toString
         case Some(x) => x.toString
 
-  enum Cases:
+  enum Cases derives CanEqual:
     case Ext(x: Name, ps: List[(Bind, Ty)], body: Tm0, rest: Cases)
     case Otherwise(body: Tm0)
     case Empty
@@ -176,14 +176,14 @@ object Core:
     val RecordTy0Empty = RecordTy0(Nil)
     val RecordConEmpty = RecordCon(Nil)
 
-  enum Locals:
+  enum Locals derives CanEqual:
     case Empty
     case Def(locs: Locals, ty: Ty, value: Tm1)
     case Bind0(locs: Locals, ty: Ty, cv: Ty)
     case Bind1(locs: Locals, ty: Ty)
 
   // values
-  enum Env:
+  enum Env derives CanEqual:
     case Empty
     case Ext1(env: Env, value: Val1)
     case Ext0(env: Env, value: Val0)
@@ -247,7 +247,7 @@ object Core:
     case RecordCon(ty: VTy, fields: List[Val0])
     case Splice(tm: Val1)
 
-  enum Head:
+  enum Head derives CanEqual:
     case Var(lvl: Lvl)
     case Prim(prim: Primitive)
     case TypeCon(mod: Name, name: Name)
@@ -256,7 +256,7 @@ object Core:
   enum UnfoldHead:
     case Global(mod: Name, name: Name, value: Val1)
 
-  enum Spine:
+  enum Spine derives CanEqual:
     case Empty
     case App(sp: Spine, arg: Val1, icit: Icit)
     case Proj(sp: Spine, proj: ProjType)
@@ -297,7 +297,7 @@ object Core:
       args.foldLeft(Spine.Empty) { case (s, (a, i)) => Spine.App(s, a, i) }
 
   type VTy = Val1
-  enum Val1:
+  enum Val1 derives CanEqual:
     case Rigid(head: Head, spine: Spine)
     case Flex(id: MetaId, spine: Spine)
     case Unfold(head: UnfoldHead, spine: Spine, value: () => Val1)

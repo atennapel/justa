@@ -3,7 +3,7 @@ import Common.*
 object JVM:
   val RecordConName = Name("Mk")
 
-  enum Ty:
+  enum Ty derives CanEqual:
     case Bool
     case Int
     case Data(mod: Name, name: Name)
@@ -22,7 +22,7 @@ object JVM:
 
   type LocalName = Int
 
-  enum Access:
+  enum Access derives CanEqual:
     case Pub
     case Priv
     case Synth
@@ -68,7 +68,7 @@ object JVM:
       case Data(acc, x, cs) =>
         s"$acc data $x = ${cs.mkString(" | ")}"
 
-  enum Cases:
+  enum Cases derives CanEqual:
     case Ext(x: Name, ps: List[(LocalName, Ty, Int)], body: Tm, rest: Cases)
     case Otherwise(body: Tm)
     case Empty

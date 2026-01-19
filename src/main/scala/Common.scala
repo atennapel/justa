@@ -23,6 +23,8 @@ object Common:
     @targetName("subIx")
     inline def -(o: Int): Ix = i - o
 
+  inline given CanEqual[Ix, Ix] = CanEqual.derived
+
   // debruijn levels
   opaque type Lvl = Int
   inline def lvl0: Lvl = 0
@@ -38,8 +40,10 @@ object Common:
     inline def <(o: Lvl): Boolean = l < o
     inline def toIx(using k: Lvl): Ix = k - l - 1
 
+  inline given CanEqual[Lvl, Lvl] = CanEqual.derived
+
   // names
-  enum Name:
+  enum Name derives CanEqual:
     case Nm(name: String)
     case Op(name: String)
 
@@ -62,7 +66,7 @@ object Common:
 
   type Assoc[T] = List[(Name, T)]
 
-  enum Bind:
+  enum Bind derives CanEqual:
     case DontBind
     case DoBind(name: Name)
 
@@ -93,7 +97,7 @@ object Common:
   type AssocBind[T] = List[(Bind, T)]
 
   // icit
-  enum Icit:
+  enum Icit derives CanEqual:
     case Expl
     case Impl
 
@@ -102,7 +106,7 @@ object Common:
       case Impl => s"{$x}"
 
   // pruning
-  enum PruneEntry:
+  enum PruneEntry derives CanEqual:
     case Skip
     case Bind0
     case Bind1(icit: Icit)
@@ -122,8 +126,10 @@ object Common:
     @targetName("exposeMetaId")
     inline def expose: Int = id
 
+  inline given CanEqual[MetaId, MetaId] = CanEqual.derived
+
   // primitives
-  enum Primitive:
+  enum Primitive derives CanEqual:
     case Meta
     case Type
     case CV
@@ -162,7 +168,7 @@ object Common:
       case ReturnIO => "returnIO"
       case BindIO   => "bindIO"
 
-  enum RuntimePrimitive:
+  enum RuntimePrimitive derives CanEqual:
     case Lt
     case Add
     case Sub

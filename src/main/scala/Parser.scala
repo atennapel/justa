@@ -51,6 +51,7 @@ object Parser:
       token
 
     private inline def backtrack[A](inline action: A | Null): A | Null =
+      given CanEqual[Null, A | Null] = CanEqual.derived
       val c = new State(tokens.clone(), ix)
       action match
         case null =>
@@ -62,6 +63,7 @@ object Parser:
     private inline def list[A: ClassTag](
         inline test: A | Null
     ): mutable.ArrayBuffer[A] =
+      given CanEqual[Null, A | Null] = CanEqual.derived
       val result: mutable.ArrayBuffer[A] = mutable.ArrayBuffer.empty
       var go = true
       while go do
@@ -70,7 +72,10 @@ object Parser:
           case v: A @unchecked => result += v
       result
 
-    private inline def tryConsume[A](inline test: Token => A | Null): A | Null =
+    private inline def tryConsume[A](
+        inline test: Token => A | Null
+    ): A | Null =
+      given CanEqual[Null, A | Null] = CanEqual.derived
       test(peek) match
         case null => null
         case v    => skip(); v
@@ -80,6 +85,7 @@ object Parser:
     private inline def consume[A](ty: String)(
         inline test: Token => A | Null
     ): A =
+      given CanEqual[Null, A | Null] = CanEqual.derived
       val token = pop()
       test(token) match
         case null            => err(s"expected $ty but got ${token.pretty}")

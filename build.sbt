@@ -9,7 +9,8 @@ lazy val root = project
     scalacOptions ++= Seq(
       "-Wunused:imports",
       "-Xfatal-warnings",
-      "-explain-cyclic"
+      "-explain-cyclic",
+      "-language:strictEquality"
     ),
     javacOptions ++= Seq("-source", "25", "-target", "25")
   )
