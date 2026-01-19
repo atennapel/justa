@@ -17,7 +17,6 @@ https://github.com/AndrasKovacs/cctt
 - [x] Public/private
 - [x] Re-exporting
 - [x] Record types
-- [ ] Use more advanced unification from: https://github.com/atennapel/tynka/blob/main/src/main/scala/core/Unification.scala
 - [ ] Meta datatypes
 - [ ] Identity types
 - [ ] JVM bytecode generation
@@ -34,3 +33,4 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Support record syntax for product-like datatypes
 - [ ] Row-types records (and variants)?
 - [ ] Generate private anonymous records if possible
+- [ ] Meta spine eta-expansion

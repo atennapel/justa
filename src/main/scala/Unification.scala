@@ -257,6 +257,20 @@ object Unification:
       case (Some(PruneMeta0(u)), t) => T1.MetaApp0(t, u)
     }
 
+  private def splitSpine(sp: Spine): (Spine, Spine) =
+    def go(sp: Spine): Option[(Spine, Spine)] = sp match
+      case Spine.Empty         => None
+      case Spine.App(sp, a, i) => go(sp).map((l, r) => (l, Spine.App(r, a, i)))
+      case Spine.MetaApp0(sp, a) =>
+        go(sp).map((l, r) => (l, Spine.MetaApp0(r, a)))
+      case Spine.MetaApp1(sp, a) =>
+        go(sp).map((l, r) => (l, Spine.MetaApp1(r, a)))
+      case Spine.Proj(sp, p) =>
+        go(sp)
+          .orElse(Some((sp, Spine.Empty)))
+          .map((l, r) => (l, Spine.Proj(r, p)))
+    go(sp).fold((sp, Spine.Empty))(x => x)
+
   // partial substitution action
   private def psubst0(v: V0)(using psub: PSub): T0 =
     inline def go0(v: V0) = psubst0(v)
@@ -336,9 +350,10 @@ object Unification:
           case Some(PS0(_)) => impossible()
           case Some(PS1(v)) =>
             goSp(readback1(v)(using psub.dom, UnfoldOption.None), sp)
+      case V.Flex(m, sp) if psub.occ.contains(m) => err(s"occurs error ?$m")
       case V.Flex(m, sp) =>
-        if psub.occ.contains(m) then err(s"occurs error ?$m")
-        else pruneVFlex(m, sp)
+        val (inner, outer) = splitSpine(sp)
+        goSp(pruneVFlex(m, inner), outer)
       case V.Unfold(UnfoldHead.Global(m, x, v), sp, _) =>
         goSp(T1.Global(m, x, v), sp)
       case V.Pi(x, i, ty, b)   => T1.Pi(x, i, go1(ty), goClos(b))
@@ -355,9 +370,28 @@ object Unification:
       case V.MetaLam0(b)       => T1.MetaLam0(goClos0(b))
 
   // solving
-  private def solve(id: MetaId, sp: Spine, rhs: V)(using lvl: Lvl): Unit =
-    debug(s"solve ${readback1m(V.Flex(id, sp))} := ${readback1m(rhs)}")
-    solveWithPSub(id, invert(sp), rhs)
+  private def solve(m: MetaId, sp: Spine, rhs: V)(using lvl: Lvl): Unit =
+    debug(s"solve ${readback1m(V.Flex(m, sp))} := ${readback1m(rhs)}")
+    val (inner, outer) = splitSpine(sp)
+    val psub = invert(sp)
+    if outer.isEmpty then solveWithPSub(m, psub, rhs)
+    else
+      @tailrec
+      def go(x: Head, a: Spine, b: Spine): Unit =
+        (a, b) match
+          case (Spine.Empty, b) => solveWithPSub(m, psub, V.Rigid(x, b))
+          case (Spine.App(s1, a, _), Spine.App(s2, b, _)) =>
+            unify1(a, b); go(x, s1, s2)
+          case (Spine.MetaApp1(s1, a), Spine.MetaApp1(s2, b)) =>
+            unify1(a, b); go(x, s1, s2)
+          case (Spine.MetaApp0(s1, a), Spine.MetaApp0(s2, b)) =>
+            unify0(a, b); go(x, s1, s2)
+          case (Spine.Proj(s1, p1), Spine.Proj(s2, p2)) if p1.ix == p2.ix =>
+            go(x, s1, s2)
+          case _ => err(s"solve ?$m, spine mismatch")
+      forceAll1(rhs) match
+        case V.Rigid(x, rhsSp) => go(x, outer, rhsSp)
+        case _                 => err(s"solve ?$m, invalid spine")
 
   private def solveWithPSub(m: MetaId, iv: (PSub, Option[Pruning]), rhs: V)(
       using lvl: Lvl
@@ -430,8 +464,9 @@ object Unification:
   ): Unit =
     inline def go(m1: MetaId, sp1: Spine, m2: MetaId, sp2: Spine): Unit =
       try
-        val data = invert(sp1)
-        solveWithPSub(m1, data, V.Flex(m2, sp2))
+        val (sp, outer) = splitSpine(sp1)
+        if !outer.isEmpty then err(s"flex flex ?$m1, invalid spine")
+        solveWithPSub(m1, invert(sp), V.Flex(m2, sp2))
       catch case _: UnifyError => solve(m2, sp2, V.Flex(m1, sp1))
     if sp1.size < sp2.size then go(m2, sp2, m1, sp1) else go(m1, sp1, m2, sp2)
 
@@ -469,10 +504,15 @@ object Unification:
             case _ => None
         case (Spine.Proj(_, _), Spine.Proj(_, _)) => None
         case _                                    => impossible()
-    go(sp1, sp2) match
-      case None => unify1(V.Flex(m, sp1), sp1, V.Flex(m, sp2), sp2)
-      case Some(p) if p.exists(_ == PruneEntry.Skip) => pruneMeta(p, m)
-      case _                                         => ()
+    val (sp1inner, outer1) = splitSpine(sp1)
+    val (sp2inner, outer2) = splitSpine(sp2)
+    if outer1.isEmpty && outer2.isEmpty then
+      go(sp1inner, sp2inner) match
+        case None =>
+          unify1(V.Flex(m, sp1inner), sp1inner, V.Flex(m, sp2inner), sp2inner)
+        case Some(p) if p.exists(_ == PruneEntry.Skip) => pruneMeta(p, m)
+        case _                                         => ()
+    else unify1(V.Flex(m, sp1inner), sp1inner, V.Flex(m, sp2inner), sp2inner)
 
   private def unify1(top1: V, sp1: Spine, top2: V, sp2: Spine)(using
       lvl: Lvl
