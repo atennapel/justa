@@ -37,16 +37,16 @@ object State:
     val u = getMetaUnsolved(id)
     metas(id.expose) = MetaEntry.Solved(v, u.ty)
 
-  def getMetas(): Seq[(MetaId, VTy, Option[Val1])] =
+  def getMetas(): List[(MetaId, VTy, Option[Val1])] =
     metas.zipWithIndex.collect {
       case (MetaEntry.Solved(v, ty), ix) => (metaId(ix), ty, Some(v))
       case (MetaEntry.Unsolved(ty), ix)  => (metaId(ix), ty, None)
-    }.toSeq
+    }.toList
 
-  def unsolvedMetas(): Seq[(MetaId, VTy)] =
+  def unsolvedMetas(): List[(MetaId, VTy)] =
     metas.zipWithIndex.collect { case (MetaEntry.Unsolved(ty), ix) =>
       (metaId(ix), ty)
-    }.toSeq
+    }.toList
 
   def isMetaUnsolved(id: MetaId): Boolean = getMeta(id) match
     case MetaEntry.Unsolved(ty)      => true
@@ -80,8 +80,8 @@ object State:
     case Data(
         pub: Boolean,
         x: Name,
-        params: Seq[Name],
-        cons: Seq[Name],
+        params: List[Name],
+        cons: List[Name],
         tm: Tm1,
         ty: Val1,
         unitCon: Option[Name],
@@ -90,8 +90,8 @@ object State:
     case Con(
         pub: Boolean,
         x: Name,
-        typarams: Seq[Name],
-        params: Seq[(Bind, Ty)],
+        typarams: List[Name],
+        params: List[(Bind, Ty)],
         dx: Name,
         ix: Int,
         tm: Tm1,
@@ -186,11 +186,11 @@ object State:
       case _ => impossible()
   inline def conIndex(dx: Name, cx: Name): Int = conIndex(currentModule, dx, cx)
 
-  def allGlobals(): Map[Name, Seq[GlobalEntry]] =
-    globals.mapValues(_.toSeq).toMap
+  def allGlobals(): Map[Name, List[GlobalEntry]] =
+    globals.mapValues(_.toList).toMap
 
-  def allGlobalsForModule(mod: Name = currentModule): Seq[GlobalEntry] =
-    globals(mod).toSeq
+  def allGlobalsForModule(mod: Name = currentModule): List[GlobalEntry] =
+    globals(mod).toList
 
   def enterModule(mod: Name): Unit =
     moduleCtx = Some(ModuleCtx(mod))
@@ -242,11 +242,11 @@ object State:
   // monomorphization
   type MonoEnv = Map[Lvl, IR.VTy]
   private val monomap
-      : mutable.Map[(Name, Name, Name), MonoEnv => Seq[(Bind, IR.VTy)]] =
+      : mutable.Map[(Name, Name, Name), MonoEnv => List[(Bind, IR.VTy)]] =
     mutable.Map.empty
 
   def setMono(mod: Name, dx: Name, cx: Name)(
-      k: MonoEnv => Seq[(Bind, IR.VTy)]
+      k: MonoEnv => List[(Bind, IR.VTy)]
   ): Unit =
     monomap += ((mod, dx, cx) -> k)
 
@@ -255,5 +255,5 @@ object State:
       dx: Name,
       cx: Name,
       menv: MonoEnv
-  ): Seq[(Bind, IR.VTy)] =
+  ): List[(Bind, IR.VTy)] =
     monomap((mod, dx, cx))(menv)

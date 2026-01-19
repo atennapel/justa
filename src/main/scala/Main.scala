@@ -55,8 +55,8 @@ object Main:
         throw err
 
   private def elaborate(
-      ms: Seq[Surface.Module],
-      files: Seq[(Path, String)]
+      ms: List[Surface.Module],
+      files: List[(Path, String)]
   ): Unit =
     try Elaboration.elaborate(ms)
     catch
@@ -99,22 +99,22 @@ object Main:
       .replace('/', '.')
       .replace('\\', '.')
 
-  private def allSourceFiles(path: Path): Seq[Path] =
+  private def allSourceFiles(path: Path): List[Path] =
     Files
       .list(path)
       .iterator()
       .asScala
       .flatMap { p =>
         if Files.isRegularFile(p) && p.toFile.getName.endsWith(".justa") then
-          Seq(p)
+          List(p)
         else if Files.isDirectory(p) then allSourceFiles(p)
-        else Seq.empty
+        else Nil
       }
-      .toSeq
+      .toList
 
   private def orderModules(
-      modules: Seq[Surface.Module]
-  ): Seq[Surface.Module] =
+      modules: List[Surface.Module]
+  ): List[Surface.Module] =
     val all = modules.map(_.name).toSet
     modules.foreach {
       case Surface.Module(_, x, deps, _, _, _)
@@ -125,15 +125,15 @@ object Main:
       case _ => ()
     }
     def go(
-        modules: Seq[Surface.Module],
+        modules: List[Surface.Module],
         available: Set[Name]
-    ): Seq[Surface.Module] =
-      if modules.isEmpty then Seq.empty
+    ): List[Surface.Module] =
+      if modules.isEmpty then Nil
       else
         modules.zipWithIndex.find((m, _) =>
           m.deps.forall(available.contains)
         ) match
           case None => err(s"failed to resolve module dependency cycle")
           case Some((m, i)) =>
-            m +: go(modules.patch(i, Seq.empty, 1), available + m.name)
+            m +: go(modules.patch(i, Nil, 1), available + m.name)
     go(modules, Set.empty)

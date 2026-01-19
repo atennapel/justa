@@ -9,7 +9,7 @@ final case class Ctx(
     env: Env,
     locals: Locals,
     pruning: Pruning,
-    binds: Seq[Bind],
+    binds: List[Bind],
     names: NameMap,
     pos: PosInfo
 ):

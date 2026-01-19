@@ -16,9 +16,9 @@ object JVM:
   final case class Module(name: Name, defs: Defs):
     override def toString: String = s"module $name\n$defs"
 
-  final case class Defs(defs: Seq[Def]):
+  final case class Defs(defs: List[Def]):
     override def toString: String = defs.mkString("\n")
-    def toSeq: Seq[Def] = defs
+    def toList: List[Def] = defs
 
   type LocalName = Int
 
@@ -35,7 +35,7 @@ object JVM:
   final case class Constructor(
       acc: Access,
       name: Name,
-      params: Seq[(Option[Name], Ty)]
+      params: List[(Option[Name], Ty)]
   ):
     override def toString: String = params match
       case Nil => s"$acc $name"
@@ -50,11 +50,11 @@ object JVM:
     case Function(
         acc: Access,
         name: Name,
-        params: Seq[(LocalName, Ty)],
+        params: List[(LocalName, Ty)],
         retty: Ty,
         body: Tm
     )
-    case Data(acc: Access, name: Name, constructors: Seq[Constructor])
+    case Data(acc: Access, name: Name, constructors: List[Constructor])
 
     override def toString: String = this match
       case Value(acc, x, t, v) =>
@@ -69,7 +69,7 @@ object JVM:
         s"$acc data $x = ${cs.mkString(" | ")}"
 
   enum Cases:
-    case Ext(x: Name, ps: Seq[(LocalName, Ty, Int)], body: Tm, rest: Cases)
+    case Ext(x: Name, ps: List[(LocalName, Ty, Int)], body: Tm, rest: Cases)
     case Otherwise(body: Tm)
     case Empty
 
@@ -91,8 +91,8 @@ object JVM:
   enum Tm:
     case Local(ix: LocalName, ty: Ty)
     case Global(mod: Name, name: Name)
-    case GlobalApp(mod: Name, name: Name, args: Seq[Tm])
-    case Prim(prim: RuntimePrimitive, args: Seq[Tm])
+    case GlobalApp(mod: Name, name: Name, args: List[Tm])
+    case Prim(prim: RuntimePrimitive, args: List[Tm])
     case BoolLit(value: Boolean)
     case IntLit(value: Int)
     case Let(name: LocalName, ty: Ty, value: Tm, body: Tm)
@@ -100,19 +100,19 @@ object JVM:
 
     case Join(
         name: LocalName,
-        params: Seq[(LocalName, Ty)],
+        params: List[(LocalName, Ty)],
         value: Tm,
         body: Tm
     )
     case JoinRec(
         name: LocalName,
-        params: Seq[(LocalName, Ty)],
+        params: List[(LocalName, Ty)],
         value: Tm,
         body: Tm
     )
-    case Jump(name: LocalName, args: Seq[Tm])
+    case Jump(name: LocalName, args: List[Tm])
 
-    case Con(mod: Name, dx: Name, cx: Name, ix: Int, args: Seq[Tm])
+    case Con(mod: Name, dx: Name, cx: Name, ix: Int, args: List[Tm])
     case Case(mod: Name, dty: Name, scrut: Tm, cases: Cases)
     case Select(scrut: Tm, ix: Int)
 

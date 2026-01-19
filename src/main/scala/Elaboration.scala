@@ -47,7 +47,7 @@ object Elaboration:
 
   // metas
   private def closeTy(ty: Ty)(using ctx: Ctx): Ty =
-    def go(ls: Locals, xs: Seq[Bind], ty: Ty): Ty = (ls, xs) match
+    def go(ls: Locals, xs: List[Bind], ty: Ty): Ty = (ls, xs) match
       case (Locals.Empty, Nil) => ty
       case (Locals.Def(ls, a, v), Bind.DoBind(x) :: xs) =>
         go(ls, xs, T1.Let(x, a, v, ty))
@@ -168,7 +168,7 @@ object Elaboration:
   private def spliceRec[A](ty: Ty, tm: T1, fs: AssocBind[A])(using
       ctx: Ctx
   ): T1 =
-    def go(fs: AssocBind[A], ix: Int): Seq[T0] =
+    def go(fs: AssocBind[A], ix: Int): List[T0] =
       fs match
         case Nil => Nil
         case (x, _) :: tl =>
@@ -180,7 +180,7 @@ object Elaboration:
   private def coe(t: T1, a1: VTy, a2: VTy)(using ctx: Ctx): T1 =
     def goRec1(tm: T1, ix: Int, fs1: ClosRec, fs2: ClosRec)(using
         ctx: Ctx
-    ): Seq[(Boolean, Bind, T1)] =
+    ): List[(Boolean, Bind, T1)] =
       (fs1.fields, fs2.fields) match
         case (Nil, Nil) => Nil
         case ((x, ty1) :: tl1, (y, ty2) :: tl2) if x == y =>
@@ -325,7 +325,7 @@ object Elaboration:
 
   private def ensureFunN(n: Int, a: VTy, acv: VTy)(using
       ctx: Ctx
-  ): (Seq[VTy], VTy, VTy) =
+  ): (List[VTy], VTy, VTy) =
     if n == 0 then (Nil, acv, a)
     else
       val (t1, cv, t2) = ensureFun(a, acv)
@@ -502,7 +502,7 @@ object Elaboration:
         case S.Tuple(_, fs) =>
           forceAll1(ty) match
             case V.RecordTy0(ts) =>
-              def go(fs: Seq[S], ts: AssocBind[VTy]): Seq[T0] =
+              def go(fs: List[S], ts: AssocBind[VTy]): List[T0] =
                 (fs, ts) match
                   case (Nil, Nil) => Nil
                   case (tm :: fs, (y, vty) :: ts) =>
@@ -518,7 +518,7 @@ object Elaboration:
           forceAll1(ty) match
             case V.RecordTy0(ts) =>
               val fs = orderFields(ty, fs0, ts)
-              def go(fs: Assoc[S], ts: AssocBind[VTy]): Seq[T0] =
+              def go(fs: Assoc[S], ts: AssocBind[VTy]): List[T0] =
                 (fs, ts) match
                   case (Nil, Nil) => Nil
                   case ((x, tm) :: fs, (y, vty) :: ts) if x == y.toName =>
@@ -653,7 +653,7 @@ object Elaboration:
           T1.RecordTy0(fs.map(ty => (DontBind, check1(ty, V.TypeV))))
 
         case (S.Tuple(_, fs), V.Meta) =>
-          def go(fs: Seq[S])(using ctx: Ctx): AssocBind[Ty] =
+          def go(fs: List[S])(using ctx: Ctx): AssocBind[Ty] =
             fs match
               case Nil => Nil
               case ty :: rest =>
@@ -688,10 +688,10 @@ object Elaboration:
           val (etm, vty) = insert(infer1(tm))
           coe(etm, vty, ty)
 
-  private def checkTuple1(topty: VTy, fs: Seq[S], ts: ClosRec)(using
+  private def checkTuple1(topty: VTy, fs: List[S], ts: ClosRec)(using
       ctx: Ctx
-  ): Seq[T1] =
-    def go(env: Env, fs: Seq[S], ts: AssocBind[Ty]): Seq[T1] =
+  ): List[T1] =
+    def go(env: Env, fs: List[S], ts: AssocBind[Ty]): List[T1] =
       (fs, ts) match
         case (Nil, Nil) => Nil
         case (tm :: fs, (x, ty) :: ts) =>
@@ -856,8 +856,8 @@ object Elaboration:
             case S.Var(pos, x) =>
               if ctx.lookup(x).isEmpty && State.getGlobal(None, x).isLeft then
                 def createMod(
-                    tl: Seq[(PosInfo, Surface.ProjType)]
-                ): Seq[Name] =
+                    tl: List[(PosInfo, Surface.ProjType)]
+                ): List[Name] =
                   tl match
                     case Nil => Nil
                     case (pos, Surface.ProjType.Indexed(_)) :: _ =>
@@ -993,7 +993,7 @@ object Elaboration:
         case S.RecordCon0(_, fields) =>
           val xs = fields.map(_._1)
           if xs.toSet.size != xs.size then err(s"duplicate name in record")
-          def go(fs: Assoc[S]): (Seq[T0], AssocBind[VTy]) =
+          def go(fs: Assoc[S]): (List[T0], AssocBind[VTy]) =
             fs match
               case Nil => (Nil, Nil)
               case (x, tm) :: rest =>
@@ -1102,7 +1102,7 @@ object Elaboration:
 
   private def checkMatch(
       scrut: S,
-      cs: Seq[(PosInfo, Bind, Seq[Bind], S)],
+      cs: List[(PosInfo, Bind, List[Bind], S)],
       exty: VTy,
       excv: VTy
   )(using
@@ -1118,7 +1118,7 @@ object Elaboration:
 
   private def checkCases(
       vscrutty: VTy,
-      cs: Seq[(PosInfo, Bind, Seq[Bind], S)],
+      cs: List[(PosInfo, Bind, List[Bind], S)],
       exty: VTy,
       excv: VTy
   )(using
@@ -1135,16 +1135,16 @@ object Elaboration:
       case Some(GlobalEntry.Data(_, _, dps, cs, _, _, _, _)) => (dps, cs.toSet)
       case _                                                 => impossible()
     val psenv = Env(ps)
-    inline def conTypes(m: Name, cx: Name): Seq[VTy] =
+    inline def conTypes(m: Name, cx: Name): List[VTy] =
       State.getGlobalDirect(m, cx) match
         case Some(GlobalEntry.Con(_, _, _, params, _, _, _, _, _)) =>
           params.map((_, ty) => eval1(ty)(using psenv))
         case _ => impossible()
-    inline def goBranch(m: Name, cx: Name, ps: Seq[Bind], b: S)(using
+    inline def goBranch(m: Name, cx: Name, ps: List[Bind], b: S)(using
         ctx: Ctx
-    ): (Seq[(Bind, Ty)], T0) =
+    ): (List[(Bind, Ty)], T0) =
       val (innerctx, nps) =
-        ps.zip(conTypes(m, cx)).foldLeft[(Ctx, Seq[(Bind, Ty)])]((ctx, Nil)) {
+        ps.zip(conTypes(m, cx)).foldLeft[(Ctx, List[(Bind, Ty)])]((ctx, Nil)) {
           case ((innerctx, nps), (x, ty)) =>
             val rty = ctx.readback1(ty)
             (
@@ -1155,7 +1155,7 @@ object Elaboration:
       val nb = check0(b, exty, excv)(using innerctx)
       (nps, nb)
     def goCases(
-        cs: Seq[(PosInfo, Bind, Seq[Bind], S)],
+        cs: List[(PosInfo, Bind, List[Bind], S)],
         cons: Set[Name],
         seen: Set[Name]
     ): Cases =
@@ -1321,9 +1321,9 @@ object Elaboration:
       else State.addImport(m, x, y)
       if rex then State.addReexport(mod.name, y, m, x)
     }
-    mod.defs.toSeq.foreach(elaborate)
+    mod.defs.toList.foreach(elaborate)
 
-  def elaborate(mod: Seq[Surface.Module]): Unit =
+  def elaborate(mod: List[Surface.Module]): Unit =
     debug(s"elaborate modules ${mod.map(_.name).mkString("[", ",", "]")}")
     mod.foreach(elaborate)
     checkUnsolvedMetas()(using Ctx.empty(PosInfo(0, 0)))

@@ -20,7 +20,6 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Use more advanced unification from: https://github.com/atennapel/tynka/blob/main/src/main/scala/core/Unification.scala
 - [ ] Meta datatypes
 - [ ] Identity types
-- [ ] Clean up usages of Nil and use Seq (or Vector or List) instead
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism

@@ -199,12 +199,12 @@ object Unification:
     debug(
       s"pruneVFlex ${readback1(V.Flex(m, sp))(using psub.cod, UnfoldOption.None)}"
     )
-    def go(sp: Spine): (Seq[Option[PruneTm]], SpinePruneStatus) =
+    def go(sp: Spine): (List[Option[PruneTm]], SpinePruneStatus) =
       inline def go1(
           sp: Spine,
           v: V,
           inline ptm: T1 => PruneTm
-      ): (Seq[Option[PruneTm]], SpinePruneStatus) =
+      ): (List[Option[PruneTm]], SpinePruneStatus) =
         val (sp2, status) = go(sp)
         forceAll1(v) match
           case V.Var(x) =>
@@ -280,7 +280,7 @@ object Unification:
       case V0.RecordCon(ty, fs)   => T0.RecordCon(go1(ty), fs.map(t => go0(t)))
       case V0.Case(rty, dty, s, cs) =>
         def addParams(
-            ps: Seq[(Bind, Ty)]
+            ps: List[(Bind, Ty)]
         )(using psub: PSub, env: Env): (PSub, Env) =
           def go(n: Int, psub: PSub, env: Env): (PSub, Env) =
             n match

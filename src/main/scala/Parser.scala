@@ -297,13 +297,13 @@ object Parser:
         else
           val sym = recordKindSymbol(kind)
           val tm = expr()
-          val tl = mutable.ArrayBuffer.empty[(Seq[Bind], Tm)]
+          val tl = mutable.ArrayBuffer.empty[(List[Bind], Tm)]
           while trySymbol(COMMA) do
             val xs = list(tryBind())
             symbol(sym)
             val tm = expr()
-            tl += ((xs.toSeq, tm))
-          val fields = ((xs, tm) +: tl.toSeq).flatMap { (xs, tm) =>
+            tl += ((xs.toList, tm))
+          val fields = ((xs, tm) +: tl.toList).flatMap { (xs, tm) =>
             xs.map(x => (x, tm))
           }
           inline def checkIfNames(): Unit =
@@ -324,7 +324,7 @@ object Parser:
           val hd = expr()
           val tl = mutable.ArrayBuffer.empty[Tm]
           while trySymbol(COMMA) do tl += expr()
-          Tm.Tuple(p, hd +: tl.toSeq)
+          Tm.Tuple(p, hd +: tl.toList)
         case tm => tm
 
     private def tryAtom(): Tm | Null =
@@ -540,14 +540,14 @@ object Parser:
         }
       }
 
-    private def pcase(): (PosInfo, Bind, Seq[Bind], Tm) =
+    private def pcase(): (PosInfo, Bind, List[Bind], Tm) =
       val p = pos
       val fst = bind()
       val (cx, ps) = tryOp() match
-        case null => (fst, list(tryBind()).toSeq)
+        case null => (fst, list(tryBind()).toList)
         case op =>
           val snd = bind()
-          (Bind.op(op), Seq(fst, snd))
+          (Bind.op(op), List(fst, snd))
       symbol(DOUBLE_ARROW)
       val b = expr()
       (p, cx, ps, b)
@@ -566,14 +566,14 @@ object Parser:
           else symbol(PIPE)
           Some(scrut)
       val cs =
-        if startedWithBracket && trySymbol(R_BRACE) then Seq.empty
+        if startedWithBracket && trySymbol(R_BRACE) then Nil
         else
           if startedWithBracket then trySymbol(PIPE)
           val hd = pcase()
-          val tl = mutable.ArrayBuffer.empty[(PosInfo, Bind, Seq[Bind], Tm)]
+          val tl = mutable.ArrayBuffer.empty[(PosInfo, Bind, List[Bind], Tm)]
           while trySymbol(PIPE) do tl += pcase()
           if startedWithBracket then symbol(R_BRACE)
-          hd +: tl.toSeq
+          hd +: tl.toList
       Tm.Match(p, scrut, cs)
 
     private def expr(): Tm =
@@ -608,18 +608,18 @@ object Parser:
               xs.foldRight(rt) { case ((p, x), rt) => Tm.Pi(p, x, i, ty, rt) }
             }
 
-    private def dataParam(): Seq[(Bind, Ty)] | Null =
+    private def dataParam(): List[(Bind, Ty)] | Null =
       if trySymbol(L_PAREN) then
         val x = bind()
         val xs = list(tryBind())
         symbol(COLON)
         val ty = expr()
         symbol(R_PAREN)
-        (x +: xs.toSeq).map(x => (x, ty))
+        (x +: xs.toList).map(x => (x, ty))
       else
         tryAtom() match
           case null => null
-          case t    => Seq((DontBind, t))
+          case t    => List((DontBind, t))
 
     private def dataCon(dataPub: Boolean): Constructor =
       val p = pos
@@ -632,7 +632,7 @@ object Parser:
             )
         else dataPub
       val cx = nameOrOp()
-      val ps = list(dataParam()).toSeq.flatten
+      val ps = list(dataParam()).toList.flatten
       Constructor(p, pub, cx, ps)
 
     private def data(pos: PosInfo, pub: Boolean): Def =
@@ -644,9 +644,9 @@ object Parser:
         val hd = dataCon(pub)
         val tl = mutable.ArrayBuffer.empty[Constructor]
         while trySymbol(PIPE) do tl += dataCon(pub)
-        hd +: tl.toSeq
-      else Seq.empty
-      Def.Data(pos, pub, dx, ps.toSeq, cons)
+        hd +: tl.toList
+      else Nil
+      Def.Data(pos, pub, dx, ps.toList, cons)
 
     private def tryDef(): Def | Null =
       val p = pos
@@ -658,7 +658,7 @@ object Parser:
       else if tryKeyword(DATA) then data(p, pub)
       else null
 
-    private def defs(): Defs = Defs(list(tryDef()).toSeq)
+    private def defs(): Defs = Defs(list(tryDef()).toList)
 
     @tailrec
     private def imports(
@@ -705,4 +705,4 @@ object Parser:
             imps += ((p1, p2, rex, m, x, r))
           )
       val ds = defs()
-      Module(p, x, deps.toSet, imps.toSeq, moduleAliases.toMap, ds)
+      Module(p, x, deps.toSet, imps.toList, moduleAliases.toMap, ds)

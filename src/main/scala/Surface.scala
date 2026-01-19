@@ -6,22 +6,22 @@ object Surface:
       pos: PosInfo,
       name: Name,
       deps: Set[Name],
-      imports: Seq[(PosInfo, PosInfo, Boolean, Name, Name, Option[Name])],
+      imports: List[(PosInfo, PosInfo, Boolean, Name, Name, Option[Name])],
       moduleAliases: Map[Name, Name],
       defs: Defs
   ):
     override def toString: String =
       s"module $name\n$defs"
 
-  final case class Defs(defs: Seq[Def]):
+  final case class Defs(defs: List[Def]):
     override def toString: String = defs.mkString("\n")
-    def toSeq: Seq[Def] = defs
+    inline def toList: List[Def] = defs
 
   final case class Constructor(
       pos: PosInfo,
       pub: Boolean,
       name: Name,
-      params: Seq[(Bind, Ty)]
+      params: List[(Bind, Ty)]
   ):
     override def toString: String =
       params match
@@ -39,8 +39,8 @@ object Surface:
         pos: PosInfo,
         pub: Boolean,
         name: Name,
-        params: Seq[Name],
-        cons: Seq[Constructor]
+        params: List[Name],
+        cons: List[Constructor]
     )
 
     override def toString: String = this match
@@ -91,7 +91,7 @@ object Surface:
     case Match(
         _pos: PosInfo,
         scrut: Option[Tm],
-        cases: Seq[(PosInfo, Bind, Seq[Bind], Tm)]
+        cases: List[(PosInfo, Bind, List[Bind], Tm)]
     )
 
     case UnitLit(_pos: PosInfo)
@@ -99,7 +99,7 @@ object Surface:
     case RecordTy(_pos: PosInfo, fields: AssocBind[Ty])
     case RecordCon1(_pos: PosInfo, fields: Assoc[Tm])
     case RecordCon0(_pos: PosInfo, fields: Assoc[Tm])
-    case Tuple(_pos: PosInfo, fields: Seq[Tm])
+    case Tuple(_pos: PosInfo, fields: List[Tm])
 
     case Hole(_pos: PosInfo, name: Option[Name])
 
@@ -127,11 +127,11 @@ object Surface:
       case RecordCon0(_pos, _)      => _pos
       case Tuple(_pos, _)           => _pos
 
-    def splitProjs: (Tm, Seq[(PosInfo, ProjType)]) = this match
+    def splitProjs: (Tm, List[(PosInfo, ProjType)]) = this match
       case Proj(pos, tm, proj) =>
         val (hd, tl) = tm.splitProjs
         (hd, tl :+ (pos, proj))
-      case tm => (tm, Seq.empty)
+      case tm => (tm, Nil)
 
     override def toString: String = this match
       case Var(_, x)     => s"$x"
@@ -164,7 +164,7 @@ object Surface:
       case Match(_, None, Nil)    => s"(match {})"
       case Match(_, Some(s), Nil) => s"(match $s {})"
       case Match(_, s, cs) =>
-        inline def show(c: (PosInfo, Bind, Seq[Bind], Tm)) =
+        inline def show(c: (PosInfo, Bind, List[Bind], Tm)) =
           c._3 match
             case Nil => s"${c._2} => ${c._4}"
             case ps  => s"${c._2} ${ps.mkString(" ")} => ${c._4}"

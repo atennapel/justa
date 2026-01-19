@@ -7,14 +7,14 @@ import Common.impossible
 
 // eta-expand, remove dead lets, inlining, constant folding, remove closures
 object Simplification:
-  def simplifyModules(m: Seq[Module]): Seq[Module] =
+  def simplifyModules(m: List[Module]): List[Module] =
     m.map(simplifyModule)
 
   private def simplifyModule(m: Module): Module =
     Module(m.name, simplifyDefs(m.defs))
 
   private def simplifyDefs(ds: Defs): Defs =
-    Defs(ds.toSeq.map(simplifyDef))
+    Defs(ds.toList.map(simplifyDef))
 
   private type Scope = Set[LocalName]
   private type Subst = Map[LocalName, Tm]
@@ -33,7 +33,7 @@ object Simplification:
     if next == t then t else simplify(next)
 
   // TODO: add all eliminators in args
-  private def go(t: Tm, args: Seq[Tm])(using scope: Scope, subst: Subst): Tm =
+  private def go(t: Tm, args: List[Tm])(using scope: Scope, subst: Subst): Tm =
     t match
       case Tm.Global(_, _, _) => args.foldLeft(t)(Tm.App.apply)
       case Tm.Prim(p) =>
@@ -159,7 +159,7 @@ object Simplification:
         def lookup(
             cx: Name,
             cs: Cases
-        ): Either[Tm, (Seq[(LocalName, VTy, Int)], Tm)] =
+        ): Either[Tm, (List[(LocalName, VTy, Int)], Tm)] =
           cs match
             case Cases.Empty                           => impossible()
             case Cases.Otherwise(b)                    => Left(b)
@@ -176,11 +176,11 @@ object Simplification:
       case Tm.Case(rty, dty, s, cs) =>
         @tailrec
         def goParamsRec(
-            ps: Seq[(LocalName, VTy, Int)],
-            newps: Seq[(LocalName, VTy, Int)],
+            ps: List[(LocalName, VTy, Int)],
+            newps: List[(LocalName, VTy, Int)],
             scope: Scope,
             subst: Subst
-        ): (Seq[(LocalName, VTy, Int)], Scope, Subst) =
+        ): (List[(LocalName, VTy, Int)], Scope, Subst) =
           ps match
             case Nil => (newps, scope, subst)
             case (x, ty, _) :: rest =>
@@ -200,7 +200,7 @@ object Simplification:
                   subst - x
                 )
         inline def goParams(
-            ps: Seq[(LocalName, VTy, Int)]
+            ps: List[(LocalName, VTy, Int)]
         )(using scope: Scope, subst: Subst) =
           goParamsRec(ps, Nil, scope, subst)
         def goCases(cs: Cases): Cases =
@@ -215,18 +215,18 @@ object Simplification:
 
   private def eta(ty: CTy)(using
       scope: Scope
-  ): (Seq[(LocalName, VTy)], Seq[Tm], Scope) =
+  ): (List[(LocalName, VTy)], List[Tm], Scope) =
     val base = scope.size
     val params = ty.params.zipWithIndex.map((t, n) => (base + n, t))
     val args = params.map { case (x, ty) => Tm.Local(x, CTy(ty)) }
     (params, args, scope ++ params.map(_._1))
 
-  private def lams(ps: Seq[(LocalName, VTy)], b: Tm): Tm =
+  private def lams(ps: List[(LocalName, VTy)], b: Tm): Tm =
     ps.foldRight(b) { case ((x, ty), b) => Tm.Lam(x, -1, ty, b) }
 
   private def isEtaExpanded(ty: CTy, v: Tm): Boolean =
     @tailrec
-    def go(ps: Seq[VTy], v: Tm): Boolean =
+    def go(ps: List[VTy], v: Tm): Boolean =
       (ps, v) match
         case (Nil, _)                        => true
         case (_ :: rest, Tm.Lam(_, _, _, b)) => go(rest, b)
@@ -274,8 +274,8 @@ object Simplification:
   private inline def correctUsages(t: Tm): Tm = correctUsagesRec(t)._1
 
   private def correctUsagesRec(t: Tm): (Tm, Usages) =
-    def fold(args: Seq[Tm]): (Seq[Tm], Usages) =
-      args.foldLeft[(Seq[Tm], Usages)]((Nil, Map.empty)) {
+    def fold(args: List[Tm]): (List[Tm], Usages) =
+      args.foldLeft[(List[Tm], Usages)]((Nil, Map.empty)) {
         case ((cargs, usages), arg) =>
           val (a, ua) = correctUsagesRec(arg)
           (cargs :+ a, mergeUsages(usages, ua))

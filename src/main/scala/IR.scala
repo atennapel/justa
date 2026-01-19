@@ -4,7 +4,7 @@ object IR:
   enum VTy:
     case Bool
     case Int
-    case Data(mod: Name, name: Name, args: Seq[VTy])
+    case Data(mod: Name, name: Name, args: List[VTy])
     case Record(fields: AssocBind[VTy])
 
     override def toString: String = this match
@@ -14,7 +14,7 @@ object IR:
       case Data(m, x, args) => s"($m.$x ${args.mkString(" ")})"
       case Record(fs) => fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
 
-  final case class CTy(params: Seq[VTy], io: Boolean, ret: VTy):
+  final case class CTy(params: List[VTy], io: Boolean, ret: VTy):
     def head: VTy = params.head
     def tail: CTy = CTy(params.tail, io, ret)
     def drop(n: Int): CTy = CTy(params.drop(n), io, ret)
@@ -26,23 +26,23 @@ object IR:
           s"${params.mkString("(", ",", ")")} ->${if io then " IO" else ""} $ret"
   object CTy:
     def apply(ret: VTy): CTy = CTy(Nil, false, ret)
-    def apply(param: VTy, ret: VTy): CTy = CTy(Seq(param), false, ret)
+    def apply(param: VTy, ret: VTy): CTy = CTy(List(param), false, ret)
     def apply(param: VTy, ret: CTy): CTy =
       CTy(param +: ret.params, ret.io, ret.ret)
 
   final case class Module(name: Name, defs: Defs):
     override def toString: String = s"module $name\n$defs"
 
-  final case class Defs(defs: Seq[Def]):
+  final case class Defs(defs: List[Def]):
     override def toString: String = defs.mkString("\n")
-    def toSeq: Seq[Def] = defs
+    def toList: List[Def] = defs
 
   final case class Def(pub: Boolean, name: Name, ty: CTy, value: Tm):
     override def toString: String =
       s"${if pub then "pub " else ""}def $name : $ty = $value"
 
   enum Cases:
-    case Ext(x: Name, ps: Seq[(LocalName, VTy, Int)], body: Tm, rest: Cases)
+    case Ext(x: Name, ps: List[(LocalName, VTy, Int)], body: Tm, rest: Cases)
     case Otherwise(body: Tm)
     case Empty
 
@@ -77,9 +77,9 @@ object IR:
 
     case If(rty: CTy, cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
-    case Con(mod: Name, dx: Name, cx: Name, ix: Int, ty: VTy, args: Seq[Tm])
+    case Con(mod: Name, dx: Name, cx: Name, ix: Int, ty: VTy, args: List[Tm])
     case Case(rty: CTy, dty: VTy, scrut: Tm, cases: Cases)
-    case Record(dty: VTy, args: Seq[Tm])
+    case Record(dty: VTy, args: List[Tm])
     case Select(rty: VTy, scrut: Tm, i: Int)
 
     case ReturnIO(ty: VTy, value: Tm)
@@ -105,7 +105,7 @@ object IR:
       case ReturnIO(ty, v)            => s"(returnIO $v)"
       case BindIO(x, _, ty, v, b)     => s"(bindIO '$x : $ty = $v; $b)"
 
-    def flattenApps: (Tm, Seq[Tm]) = this match
+    def flattenApps: (Tm, List[Tm]) = this match
       case App(f, a) =>
         val (hd, args) = f.flattenApps
         (hd, args :+ a)

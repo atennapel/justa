@@ -7,7 +7,7 @@ import Evaluation.{eval1, forceAll1, unstageUnder}
 import scala.annotation.tailrec
 
 object Unstaging:
-  def unstageState(): Seq[Module] =
+  def unstageState(): List[Module] =
     State
       .allGlobals()
       .map { (m, sds) =>
@@ -22,7 +22,7 @@ object Unstaging:
                 Env(
                   (0 until typarams.size).reverse
                     .map(i => V.Var(mkLvl(i)))
-                    .toSeq
+                    .toList
                 )
               params.map { case (x, ty) =>
                 val vty = eval1(ty)(using env)
@@ -36,10 +36,10 @@ object Unstaging:
         }
         Module(m, Defs(ds))
       }
-      .toSeq
+      .toList
 
-  private type TEnv = Seq[CTy]
-  private type Ren = Seq[LocalName]
+  private type TEnv = List[CTy]
+  private type Ren = List[LocalName]
 
   private final class Supply(var id: LocalName):
     def next(): LocalName =
@@ -109,12 +109,12 @@ object Unstaging:
             case Core.Cases.Ext(x, ps, b, r) =>
               @tailrec
               def addParamsRec(
-                  ps: Seq[(Bind, Tm1)],
-                  newps: Seq[(LocalName, VTy, Int)],
+                  ps: List[(Bind, Tm1)],
+                  newps: List[(LocalName, VTy, Int)],
                   tenv: TEnv,
                   env: Env,
                   ren: Ren
-              ): (Seq[(LocalName, VTy, Int)], TEnv, Env, Ren) =
+              ): (List[(LocalName, VTy, Int)], TEnv, Env, Ren) =
                 ps match
                   case Nil => (newps, tenv, env, ren)
                   case (_, ty) :: rest =>
@@ -128,12 +128,12 @@ object Unstaging:
                       x +: ren
                     )
               inline def addParams(
-                  ps: Seq[(Bind, Tm1)]
+                  ps: List[(Bind, Tm1)]
               )(using
                   tenv: TEnv,
                   env: Env,
                   ren: Ren
-              ): (Seq[(LocalName, VTy, Int)], TEnv, Env, Ren) =
+              ): (List[(LocalName, VTy, Int)], TEnv, Env, Ren) =
                 addParamsRec(ps, Nil, tenv, env, ren)
               val (newps, innertenv, innerenv, innerren) = addParams(ps)
               val body = go(b)(using innertenv, innerenv, innerren)
@@ -155,14 +155,14 @@ object Unstaging:
             @tailrec
             def apps(
                 tm: Tm1,
-                args: Seq[(Tm1, Icit)] = Nil
-            ): (Tm1, Seq[(Tm1, Icit)]) =
+                args: List[(Tm1, Icit)] = Nil
+            ): (Tm1, List[(Tm1, Icit)]) =
               tm match
                 case Tm1.App(f, a, i) => apps(f, (a, i) +: args)
                 case Tm1.Prim(_)      => (tm, args)
                 case Tm1.Con(_, _, _) => (tm, args)
                 case _                => impossible()
-            def takeImpl(args: Seq[(Tm1, Icit)]): Seq[Tm1] =
+            def takeImpl(args: List[(Tm1, Icit)]): List[Tm1] =
               args match
                 case (a, Icit.Impl) :: tl => a +: takeImpl(tl)
                 case _                    => Nil
@@ -175,11 +175,11 @@ object Unstaging:
                 val dty = VTy.Data(m, dx, ps.map(t => goVTy(t)))
                 val as = args.drop(ps.size).map((t, _) => stgo(t))
                 IR.Tm.Con(m, dx, cx, State.conIndex(m, dx, cx), dty, as)
-              case (Tm1.Prim(Primitive.ReturnIO), Seq(ty, v)) =>
+              case (Tm1.Prim(Primitive.ReturnIO), List(ty, v)) =>
                 val ety = goTy(ty._1)
                 val ev = stgo(v._1)
                 IR.Tm.ReturnIO(ety, ev)
-              case (Tm1.Prim(Primitive.BindIO), Seq(ty, _, v, k)) =>
+              case (Tm1.Prim(Primitive.BindIO), List(ty, _, v, k)) =>
                 val ety = goTy(ty._1)
                 val ev = stgo(v._1)
                 val ek = stgo(k._1)

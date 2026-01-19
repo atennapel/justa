@@ -10,7 +10,7 @@ object Core:
         case Some(x) => x.toString
 
   enum Cases:
-    case Ext(x: Name, ps: Seq[(Bind, Ty)], body: Tm0, rest: Cases)
+    case Ext(x: Name, ps: List[(Bind, Ty)], body: Tm0, rest: Cases)
     case Otherwise(body: Tm0)
     case Empty
 
@@ -44,7 +44,7 @@ object Core:
     case If(rty: Ty, cond: Tm0, ifTrue: Tm0, ifFalse: Tm0)
     case Case(rty: Ty, dty: Ty, scrut: Tm0, cases: Cases)
 
-    case RecordCon(ty: Ty, fields: Seq[Tm0])
+    case RecordCon(ty: Ty, fields: List[Tm0])
     case Proj(rty: Ty, scrut: Tm0, p: ProjType)
 
     case Wk1(tm: Tm0)
@@ -59,11 +59,11 @@ object Core:
       case Splice(t) => t
       case t         => Tm1.Quote(t)
 
-    def flattenApps: (Tm0, Seq[Tm0]) = this match
+    def flattenApps: (Tm0, List[Tm0]) = this match
       case App(f, a) =>
         val (hd, args) = f.flattenApps
         (hd, args :+ a)
-      case t => (t, Seq.empty)
+      case t => (t, Nil)
 
     override def toString: String = this match
       case Var(ix)                    => s"'$ix"
@@ -105,7 +105,7 @@ object Core:
 
     case RecordTy1(fields: AssocBind[Ty])
     case RecordTy0(fields: AssocBind[Ty])
-    case RecordCon(fields: Seq[Tm1])
+    case RecordCon(fields: List[Tm1])
     case Proj(tm: Tm1, proj: ProjType)
 
     case Wk0(tm: Tm1)
@@ -209,7 +209,7 @@ object Core:
       case Ext1(env, _) => env
       case _            => impossible()
   object Env:
-    def apply(vs: Seq[Val1]): Env = vs.foldLeft(Empty)(Ext1.apply)
+    def apply(vs: List[Val1]): Env = vs.foldLeft(Empty)(Ext1.apply)
 
   enum Clos0:
     case Clos(env: Env, tm: Tm0)
@@ -244,7 +244,7 @@ object Core:
     case If(rty: VTy, cond: Val0, ifTrue: Val0, ifFalse: Val0)
     case Case(rty: VTy, dty: VTy, scrut: Val0, cases: ClosCases)
     case Proj(rty: VTy, scrut: Val0, p: ProjType)
-    case RecordCon(ty: VTy, fields: Seq[Val0])
+    case RecordCon(ty: VTy, fields: List[Val0])
     case Splice(tm: Val1)
 
   enum Head:
@@ -287,13 +287,13 @@ object Core:
       case Empty => true
       case _     => false
 
-    def toSeq: Seq[(Val1, Icit)] = this match
-      case Spine.App(sp, arg, i) => sp.toSeq :+ (arg, i)
-      case Spine.Empty           => Seq.empty
+    def toList: List[(Val1, Icit)] = this match
+      case Spine.App(sp, arg, i) => sp.toList :+ (arg, i)
+      case Spine.Empty           => Nil
       case _                     => impossible()
 
   object Spine:
-    def apps(args: Seq[(Val1, Icit)]): Spine =
+    def apps(args: List[(Val1, Icit)]): Spine =
       args.foldLeft(Spine.Empty) { case (s, (a, i)) => Spine.App(s, a, i) }
 
   type VTy = Val1
@@ -312,7 +312,7 @@ object Core:
 
     case RecordTy1(fields: ClosRec)
     case RecordTy0(fields: AssocBind[VTy])
-    case RecordCon(fields: Seq[Val1])
+    case RecordCon(fields: List[Val1])
 
     case MetaPi1(ty: VTy, body: Clos1)
     case MetaPi0(ty: VTy, body: Clos1)
@@ -336,13 +336,13 @@ object Core:
       def apply(
           mod: Name,
           name: Name,
-          args: Seq[(VTy, Icit)] = Seq.empty
+          args: List[(VTy, Icit)] = Nil
       ): Val1 =
         Rigid(Head.TypeCon(mod, name), Spine.apps(args))
-      def unapply(value: Val1): Option[(Name, Name, Seq[(VTy, Icit)])] =
+      def unapply(value: Val1): Option[(Name, Name, List[(VTy, Icit)])] =
         value match
           case Rigid(Head.TypeCon(mod, hd), spine) =>
-            Some((mod, hd, spine.toSeq))
+            Some((mod, hd, spine.toList))
           case _ => None
 
     object Con:
@@ -350,13 +350,13 @@ object Core:
           mod: Name,
           dx: Name,
           cx: Name,
-          args: Seq[(VTy, Icit)] = Seq.empty
+          args: List[(VTy, Icit)] = Nil
       ): Val1 =
         Rigid(Head.Con(mod, dx, cx), Spine.apps(args))
-      def unapply(value: Val1): Option[(Name, Name, Name, Seq[(VTy, Icit)])] =
+      def unapply(value: Val1): Option[(Name, Name, Name, List[(VTy, Icit)])] =
         value match
           case Rigid(Head.Con(mod, dx, cx), spine) =>
-            Some((mod, dx, cx, spine.toSeq))
+            Some((mod, dx, cx, spine.toList))
           case _ => None
 
     object Type:
