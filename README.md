@@ -32,3 +32,4 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Accept trailing and leading commas where it makes sense
 - [ ] Row-types records (and variants)?
 - [ ] Give more context for cv unification errors in elaboration
+- [ ] Use more advanced unification from: https://github.com/atennapel/tynka/blob/main/src/main/scala/core/Unification.scala

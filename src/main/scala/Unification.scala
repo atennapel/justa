@@ -14,7 +14,8 @@ import Core.{
   Tm1 as T1,
   Tm0 as T0,
   Cases,
-  ClosCases
+  ClosCases,
+  ClosRec
 }
 import Evaluation.*
 import Debug.debug
@@ -109,6 +110,7 @@ object Unification:
         case Spine.MetaApp1(sp, v) =>
           val data = go(sp)
           invert1(v, V.Var(data._1), Expl, data)
+        case Spine.Proj(_, p) => err(s"projection in spine: .$p")
     val (dom, _, sub, pr, isLinear) = go(sp)
     (PSub(None, dom, lvl, sub), if isLinear then None else Some(pr))
 
@@ -216,8 +218,9 @@ object Unification:
               case NeedsPruning => err("failed to prune")
               case _            => (Some(ptm(psubst1(t))) +: sp2, OKNonRenaming)
       sp match
-        case Spine.Empty           => (Nil, OKRenaming)
-        case Spine.App(sp, v, i)   => go1(sp, v, t => Prune1(t, i))
+        case Spine.Empty         => (Nil, OKRenaming)
+        case Spine.Proj(_, p)    => err(s"cannot prune because of project .$p")
+        case Spine.App(sp, v, i) => go1(sp, v, t => Prune1(t, i))
         case Spine.MetaApp1(sp, v) => go1(sp, v, t => PruneMeta1(t))
         case Spine.MetaApp0(sp, v) =>
           val (sp2, status) = go(sp)
@@ -274,6 +277,7 @@ object Unification:
       case V0.If(ty, c, t, f)     => T0.If(go1(ty), go0(c), go0(t), go0(f))
       case V0.Splice(v)           => go1(v).splice
       case V0.Proj(ty, s, p)      => T0.Proj(go1(ty), go0(s), p)
+      case V0.RecordCon(ty, fs)   => T0.RecordCon(go1(ty), fs.map(t => go0(t)))
       case V0.Case(rty, dty, s, cs) =>
         def addParams(
             ps: Seq[(Bind, Ty)]
@@ -303,6 +307,7 @@ object Unification:
     sp match
       case Spine.Empty           => h
       case Spine.App(sp, v, i)   => T1.App(psubstSpine(h, sp), psubst1(v), i)
+      case Spine.Proj(sp, p)     => T1.Proj(psubstSpine(h, sp), p)
       case Spine.MetaApp1(sp, v) => T1.MetaApp1(psubstSpine(h, sp), psubst1(v))
       case Spine.MetaApp0(sp, v) => T1.MetaApp0(psubstSpine(h, sp), psubst0(v))
 
@@ -313,6 +318,14 @@ object Unification:
     inline def goClos(c: Clos1) = psubst1(c(V.Var(psub.cod)))(using psub.lift1)
     inline def goClos0(c: Clos1) =
       psubst1(c(V0.Var(psub.cod)))(using psub.lift1)
+    def goRec(c: ClosRec): Assoc[Ty] =
+      def go(env: Env, psub: PSub, fs: Assoc[Ty]): Assoc[Ty] =
+        fs match
+          case Nil => Nil
+          case (x, ty) :: rest =>
+            val qty = psubst1(eval1(ty)(using env))(using psub)
+            (x, qty) +: go(Env.Ext1(env, V.Var(psub.cod)), psub.lift1, rest)
+      go(c.env, psub, c.fields)
     forceMetas1(v) match
       case V.Rigid(Head.Prim(p), sp)        => goSp(T1.Prim(p), sp)
       case V.Rigid(Head.TypeCon(m, x), sp)  => goSp(T1.TypeCon(m, x), sp)
@@ -333,6 +346,9 @@ object Unification:
       case V.Fun(pty, cv, rty) => T1.Fun(go1(pty), go1(cv), go1(rty))
       case V.Lift(cv, ty)      => T1.Lift(go1(cv), go1(ty))
       case V.Quote(tm)         => go0(tm).quote
+      case V.RecordTy1(fs)     => T1.RecordTy1(goRec(fs))
+      case V.RecordTy0(fs)     => T1.RecordTy0(fs.map((x, t) => (x, go1(t))))
+      case V.RecordCon(fs)     => T1.RecordCon(fs.map(t => go1(t)))
       case V.MetaPi1(t, b)     => T1.MetaPi1(go1(t), goClos(b))
       case V.MetaPi0(t, b)     => T1.MetaPi0(go1(t), goClos0(b))
       case V.MetaLam1(b)       => T1.MetaLam1(goClos(b))
@@ -402,6 +418,8 @@ object Unification:
         unify1(ty1, ty2); unify0(c1, c2); unify0(t1, t2); unify0(f1, f2)
       case (V0.Proj(t1, s1, p1), V0.Proj(t2, s2, p2)) if p1.ix == p2.ix =>
         unify1(t1, t2); unify0(s1, s2)
+      case (V0.RecordCon(ty1, fs1), V0.RecordCon(ty2, fs2)) =>
+        unify1(ty1, ty2); fs1.zip(fs2).foreach((a, b) => unify0(a, b))
       case (V0.Case(rty1, dty1, s1, cases1), V0.Case(rty2, dty2, s2, cases2)) =>
         unify1(rty1, rty2); unify1(dty1, dty2); unify0(s1, s2)
         unify0(cases1, cases2, a, b)
@@ -449,7 +467,8 @@ object Unification:
                 (if x1 == x2 then PruneEntry.Bind0 else PruneEntry.Skip) +: _
               )
             case _ => None
-        case _ => impossible()
+        case (Spine.Proj(_, _), Spine.Proj(_, _)) => None
+        case _                                    => impossible()
     go(sp1, sp2) match
       case None => unify1(V.Flex(m, sp1), sp1, V.Flex(m, sp2), sp2)
       case Some(p) if p.exists(_ == PruneEntry.Skip) => pruneMeta(p, m)
@@ -462,13 +481,15 @@ object Unification:
       case (Spine.Empty, Spine.Empty) => ()
       case (Spine.App(sp1, a1, _), Spine.App(sp2, a2, _)) =>
         unify1(top1, sp1, top2, sp2); unify1(a1, a2)
+      case (Spine.Proj(sp1, p1), Spine.Proj(sp2, p2)) if p1.ix == p2.ix =>
+        unify1(top1, sp1, top2, sp2)
       case (Spine.MetaApp0(sp1, a1), Spine.MetaApp0(sp2, a2)) =>
         unify1(top1, sp1, top2, sp2); unify0(a1, a2)
       case (Spine.MetaApp1(sp1, a1), Spine.MetaApp1(sp2, a2)) =>
         unify1(top1, sp1, top2, sp2); unify1(a1, a2)
       case _ => err(s"spine mismatch ${readback1n(top1)} ~ ${readback1n(top2)}")
 
-  private def unfoldHeadEquals(a: UnfoldHead, b: UnfoldHead): Boolean =
+  private inline def unfoldHeadEquals(a: UnfoldHead, b: UnfoldHead): Boolean =
     (a, b) match
       case (UnfoldHead.Global(m1, x, _), UnfoldHead.Global(m2, y, _)) =>
         m1 == m2 && x == y
@@ -480,6 +501,22 @@ object Unification:
     inline def goClos0(a: Clos1, b: Clos1) =
       val v = V0.Var(lvl)
       unify1(a(v), b(v))(using lvl + 1)
+    def goRec(f1: ClosRec, f2: ClosRec): Unit =
+      def go(
+          lvl: Lvl,
+          env1: Env,
+          f1: Assoc[Ty],
+          env2: Env,
+          f2: Assoc[Ty]
+      ): Unit =
+        (f1, f2) match
+          case (Nil, Nil) => ()
+          case ((x1, ty1) :: rest1, (x2, ty2) :: rest2) if x1 == x2 =>
+            unify1(eval1(ty1)(using env1), eval1(ty2)(using env2))(using lvl)
+            val v = V.Var(lvl)
+            go(lvl + 1, Env.Ext1(env1, v), rest1, Env.Ext1(env2, v), rest2)
+          case _ => err("cannot unify meta record types")
+      go(lvl, f1.env, f1.fields, f2.env, f2.fields)
     debug(s"unify1 ${readback1m(a)} ~ ${readback1m(b)}")
     (forceMetas1(a), forceMetas1(b)) match
       case (V.Rigid(x, sp1), V.Rigid(y, sp2)) if x == y =>
@@ -496,6 +533,9 @@ object Unification:
         unify1(ty1, ty2); goClos0(b1, b2)
       case (V.Fun(t1, cv1, r1), V.Fun(t2, cv2, r2)) =>
         unify1(t1, t2); unify1(cv1, cv2); unify1(r1, r2)
+      case (V.RecordTy1(f1), V.RecordTy1(f2)) => goRec(f1, f2)
+      case (V.RecordTy0(f1), V.RecordTy0(f2)) if f1.map(_._1) == f2.map(_._1) =>
+        f1.zip(f2).foreach { case ((_, t1), (_, t2)) => unify1(t1, t2) }
 
       case (V.Lam(_, _, _, b1), V.Lam(_, _, _, b2)) => goClos(b1, b2)
       case (V.Lam(_, i, _, b), f) =>
@@ -519,6 +559,13 @@ object Unification:
       case (f, V.MetaLam0(b)) =>
         val v = V0.Var(lvl)
         unify1(vmetaapp0(f, v), b(v))(using lvl + 1)
+
+      case (V.RecordCon(f1), V.RecordCon(f2)) if f1.size == f2.size =>
+        f1.zip(f2).foreach((a, b) => unify1(a, b))
+      case (V.RecordCon(fs), v) =>
+        fs.zipWithIndex.foreach((f, ix) => unify1(f, vprojIx(v, ix)))
+      case (v, V.RecordCon(fs)) =>
+        fs.zipWithIndex.foreach((f, ix) => unify1(vprojIx(v, ix), f))
 
       case (V.Flex(id1, sp1), V.Flex(id2, sp2)) =>
         if id1 == id2 then intersect(id1, sp1, sp2)
