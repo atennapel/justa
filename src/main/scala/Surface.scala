@@ -21,14 +21,14 @@ object Surface:
       pos: PosInfo,
       pub: Boolean,
       name: Name,
-      params: List[(Bind, Ty)]
+      params: List[(Bind, Icit, Ty)]
   ):
     override def toString: String =
       params match
         case Nil => s"${if pub then "" else "priv "}$name"
         case _ =>
           val ps = params
-            .map((x, t) => s"($x : $t)")
+            .map((x, i, t) => i.wrap(s"$x : $t"))
             .mkString(" ")
           s"${if pub then "" else "priv "}$name $ps"
 
@@ -38,8 +38,10 @@ object Surface:
     case Data(
         pos: PosInfo,
         pub: Boolean,
+        meta: Option[Boolean],
         name: Name,
-        params: List[Name],
+        params: List[(Name, Icit, Ty)],
+        univ: Option[Ty],
         cons: List[Constructor]
     )
 
@@ -48,9 +50,11 @@ object Surface:
         s"${if p then "public " else ""}def $x${t.map(t => s" : $t").getOrElse("")} := $v"
       case Def1(_, p, x, t, v) =>
         s"${if p then "pub " else ""}def $x${t.map(t => s" : $t").getOrElse("")} = $v"
-      case Data(_, p, x, ps, cs) =>
+      case Data(_, p, meta, x, ps, u, cs) =>
         val css = cs.mkString(" | ")
-        s"${if p then "pub " else ""}data $x ${ps.mkString(" ")} := $css"
+        val ustr = u.fold("")(t => s" : $t")
+        val df = meta.fold("|")(m => if m then "=" else ":=")
+        s"${if p then "pub " else ""}data $x ${ps.map((x, i, ty) => i.wrap(s"$x : $ty")).mkString(" ")}$ustr $df $css"
 
   enum ArgInfo derives CanEqual:
     case Named(name: Name)

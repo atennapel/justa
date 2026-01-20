@@ -1297,7 +1297,9 @@ object Elaboration:
         freeze()
         if pub then checkAccessibility(vty)
         State.addGlobal(GlobalEntry.Def1(pub, x, ev, ty, vv, vty))
-      case Surface.Def.Data(pos, pub, x, ps, cs) =>
+      case Surface.Def.Data(pos, pub, meta, x, ps0, univ, cs) =>
+        // TODO: handle meta data defs
+        val ps = ps0.map((x, _, _) => x)
         given ctx: Ctx = Ctx.empty(pos)
         if State.currentModuleHasName(x) || State.hasImport(x) then
           err(s"duplicate definition $x")
@@ -1329,7 +1331,7 @@ object Elaboration:
             val tyapp = ps.indices.foldRight(ty)((i, ty) =>
               T1.App(ty, T1.Var(mkIx(i)), Expl)
             )
-            val eps = cps.map((x, t) => (x, check1(t, V.TypeV)))
+            val eps = cps.map((x, _, t) => (x, check1(t, V.TypeV)))
             val cty0 = eps.foldRight(T1.Lift(T1.Val, tyapp)) {
               case ((x, pty), rty) =>
                 T1.Pi(x, Expl, T1.Lift(T1.Val, pty), T1.Wk1(rty))

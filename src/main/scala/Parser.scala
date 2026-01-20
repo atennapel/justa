@@ -148,6 +148,13 @@ object Parser:
         Name.op(x)
       else name()
 
+    private def tryNameOrOp(): Name | Null =
+      if trySymbol(L_PAREN) then
+        val x = op()
+        symbol(R_PAREN)
+        Name.op(x)
+      else tryName()
+
     private def bind(): Bind =
       if trySymbol(UNDERSCORE) then DontBind
       else DoBind(nameOrOp())
@@ -624,18 +631,33 @@ object Parser:
               xs.foldRight(rt) { case ((p, x), rt) => Tm.Pi(p, x, i, ty, rt) }
             }
 
-    private def dataParam(): List[(Bind, Ty)] | Null =
-      if trySymbol(L_PAREN) then
+    private def tryDataConParam(): List[(Bind, Icit, Ty)] | Null =
+      if trySymbol(L_BRACE) then
         val x = bind()
         val xs = list(tryBind())
         symbol(COLON)
         val ty = expr()
-        symbol(R_PAREN)
-        (x :: xs.toList).map(x => (x, ty))
+        symbol(R_BRACE)
+        (x :: xs.toList).map(x => (x, Impl, ty))
       else
-        tryAtom() match
-          case null => null
-          case t    => List((DontBind, t))
+        backtrack {
+          if trySymbol(L_PAREN) then
+            tryBind() match
+              case null => null
+              case x =>
+                val xs = list(tryBind())
+                if trySymbol(COLON) then
+                  val ty = expr()
+                  symbol(R_PAREN)
+                  (x :: xs.toList).map(x => (x, Expl, ty))
+                else null
+          else null
+        } match
+          case null =>
+            tryAtom() match
+              case null => null
+              case t    => List((DontBind, Expl, t))
+          case p => p
 
     private def dataCon(dataPub: Boolean): Constructor =
       val p = pos
@@ -648,21 +670,48 @@ object Parser:
             )
         else dataPub
       val cx = nameOrOp()
-      val ps = list(dataParam()).toList.flatten
+      val ps = list(tryDataConParam()).toList.flatten
       Constructor(p, pub, cx, ps)
+
+    private def tryDataParam(): List[(Name, Icit, Ty)] | Null =
+      if trySymbol(L_BRACE) then
+        val x = nameOrOp()
+        val xs = list(tryNameOrOp())
+        if trySymbol(COLON) then
+          val ty = expr()
+          symbol(R_BRACE)
+          (x :: xs.toList).map(x => (x, Impl, ty))
+        else
+          symbol(R_BRACE)
+          val p = pos
+          (x :: xs.toList).map(x => (x, Impl, Tm.Hole(p, None)))
+      else if trySymbol(L_PAREN) then
+        val x = nameOrOp()
+        val xs = list(tryNameOrOp())
+        symbol(COLON)
+        val ty = expr()
+        symbol(R_PAREN)
+        (x :: xs.toList).map(x => (x, Expl, ty))
+      else
+        tryNameOrOp() match
+          case null => null
+          case x    => List((x, Expl, Tm.Hole(pos, None)))
 
     private def data(pos: PosInfo, pub: Boolean): Def =
       val dx = nameOrOp()
-      val ps = list(tryName())
-      val continue = if trySymbol(COLON_EQUALS) then { trySymbol(PIPE); true }
-      else trySymbol(PIPE)
+      val ps = list(tryDataParam()).toList.flatten
+      val univ = if trySymbol(COLON) then Some(expr()) else None
+      val (continue, isMeta) =
+        if trySymbol(COLON_EQUALS) then { trySymbol(PIPE); (true, Some(false)) }
+        else if trySymbol(EQUALS) then { trySymbol(PIPE); (true, Some(true)) }
+        else (trySymbol(PIPE), None)
       val cons = if continue then
         val hd = dataCon(pub)
         val tl = mutable.ArrayBuffer.empty[Constructor]
         while trySymbol(PIPE) do tl += dataCon(pub)
         hd :: tl.toList
       else Nil
-      Def.Data(pos, pub, dx, ps.toList, cons)
+      Def.Data(pos, pub, isMeta, dx, ps, univ, cons)
 
     private def tryDef(): Def | Null =
       val p = pos
