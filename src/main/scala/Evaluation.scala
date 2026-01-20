@@ -143,8 +143,10 @@ object Evaluation:
       case T1.Var(ix) => var1(ix)
       case T1.Global(m, x, v) =>
         V1.Unfold(UnfoldHead.Global(m, x, v), Spine.Empty, () => v)
-      case T1.TypeCon(m, x)    => V1.TypeCon(m, x)
-      case T1.Con(m, dx, cx)   => V1.Con(m, dx, cx)
+      case T1.TypeCon1(m, x)   => V1.TypeCon1(m, x)
+      case T1.Con1(m, dx, cx)  => V1.Con1(m, dx, cx)
+      case T1.TypeCon0(m, x)   => V1.TypeCon0(m, x)
+      case T1.Con0(m, dx, cx)  => V1.Con0(m, dx, cx)
       case T1.Let(x, ty, v, b) => eval1(b)(using Env.Ext1(env, eval1(v)))
       case T1.Pi(x, i, ty, b)  => V1.Pi(x, i, eval1(ty), Clos1(b))
       case T1.Lam(x, i, ty, b) => V1.Lam(x, i, eval1(ty), Clos1(b))
@@ -321,10 +323,12 @@ object Evaluation:
     force(v) match
       case V1.Rigid(hd, sp) =>
         hd match
-          case Head.Var(lvl)       => goSp(T1.Var(lvl.toIx), sp)
-          case Head.Prim(p)        => goSp(T1.Prim(p), sp)
-          case Head.TypeCon(m, x)  => goSp(T1.TypeCon(m, x), sp)
-          case Head.Con(m, dx, cx) => goSp(T1.Con(m, dx, cx), sp)
+          case Head.Var(lvl)        => goSp(T1.Var(lvl.toIx), sp)
+          case Head.Prim(p)         => goSp(T1.Prim(p), sp)
+          case Head.TypeCon1(m, x)  => goSp(T1.TypeCon0(m, x), sp)
+          case Head.Con1(m, dx, cx) => goSp(T1.Con0(m, dx, cx), sp)
+          case Head.TypeCon0(m, x)  => goSp(T1.TypeCon0(m, x), sp)
+          case Head.Con0(m, dx, cx) => goSp(T1.Con0(m, dx, cx), sp)
       case V1.Flex(id, sp) => goSp(T1.Meta(id), sp)
       case V1.Unfold(UnfoldHead.Global(m, x, v), sp, _) =>
         goSp(T1.Global(m, x, v), sp)
@@ -421,10 +425,12 @@ object Evaluation:
         case Spine.MetaApp0(sp, a) => go0(a); goSp(sp)
     def goHead(h: Head): Unit =
       h match
-        case Head.Var(_)         => ()
-        case Head.Prim(_)        => ()
-        case Head.TypeCon(m, x)  => set += ((m, x))
-        case Head.Con(m, dx, cx) => set += ((m, dx)); set += ((m, cx))
+        case Head.Var(_)          => ()
+        case Head.Prim(_)         => ()
+        case Head.TypeCon1(m, x)  => set += ((m, x))
+        case Head.Con1(m, dx, cx) => set += ((m, dx)); set += ((m, cx))
+        case Head.TypeCon0(m, x)  => set += ((m, x))
+        case Head.Con0(m, dx, cx) => set += ((m, dx)); set += ((m, cx))
     def goUnfoldHead(h: UnfoldHead)(using lvl: Lvl): Unit =
       h match
         case UnfoldHead.Global(m, x, v) => set += ((m, x)); go1(v)

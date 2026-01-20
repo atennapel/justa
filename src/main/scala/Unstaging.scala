@@ -158,10 +158,10 @@ object Unstaging:
                 args: List[(Tm1, Icit)] = Nil
             ): (Tm1, List[(Tm1, Icit)]) =
               tm match
-                case Tm1.App(f, a, i) => apps(f, (a, i) :: args)
-                case Tm1.Prim(_)      => (tm, args)
-                case Tm1.Con(_, _, _) => (tm, args)
-                case _                => impossible()
+                case Tm1.App(f, a, i)  => apps(f, (a, i) :: args)
+                case Tm1.Prim(_)       => (tm, args)
+                case Tm1.Con0(_, _, _) => (tm, args)
+                case _                 => impossible()
             def takeImpl(args: List[(Tm1, Icit)]): List[Tm1] =
               args match
                 case (a, Icit.Impl) :: tl => a :: takeImpl(tl)
@@ -170,7 +170,7 @@ object Unstaging:
             inline def st(t: Tm1) = stWithEnv(t, venv)
             inline def stgo(t: Tm1) = go(st(t))
             apps(tm) match
-              case (Tm1.Con(m, dx, cx), args) =>
+              case (Tm1.Con0(m, dx, cx), args) =>
                 val ps = takeImpl(args).map(eval1)
                 val dty = VTy.Data(m, dx, ps.map(t => goVTy(t)))
                 val as = args.drop(ps.size).map((t, _) => stgo(t))
@@ -203,7 +203,7 @@ object Unstaging:
     forceAll1(ty) match
       case V.Bool => VTy.Bool
       case V.Int  => VTy.Int
-      case V.TypeCon(m, x, args) =>
+      case V.TypeCon0(m, x, args) =>
         VTy.Data(m, x, args.map((a, _) => goVTy(a, menv)))
       case V.Var(lvl)      => menv(lvl)
       case V.RecordTy0(fs) => VTy.Record(fs.map((x, t) => (x, goVTy(t))))

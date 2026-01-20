@@ -91,8 +91,10 @@ object Core:
     case Var(ix: Ix)
     case Global(mod: Name, name: Name, value: Val1)
     case Prim(prim: Primitive)
-    case TypeCon(mod: Name, name: Name)
-    case Con(mod: Name, dx: Name, cx: Name)
+    case TypeCon1(mod: Name, name: Name)
+    case Con1(mod: Name, dx: Name, cx: Name)
+    case TypeCon0(mod: Name, name: Name)
+    case Con0(mod: Name, dx: Name, cx: Name)
     case Let(name: Name, ty: Ty, value: Tm1, body: Tm1)
 
     case Pi(name: Bind, icit: Icit, ty: Ty, body: Ty)
@@ -139,8 +141,10 @@ object Core:
       case Var(ix)            => s"'$ix"
       case Global(m, x, _)    => s"$m.$x"
       case Prim(p)            => s"$p"
-      case TypeCon(m, x)      => s"$m.$x"
-      case Con(m, _, x)       => s"$m.$x"
+      case TypeCon1(m, x)     => s"$m.$x"
+      case Con1(m, _, x)      => s"$m.$x"
+      case TypeCon0(m, x)     => s"$m.$x"
+      case Con0(m, _, x)      => s"$m.$x"
       case Let(x, ty, v, b)   => s"(let $x : $ty = $v; $b)"
       case Pi(x, i, ty, b)    => s"(${i.wrap(s"$x : $ty")} -> $b)"
       case Lam(x, i, ty, b)   => s"(\\${i.wrap(s"$x : $ty")} => $b)"
@@ -251,8 +255,10 @@ object Core:
   enum Head derives CanEqual:
     case Var(lvl: Lvl)
     case Prim(prim: Primitive)
-    case TypeCon(mod: Name, name: Name)
-    case Con(mod: Name, dx: Name, cx: Name)
+    case TypeCon1(mod: Name, name: Name)
+    case Con1(mod: Name, dx: Name, cx: Name)
+    case TypeCon0(mod: Name, name: Name)
+    case Con0(mod: Name, dx: Name, cx: Name)
 
   enum UnfoldHead:
     case Global(mod: Name, name: Name, value: Val1)
@@ -336,30 +342,57 @@ object Core:
         case Rigid(Head.Prim(hd), Spine.Empty) => Some(hd)
         case _                                 => None
 
-    object TypeCon:
+    object TypeCon1:
       def apply(
           mod: Name,
           name: Name,
           args: List[(VTy, Icit)] = Nil
       ): Val1 =
-        Rigid(Head.TypeCon(mod, name), Spine.apps(args))
+        Rigid(Head.TypeCon1(mod, name), Spine.apps(args))
       def unapply(value: Val1): Option[(Name, Name, List[(VTy, Icit)])] =
         value match
-          case Rigid(Head.TypeCon(mod, hd), spine) =>
+          case Rigid(Head.TypeCon1(mod, hd), spine) =>
             Some((mod, hd, spine.toList))
           case _ => None
 
-    object Con:
+    object TypeCon0:
+      def apply(
+          mod: Name,
+          name: Name,
+          args: List[(VTy, Icit)] = Nil
+      ): Val1 =
+        Rigid(Head.TypeCon0(mod, name), Spine.apps(args))
+      def unapply(value: Val1): Option[(Name, Name, List[(VTy, Icit)])] =
+        value match
+          case Rigid(Head.TypeCon0(mod, hd), spine) =>
+            Some((mod, hd, spine.toList))
+          case _ => None
+
+    object Con1:
       def apply(
           mod: Name,
           dx: Name,
           cx: Name,
           args: List[(VTy, Icit)] = Nil
       ): Val1 =
-        Rigid(Head.Con(mod, dx, cx), Spine.apps(args))
+        Rigid(Head.Con1(mod, dx, cx), Spine.apps(args))
       def unapply(value: Val1): Option[(Name, Name, Name, List[(VTy, Icit)])] =
         value match
-          case Rigid(Head.Con(mod, dx, cx), spine) =>
+          case Rigid(Head.Con1(mod, dx, cx), spine) =>
+            Some((mod, dx, cx, spine.toList))
+          case _ => None
+
+    object Con0:
+      def apply(
+          mod: Name,
+          dx: Name,
+          cx: Name,
+          args: List[(VTy, Icit)] = Nil
+      ): Val1 =
+        Rigid(Head.Con0(mod, dx, cx), Spine.apps(args))
+      def unapply(value: Val1): Option[(Name, Name, Name, List[(VTy, Icit)])] =
+        value match
+          case Rigid(Head.Con0(mod, dx, cx), spine) =>
             Some((mod, dx, cx, spine.toList))
           case _ => None
 

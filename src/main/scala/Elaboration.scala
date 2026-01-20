@@ -471,7 +471,7 @@ object Elaboration:
 
         case S.UnitLit(_) =>
           forceAll1(ty) match
-            case V.TypeCon(m, dx, dps) =>
+            case V.TypeCon0(m, dx, dps) =>
               State.getGlobalDirect(m, dx) match
                 case Some(GlobalEntry.Data(_, _, _, _, _, _, unitCon, _)) =>
                   unitCon match
@@ -491,7 +491,7 @@ object Elaboration:
                         s"cannot check unit against ${ctx.pretty1(ty)}, datatype does not have a 0-parameter constructor"
                       )
                 case _ => impossible()
-            case V.RecordTy0(Nil) => T0.RecordConEmpty
+            case V.RecordTy0Empty => T0.RecordConEmpty
             case _ => err(s"cannot check unit against ${ctx.pretty1(ty)}")
 
         case S.EmptyRecord(_) =>
@@ -1079,7 +1079,7 @@ object Elaboration:
       ctx: Ctx
   ): (Option[Name], Int, VTy) =
     forceAll1(vty) match
-      case V.TypeCon(m, dx, dps) =>
+      case V.TypeCon0(m, dx, dps) =>
         State.getGlobalDirect(m, dx) match
           case Some(GlobalEntry.Data(_, _, _, _, _, _, _, singleCon)) =>
             singleCon match
@@ -1179,7 +1179,7 @@ object Elaboration:
       s"checkCases ${ctx.pretty1(vscrutty)} { ${cs.map((_, cx, ps, b) => s"$cx ${ps.mkString(" ")} => $b").mkString(" | ")} } : ${ctx.pretty1(exty)}"
     )
     val (m, dx, ps) = forceAll1(vscrutty) match
-      case V.TypeCon(m, dx, ps) => (m, dx, ps.map((t, _) => t))
+      case V.TypeCon0(m, dx, ps) => (m, dx, ps.map((t, _) => t))
       case _ =>
         err(s"expected datatype in match but got ${ctx.pretty1(vscrutty)}")
     val (dps, cons) = State.getGlobalDirect(m, dx) match
@@ -1307,7 +1307,7 @@ object Elaboration:
         val unitCon =
           if unitCons.size == 1 then Some(unitCons.head.name) else None
         val singleCon = if cs.size == 1 then Some(cs.head.name) else None
-        val ty = T1.TypeCon(State.currentModule, x)
+        val ty = T1.TypeCon0(State.currentModule, x)
         val vty = ps.foldRight(V.TypeV)((_, rt) => V.fun1(V.TypeV, rt))
         State.addGlobal(
           GlobalEntry.Data(
@@ -1348,7 +1348,7 @@ object Elaboration:
                 eps,
                 x,
                 ix,
-                T1.Con(State.currentModule, x, cx),
+                T1.Con0(State.currentModule, x, cx),
                 cty,
                 vcty
               )

@@ -371,9 +371,11 @@ object Unification:
             (x, qty) :: go(Env.Ext1(env, V.Var(psub.cod)), psub.lift1, rest)
       go(c.env, psub, c.fields)
     forceMetas1(v) match
-      case V.Rigid(Head.Prim(p), sp)        => goSp(T1.Prim(p), sp)
-      case V.Rigid(Head.TypeCon(m, x), sp)  => goSp(T1.TypeCon(m, x), sp)
-      case V.Rigid(Head.Con(m, dx, cx), sp) => goSp(T1.Con(m, dx, cx), sp)
+      case V.Rigid(Head.Prim(p), sp)         => goSp(T1.Prim(p), sp)
+      case V.Rigid(Head.TypeCon1(m, x), sp)  => goSp(T1.TypeCon1(m, x), sp)
+      case V.Rigid(Head.Con1(m, dx, cx), sp) => goSp(T1.Con1(m, dx, cx), sp)
+      case V.Rigid(Head.TypeCon0(m, x), sp)  => goSp(T1.TypeCon0(m, x), sp)
+      case V.Rigid(Head.Con0(m, dx, cx), sp) => goSp(T1.Con0(m, dx, cx), sp)
       case V.Rigid(Head.Var(x), sp) =>
         psub.sub.get(x.expose) match
           case None         => err(s"out of scope $x")

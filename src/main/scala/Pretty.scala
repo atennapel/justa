@@ -79,8 +79,10 @@ object Pretty:
       case T1.Var(_)                => pretty1(tm)
       case T1.Global(_, _, _)       => pretty1(tm)
       case T1.Prim(_)               => pretty1(tm)
-      case T1.TypeCon(_, _)         => pretty1(tm)
-      case T1.Con(_, _, _)          => pretty1(tm)
+      case T1.TypeCon1(_, _)        => pretty1(tm)
+      case T1.Con1(_, _, _)         => pretty1(tm)
+      case T1.TypeCon0(_, _)        => pretty1(tm)
+      case T1.Con0(_, _, _)         => pretty1(tm)
       case T1.Meta(_)               => pretty1(tm)
       case T1.Lift(_, _)            => pretty1(tm)
       case T1.Quote(_)              => pretty1(tm)
@@ -165,8 +167,10 @@ object Pretty:
         case DoBind(x) => s"$x"
     case T1.Global(m, x, _) => s"$m.$x"
     case T1.Prim(p)         => s"$p"
-    case T1.TypeCon(m, x)   => s"$m.$x"
-    case T1.Con(m, _, cx)   => s"$m.$cx"
+    case T1.TypeCon1(m, x)  => s"$m.$x"
+    case T1.Con1(m, _, cx)  => s"$m.$cx"
+    case T1.TypeCon0(m, x)  => s"$m.$x"
+    case T1.Con0(m, _, cx)  => s"$m.$cx"
     case T1.Let(x, t, v, b) =>
       s"let $x : ${pretty1(t)} = ${pretty1(v)}; ${prettyLift1(x.toBind, b)}"
 
