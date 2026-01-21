@@ -452,7 +452,8 @@ object Elaboration:
           val ef = check0(f, ty, cv)
           T0.If(ctx.readback1(ty), ec, et, ef)
 
-        case S.Hole(_, _) => freshMeta(V.Lift(cv, ty)).splice
+        case S.Hole(_, None)    => freshMeta(V.Lift(cv, ty)).splice
+        case S.Hole(_, Some(x)) => err(s"named hole _$x: ${ctx.pretty1(ty)}")
 
         case S.Splice(_, t) => check1(t, V.Lift(cv, ty)).splice
 
@@ -596,7 +597,9 @@ object Elaboration:
         case (S.Quote(_, tm), V.Lift(cv, ty)) => check0(tm, ty, cv).quote
         case (tm, V.Lift(cv, ty))             => check0(tm, ty, cv).quote
 
-        case (S.Hole(_, _), _) => freshMeta(ty)
+        case (S.Hole(_, None), _) => freshMeta(ty)
+        case (S.Hole(_, Some(x)), _) =>
+          err(s"named hole _$x: ${ctx.pretty1(ty)}")
 
         case (S.Match(_, None, cs), V.Pi(x, Expl, a, b)) =>
           val vdty = ctx.eval1(freshMeta(V.TypeV))
