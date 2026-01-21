@@ -1297,64 +1297,106 @@ object Elaboration:
         freeze()
         if pub then checkAccessibility(vty)
         State.addGlobal(GlobalEntry.Def1(pub, x, ev, ty, vv, vty))
-      case Surface.Def.Data(pos, pub, meta, x, ps0, univ, cs) =>
-        // TODO: handle meta data defs
-        val ps = ps0.map((x, _, _) => x)
+      case Surface.Def.Data(pos, pub, meta, x, ps, univ, cs) =>
         given ctx: Ctx = Ctx.empty(pos)
-        if State.currentModuleHasName(x) || State.hasImport(x) then
-          err(s"duplicate definition $x")
-        val unitCons = cs.filter(c => c.params.isEmpty)
-        val unitCon =
-          if unitCons.size == 1 then Some(unitCons.head.name) else None
-        val singleCon = if cs.size == 1 then Some(cs.head.name) else None
-        val ty = T1.TypeCon0(State.currentModule, x)
-        val vty = ps.foldRight(V.TypeV)((_, rt) => V.fun1(V.TypeV, rt))
+        val u = univ match
+          case Some(ty) =>
+            val ety = check1(ty, V.Meta)
+            val vty = ctx.eval1(ety)
+            forceAll1(vty) match
+              case V.Meta  => Some(true)
+              case V.TypeV => Some(false)
+              case _ =>
+                err(s"invalid universe type for datatype: ${ctx.pretty1(ety)}")
+          case None => None
+        val isMeta = (meta, u) match
+          case (Some(true), Some(true))   => true
+          case (Some(false), Some(false)) => false
+          case (Some(b), None)            => b
+          case (None, Some(b))            => b
+          case _ => err(s"ambigious universe for datatype")
+        if isMeta then elaborateData1(pub, x, ps, cs)
+        else elaborateData0(pub, x, ps, cs)
+
+  private def elaborateData1(
+      pub: Boolean,
+      x: Name,
+      ps0: List[(Name, Icit, S)],
+      cs: List[Surface.Constructor]
+  )(using ctx: Ctx): Unit =
+    if State.currentModuleHasName(x) || State.hasImport(x) then
+      err(s"duplicate definition $x")
+    ???
+
+  private def elaborateData0(
+      pub: Boolean,
+      x: Name,
+      ps0: List[(Name, Icit, S)],
+      cs: List[Surface.Constructor]
+  )(using ctx: Ctx): Unit =
+    if State.currentModuleHasName(x) || State.hasImport(x) then
+      err(s"duplicate definition $x")
+    val ps = ps0.map { (x, i, ty) =>
+      if (i == Impl) err("runtime datatypes cannot have implicit parameters")
+      val ety = check1(ty, V.Meta)
+      unify(ctx.eval1(ety), V.TypeV)
+      x
+    }
+    val unitCons = cs.filter(c => c.params.isEmpty)
+    val unitCon =
+      if unitCons.size == 1 then Some(unitCons.head.name) else None
+    val singleCon = if cs.size == 1 then Some(cs.head.name) else None
+    val ty = T1.TypeCon0(State.currentModule, x)
+    val vty = ps.foldRight(V.TypeV)((_, rt) => V.fun1(V.TypeV, rt))
+    State.addGlobal(
+      GlobalEntry.Data(
+        pub,
+        x,
+        ps,
+        cs.map(_.name),
+        ty,
+        vty,
+        unitCon,
+        singleCon
+      )
+    )
+    val datactx =
+      ps.foldLeft(ctx)((ctx, x) => ctx.bind1(DoBind(x), T1.TypeV, V.TypeV))
+    cs.zipWithIndex.foreach {
+      case (Surface.Constructor(pos, cpub, cx, cps), ix) =>
+        given conctx: Ctx = datactx.enter(pos)
+        if State.currentModuleHasName(cx) || State.hasImport(cx) then
+          err(s"duplicate name $cx")
+        val tyapp =
+          ps.indices.foldRight(ty)((i, ty) => T1.App(ty, T1.Var(mkIx(i)), Expl))
+        val eps = cps.map { (x, i, t) =>
+          if (i == Impl)
+            err("runtime datatype constructors cannot have implicit parameters")
+          (x, check1(t, V.TypeV))
+        }
+        val cty0 = eps.foldRight(T1.Lift(T1.Val, tyapp)) {
+          case ((x, pty), rty) =>
+            T1.Pi(x, Expl, T1.Lift(T1.Val, pty), T1.Wk1(rty))
+        }
+        val cty =
+          ps.foldRight(cty0)((x, rty) => T1.Pi(DoBind(x), Impl, T1.TypeV, rty))
+        val vcty = conctx.eval1(cty)
+        if cpub then checkAccessibility(vcty)
         State.addGlobal(
-          GlobalEntry.Data(
-            pub,
-            x,
+          GlobalEntry.Con(
+            cpub,
+            cx,
             ps,
-            cs.map(_.name),
-            ty,
-            vty,
-            unitCon,
-            singleCon
+            eps,
+            x,
+            ix,
+            T1.Con0(State.currentModule, x, cx),
+            cty,
+            vcty
           )
         )
-        val datactx =
-          ps.foldLeft(ctx)((ctx, x) => ctx.bind1(DoBind(x), T1.TypeV, V.TypeV))
-        cs.zipWithIndex.foreach {
-          case (Surface.Constructor(pos, cpub, cx, cps), ix) =>
-            given conctx: Ctx = datactx.enter(pos)
-            if State.currentModuleHasName(cx) || State.hasImport(cx) then
-              err(s"duplicate name $cx")
-            val tyapp = ps.indices.foldRight(ty)((i, ty) =>
-              T1.App(ty, T1.Var(mkIx(i)), Expl)
-            )
-            val eps = cps.map((x, _, t) => (x, check1(t, V.TypeV)))
-            val cty0 = eps.foldRight(T1.Lift(T1.Val, tyapp)) {
-              case ((x, pty), rty) =>
-                T1.Pi(x, Expl, T1.Lift(T1.Val, pty), T1.Wk1(rty))
-            }
-            val cty = ps.foldRight(cty0)((x, rty) =>
-              T1.Pi(DoBind(x), Impl, T1.TypeV, rty)
-            )
-            val vcty = conctx.eval1(cty)
-            State.addGlobal(
-              GlobalEntry.Con(
-                cpub,
-                cx,
-                ps,
-                eps,
-                x,
-                ix,
-                T1.Con0(State.currentModule, x, cx),
-                cty,
-                vcty
-              )
-            )
-        }
-        freeze()
+    }
+    freeze()
 
   private def elaborate(mod: Surface.Module): Unit =
     debug(s"elaborate module ${mod.name}")

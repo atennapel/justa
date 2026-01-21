@@ -1,6 +1,7 @@
 module Meta
 
 def VoidM = (A : meta) -> A
+-- data VoidM : meta
 
 def (~) {A} (x y : A) = Id x y
 def (!~) {A} (x y : A) = x ~ y -> VoidM

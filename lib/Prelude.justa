@@ -24,7 +24,7 @@ pub def factorial (n : Int) :=
     else go (n - 1) (acc * n);
   go n 1
 
-pub data Void
+pub data Void : vtype
 
 pub def absurd {k} {A : type k} (v : Void) : A = match v {}
 

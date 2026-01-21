@@ -19,7 +19,6 @@ https://github.com/AndrasKovacs/cctt
 - [x] Record types
 - [x] Identity type
 - [ ] Meta datatypes
-- [ ] Check accessiblity in datatype definitions
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
