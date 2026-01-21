@@ -171,6 +171,7 @@ object Core:
       case AppPruning(id, p) => s"(?$id ...(${p.size}))"
 
   object Tm1:
+    val MetaU = Prim(Primitive.Meta)
     val CV = Prim(Primitive.CV)
     val Val = Prim(Primitive.Val)
     val Comp = Prim(Primitive.Comp)

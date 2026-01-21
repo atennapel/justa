@@ -16,7 +16,7 @@ object Unstaging:
             val nty = goCTy(vty)
             val ntm = unstage(tm)
             Some(Def(pub, x, nty, ntm))
-          case GlobalEntry.Con(_, cx, typarams, params, dx, _, _, _, _) =>
+          case GlobalEntry.Con0(_, cx, typarams, params, dx, _, _, _, _) =>
             State.setMono(m, dx, cx) { menv =>
               val env =
                 Env(

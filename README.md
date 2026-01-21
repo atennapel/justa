@@ -34,3 +34,5 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Row-types records (and variants)?
 - [ ] Generate private anonymous records if possible
 - [ ] Meta spine eta-expansion
+- [ ] Auto refl parameters to support fording
+- [ ] Overloaded constructors

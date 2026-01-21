@@ -473,12 +473,12 @@ object Elaboration:
           forceAll1(ty) match
             case V.TypeCon0(m, dx, dps) =>
               State.getGlobalDirect(m, dx) match
-                case Some(GlobalEntry.Data(_, _, _, _, _, _, unitCon, _)) =>
+                case Some(GlobalEntry.Data0(_, _, _, _, _, _, unitCon, _)) =>
                   unitCon match
                     case Some(cx) =>
                       State.getGlobalDirect(m, cx) match
                         case Some(
-                              GlobalEntry.Con(_, _, _, _, _, _, tm, _, _)
+                              GlobalEntry.Con0(_, _, _, _, _, _, tm, _, _)
                             ) =>
                           dps
                             .foldLeft(tm) { case (tm, (ty, _)) =>
@@ -614,6 +614,26 @@ object Elaboration:
           T1.Lam(y, Expl, ra, casetm.quote)
 
         case (S.UnitLit(_), V.RecordTy1(ClosRec(_, Nil))) => T1.RecordConEmpty
+
+        case (S.UnitLit(_), V.TypeCon1(m, dx, dps)) =>
+          State.getGlobalDirect(m, dx) match
+            case Some(GlobalEntry.Data1(_, _, _, _, _, _, unitCon, _)) =>
+              unitCon match
+                case Some(cx) =>
+                  State.getGlobalDirect(m, cx) match
+                    case Some(
+                          GlobalEntry.Con1(_, _, _, _, _, _, tm, _, _)
+                        ) =>
+                      dps
+                        .foldLeft(tm) { case (tm, (ty, _)) =>
+                          T1.App(tm, ctx.readback1(ty), Impl)
+                        }
+                    case _ => impossible()
+                case None =>
+                  err(
+                    s"cannot check unit against ${ctx.pretty1(ty)}, datatype does not have a 0-parameter constructor"
+                  )
+            case _ => impossible()
 
         case (S.EmptyRecord(_), V.Type(cv)) =>
           unify(cv, V.Val); T1.RecordTy0Empty
@@ -881,9 +901,13 @@ object Elaboration:
         Infer0(T0.Global(m, x), ty, cv)
       case Right((m, x, GlobalEntry.Def1(_, _, _, _, v, ty))) =>
         Infer1(T1.Global(m, x, v), ty)
-      case Right((_, _, GlobalEntry.Data(_, _, _, _, tm, ty, _, _))) =>
+      case Right((_, _, GlobalEntry.Data0(_, _, _, _, tm, ty, _, _))) =>
         Infer1(tm, ty)
-      case Right((_, _, GlobalEntry.Con(_, _, _, _, _, _, tm, _, ty))) =>
+      case Right((_, _, GlobalEntry.Con0(_, _, _, _, _, _, tm, _, ty))) =>
+        Infer1(tm, ty)
+      case Right((_, _, GlobalEntry.Data1(_, _, _, _, tm, ty, _, _))) =>
+        Infer1(tm, ty)
+      case Right((_, _, GlobalEntry.Con1(_, _, _, _, _, _, tm, _, ty))) =>
         Infer1(tm, ty)
 
   private def infer(tm: S)(using ctx: Ctx): Infer =
@@ -985,7 +1009,7 @@ object Elaboration:
                 V.Pi(x, Impl, vty, Clos1.Clos(ctx.env, qrt))
               )
 
-        case S.App(_, f, a, i) =>
+        case s @ S.App(_, f, a, i) =>
           i match
             case ArgInfo.Named(x) =>
               val (ef, fty) = insertPi(infer1(f), Until(x))
@@ -1081,7 +1105,7 @@ object Elaboration:
     forceAll1(vty) match
       case V.TypeCon0(m, dx, dps) =>
         State.getGlobalDirect(m, dx) match
-          case Some(GlobalEntry.Data(_, _, _, _, _, _, _, singleCon)) =>
+          case Some(GlobalEntry.Data0(_, _, _, _, _, _, _, singleCon)) =>
             singleCon match
               case None =>
                 err(
@@ -1089,7 +1113,7 @@ object Elaboration:
                 )
               case Some(cx) =>
                 State.getGlobalDirect(m, cx) match
-                  case Some(GlobalEntry.Con(_, _, _, params, _, _, _, _, _)) =>
+                  case Some(GlobalEntry.Con0(_, _, _, params, _, _, _, _, _)) =>
                     p match
                       case Surface.ProjType.Indexed(i) if i >= params.size =>
                         err(
@@ -1183,12 +1207,12 @@ object Elaboration:
       case _ =>
         err(s"expected datatype in match but got ${ctx.pretty1(vscrutty)}")
     val (dps, cons) = State.getGlobalDirect(m, dx) match
-      case Some(GlobalEntry.Data(_, _, dps, cs, _, _, _, _)) => (dps, cs.toSet)
-      case _                                                 => impossible()
+      case Some(GlobalEntry.Data0(_, _, dps, cs, _, _, _, _)) => (dps, cs.toSet)
+      case _                                                  => impossible()
     val psenv = Env(ps)
     inline def conTypes(m: Name, cx: Name): List[VTy] =
       State.getGlobalDirect(m, cx) match
-        case Some(GlobalEntry.Con(_, _, _, params, _, _, _, _, _)) =>
+        case Some(GlobalEntry.Con0(_, _, _, params, _, _, _, _, _)) =>
           params.map((_, ty) => eval1(ty)(using psenv))
         case _ => impossible()
     inline def goBranch(m: Name, cx: Name, ps: List[Bind], b: S)(using
@@ -1314,19 +1338,105 @@ object Elaboration:
           case (Some(false), Some(false)) => false
           case (Some(b), None)            => b
           case (None, Some(b))            => b
-          case _ => err(s"ambigious universe for datatype")
+          case _ =>
+            val hasImplParam = ps.exists((_, i, _) => i == Impl) ||
+              cs.exists(c => c.params.exists((_, i, _) => i == Impl))
+            // TODO: adjust this is runtime datatypes allow implicit parameters
+            if hasImplParam then true
+            else err(s"ambigious universe for datatype")
         if isMeta then elaborateData1(pub, x, ps, cs)
         else elaborateData0(pub, x, ps, cs)
 
   private def elaborateData1(
       pub: Boolean,
       x: Name,
-      ps0: List[(Name, Icit, S)],
+      ps: List[(Name, Icit, S)],
       cs: List[Surface.Constructor]
   )(using ctx: Ctx): Unit =
     if State.currentModuleHasName(x) || State.hasImport(x) then
       err(s"duplicate definition $x")
-    ???
+    def goParams(
+        ctx: Ctx,
+        ps: List[(Name, Icit, S)]
+    ): (Ctx, List[(Name, Icit, Ty)]) =
+      ps match
+        case Nil => (ctx, Nil)
+        case (px, i, ty) :: rest =>
+          val ety = check1(ty, V.Meta)(using ctx)
+          val vty = ctx.eval1(ety)
+          val nctx = ctx.bind1(px.toBind, ety, vty)
+          val (fnctx, erest) = goParams(nctx, rest)
+          (fnctx, (px, i, ety) :: erest)
+    val (datactx, eps) = goParams(ctx, ps)
+    val unitCons = cs.filter(c =>
+      c.params.isEmpty
+    ) // TODO: this should ignore implicit params
+    val unitCon =
+      if unitCons.size == 1 then Some(unitCons.head.name) else None
+    val singleCon = if cs.size == 1 then Some(cs.head.name) else None
+    val ty = T1.TypeCon1(State.currentModule, x)
+    val fulltype = eps.foldRight(T1.MetaU) { case ((px, i, ty), rt) =>
+      T1.Pi(px.toBind, i, ty, rt)
+    }
+    val vty = ctx.eval1(fulltype)
+    if pub then checkAccessibility(vty)
+    State.addGlobal(
+      GlobalEntry.Data1(
+        pub,
+        x,
+        eps,
+        cs.map(_.name),
+        ty,
+        vty,
+        unitCon,
+        singleCon
+      )
+    )
+    cs.zipWithIndex.foreach {
+      case (Surface.Constructor(pos, cpub, cx, cps), ix) =>
+        given conctx: Ctx = datactx.enter(pos)
+        if State.currentModuleHasName(cx) || State.hasImport(cx) then
+          err(s"duplicate name $cx")
+        def goConParams(
+            ctx: Ctx,
+            cps: List[(Bind, Icit, S)]
+        ): List[(Bind, Icit, Ty)] =
+          cps match
+            case Nil => Nil
+            case (px, i, ty) :: rest =>
+              val ety = check1(ty, V.Meta)(using ctx)
+              val vty = ctx.eval1(ety)
+              val nctx = ctx.bind1(px, ety, vty)
+              (px, i, ety) :: goConParams(nctx, rest)
+        val ecps = goConParams(conctx, cps)
+        val tyapp =
+          ps.zipWithIndex.foldRight(ty) { case (((_, i, _), ix), ty) =>
+            T1.App(ty, T1.Var(mkIx(ix + ecps.size)), i)
+          }
+        val cty0 = ecps.foldRight(tyapp) { case ((x, i, pty), rty) =>
+          T1.Pi(x, i, pty, rty)
+        }
+        val cty =
+          eps.foldRight(cty0) { case ((x, _, ty), rty) =>
+            T1.Pi(x.toBind, Impl, ty, rty)
+          }
+        val vcty = ctx.eval1(cty)
+        if cpub then checkAccessibility(vcty)
+        State.addGlobal(
+          GlobalEntry.Con1(
+            cpub,
+            cx,
+            eps,
+            ecps,
+            x,
+            ix,
+            T1.Con1(State.currentModule, x, cx),
+            cty,
+            vcty
+          )
+        )
+    }
+    freeze()
 
   private def elaborateData0(
       pub: Boolean,
@@ -1348,8 +1458,9 @@ object Elaboration:
     val singleCon = if cs.size == 1 then Some(cs.head.name) else None
     val ty = T1.TypeCon0(State.currentModule, x)
     val vty = ps.foldRight(V.TypeV)((_, rt) => V.fun1(V.TypeV, rt))
+    if pub then checkAccessibility(vty)
     State.addGlobal(
-      GlobalEntry.Data(
+      GlobalEntry.Data0(
         pub,
         x,
         ps,
@@ -1361,29 +1472,29 @@ object Elaboration:
       )
     )
     val datactx =
-      ps.foldLeft(ctx)((ctx, x) => ctx.bind1(DoBind(x), T1.TypeV, V.TypeV))
+      ps.foldLeft(ctx)((ctx, x) => ctx.bind1(x.toBind, T1.TypeV, V.TypeV))
     cs.zipWithIndex.foreach {
       case (Surface.Constructor(pos, cpub, cx, cps), ix) =>
         given conctx: Ctx = datactx.enter(pos)
         if State.currentModuleHasName(cx) || State.hasImport(cx) then
           err(s"duplicate name $cx")
-        val tyapp =
-          ps.indices.foldRight(ty)((i, ty) => T1.App(ty, T1.Var(mkIx(i)), Expl))
         val eps = cps.map { (x, i, t) =>
           if (i == Impl)
             err("runtime datatype constructors cannot have implicit parameters")
           (x, check1(t, V.TypeV))
         }
+        val tyapp =
+          ps.indices.foldRight(ty)((i, ty) => T1.App(ty, T1.Var(mkIx(i)), Expl))
         val cty0 = eps.foldRight(T1.Lift(T1.Val, tyapp)) {
           case ((x, pty), rty) =>
             T1.Pi(x, Expl, T1.Lift(T1.Val, pty), T1.Wk1(rty))
         }
         val cty =
-          ps.foldRight(cty0)((x, rty) => T1.Pi(DoBind(x), Impl, T1.TypeV, rty))
-        val vcty = conctx.eval1(cty)
+          ps.foldRight(cty0)((x, rty) => T1.Pi(x.toBind, Impl, T1.TypeV, rty))
+        val vcty = ctx.eval1(cty)
         if cpub then checkAccessibility(vcty)
         State.addGlobal(
-          GlobalEntry.Con(
+          GlobalEntry.Con0(
             cpub,
             cx,
             ps,

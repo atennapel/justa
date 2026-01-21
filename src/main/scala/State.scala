@@ -77,7 +77,7 @@ object State:
         value: Val1,
         vty: VTy
     )
-    case Data(
+    case Data0(
         pub: Boolean,
         x: Name,
         params: List[Name],
@@ -87,7 +87,7 @@ object State:
         unitCon: Option[Name],
         singleCon: Option[Name]
     )
-    case Con(
+    case Con0(
         pub: Boolean,
         x: Name,
         typarams: List[Name],
@@ -98,18 +98,43 @@ object State:
         ty: Ty,
         vty: VTy
     )
+    case Data1(
+        pub: Boolean,
+        x: Name,
+        params: List[(Name, Icit, Ty)],
+        cons: List[Name],
+        tm: Tm1,
+        ty: Val1,
+        unitCon: Option[Name],
+        singleCon: Option[Name]
+    )
+    case Con1(
+        pub: Boolean,
+        x: Name,
+        typarams: List[(Name, Icit, Ty)],
+        params: List[(Bind, Icit, Ty)],
+        dx: Name,
+        ix: Int,
+        tm: Tm1,
+        ty: Ty,
+        vty: VTy
+    )
 
     def name: Name = this match
-      case Def0(_, x, _, _, _, _, _, _)   => x
-      case Def1(_, x, _, _, _, _)         => x
-      case Data(_, x, _, _, _, _, _, _)   => x
-      case Con(_, x, _, _, _, _, _, _, _) => x
+      case Def0(_, x, _, _, _, _, _, _)    => x
+      case Def1(_, x, _, _, _, _)          => x
+      case Data0(_, x, _, _, _, _, _, _)   => x
+      case Con0(_, x, _, _, _, _, _, _, _) => x
+      case Data1(_, x, _, _, _, _, _, _)   => x
+      case Con1(_, x, _, _, _, _, _, _, _) => x
 
     def isPublic: Boolean = this match
-      case Def0(p, _, _, _, _, _, _, _)   => p
-      case Def1(p, _, _, _, _, _)         => p
-      case Data(p, _, _, _, _, _, _, _)   => p
-      case Con(p, _, _, _, _, _, _, _, _) => p
+      case Def0(p, _, _, _, _, _, _, _)    => p
+      case Def1(p, _, _, _, _, _)          => p
+      case Data0(p, _, _, _, _, _, _, _)   => p
+      case Con0(p, _, _, _, _, _, _, _, _) => p
+      case Data1(p, _, _, _, _, _, _, _)   => p
+      case Con1(p, _, _, _, _, _, _, _, _) => p
 
   // modules
   private final case class ModuleCtx(
@@ -181,7 +206,9 @@ object State:
 
   def conIndex(mod: Name, dx: Name, cx: Name): Int =
     getGlobal(mod, dx) match
-      case Some((_, _, GlobalEntry.Data(_, _, _, xs, _, _, _, _))) =>
+      case Some((_, _, GlobalEntry.Data0(_, _, _, xs, _, _, _, _))) =>
+        xs.indexOf(cx)
+      case Some((_, _, GlobalEntry.Data1(_, _, _, xs, _, _, _, _))) =>
         xs.indexOf(cx)
       case _ => impossible()
   inline def conIndex(dx: Name, cx: Name): Int = conIndex(currentModule, dx, cx)

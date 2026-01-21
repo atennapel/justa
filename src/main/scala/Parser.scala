@@ -633,12 +633,16 @@ object Parser:
 
     private def tryDataConParam(): List[(Bind, Icit, Ty)] | Null =
       if trySymbol(L_BRACE) then
+        val p = pos
         val x = bind()
         val xs = list(tryBind())
-        symbol(COLON)
-        val ty = expr()
-        symbol(R_BRACE)
-        (x :: xs.toList).map(x => (x, Impl, ty))
+        if trySymbol(COLON) then
+          val ty = expr()
+          symbol(R_BRACE)
+          (x :: xs.toList).map(x => (x, Impl, ty))
+        else
+          symbol(R_BRACE)
+          (x :: xs.toList).map(x => (x, Impl, Tm.Hole(p, None)))
       else
         backtrack {
           if trySymbol(L_PAREN) then
