@@ -136,19 +136,19 @@ object Pretty:
     case Tm0.RecordCon(_, fs) => fs.map(pretty0).mkString("[", ", ", "]")
     case T0.Proj(_, s, p)     => s"${prettyParen0(s)}.$p"
 
-    case T0.Case(_, _, s, Cases.Empty) => s"match $s {}"
+    case T0.Case(_, _, s, Cases0.Empty) => s"match $s {}"
     case T0.Case(_, _, s, cs) =>
-      def go(c: Cases): String =
+      def go(c: Cases0): String =
         c match
-          case Cases.Ext(x, Nil, b, r) =>
+          case Cases0.Ext(x, Nil, b, r) =>
             val next = if r.isEmpty then "" else s" | ${go(r)}"
             s"$x => ${pretty0(b)}$next"
-          case Cases.Ext(x, ps, b, r) =>
+          case Cases0.Ext(x, ps, b, r) =>
             val innerns = ps.map((x, _) => x).reverse ++ ns
             val next = if r.isEmpty then "" else s" | ${go(r)}"
             s"$x ${ps.map((x, _) => x).mkString(" ")} => ${pretty0(b)(using innerns)}$next"
-          case Cases.Otherwise(b) => s"_ => ${pretty0(b)}"
-          case Cases.Empty        => s""
+          case Cases0.Otherwise(b) => s"_ => ${pretty0(b)}"
+          case Cases0.Empty        => s""
       s"match ${pretty0(s)} { ${go(cs)} }"
 
   private def goRec(ns: List[Bind], fs: AssocBind[Ty]): List[String] =
@@ -188,11 +188,25 @@ object Pretty:
     case T1.Lift(_, t) => s"^${prettyParen1(t)}"
     case T1.Quote(t)   => s"`${prettyParen0(t)}"
 
-    case Tm1.RecordTy1(fs) => goRec(ns, fs).mkString("[", ", ", "]")
-    case Tm1.RecordTy0(fs) =>
+    case T1.RecordTy1(fs) => goRec(ns, fs).mkString("[", ", ", "]")
+    case T1.RecordTy0(fs) =>
       fs.map((x, t) => s"$x : ${pretty1(t)}").mkString("[", ", ", "]")
-    case Tm1.RecordCon(fs) => fs.map(pretty1).mkString("[", ", ", "]")
-    case Tm1.Proj(tm, p)   => s"${prettyParen1(tm)}.$p"
+    case T1.RecordCon(fs) => fs.map(pretty1).mkString("[", ", ", "]")
+    case T1.Proj(tm, p)   => s"${prettyParen1(tm)}.$p"
+
+    case T1.Case(s, cs) =>
+      def go(c: Cases1): String =
+        c match
+          case Cases1.Ext(x, Nil, b, r) =>
+            val next = if r.isEmpty then "" else s" | ${go(r)}"
+            s"$x => ${pretty1(b)}$next"
+          case Cases1.Ext(x, ps, b, r) =>
+            val innerns = ps.map((x, _, _) => x).reverse ++ ns
+            val next = if r.isEmpty then "" else s" | ${go(r)}"
+            s"$x ${ps.map((x, i, _) => if i == Impl then s"{$x}" else x).mkString(" ")} => ${pretty1(b)(using innerns)}$next"
+          case Cases1.Otherwise(b) => s"_ => ${pretty1(b)}"
+          case Cases1.Empty        => s""
+      s"match ${pretty1(s)} { ${go(cs)} }"
 
     case T1.Wk0(tm) => pretty1(tm)(using ns.tail)
     case T1.Wk1(tm) => pretty1(tm)(using ns.tail)

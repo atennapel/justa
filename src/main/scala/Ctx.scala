@@ -3,6 +3,7 @@ import Common.Icit.*
 import Core.*
 import Evaluation.UnfoldOption
 import Ctx.NameMap
+import Evaluation.apply
 
 final case class Ctx(
     lvl: Lvl,
@@ -135,6 +136,29 @@ final case class Ctx(
   inline def pretty0(v: Tm0): String = Pretty.pretty0(v)(using binds)
 
   inline def prettyParen1(v: Tm1): String = Pretty.prettyParen1(v)(using binds)
+
+  inline def prettyClos1(
+      x: Bind,
+      v: Clos1,
+      unfoldOption: UnfoldOption = UnfoldOption.Metas
+  ): String =
+    Pretty.pretty1(
+      Evaluation.readback1(v(Val1.Var(lvl)))(using lvl + 1, unfoldOption)
+    )(using x :: binds)
+
+  def show: String =
+    def go(bs: List[Bind], ls: Locals): List[String] =
+      (bs, ls) match
+        case (Nil, Locals.Empty) => Nil
+        case (x :: bs, Locals.Def(ls, ty, v)) =>
+          val tl = go(bs, ls)
+          s"$x : ${Pretty.pretty1(ty)(using bs)} = ${Pretty.pretty1(v)(using bs)}" :: tl
+        case (x :: bs, Locals.Bind0(ls, ty, cv)) =>
+          s"$x : ${Pretty.pretty1(ty)(using bs)}" :: go(bs, ls)
+        case (x :: bs, Locals.Bind1(ls, ty)) =>
+          s"$x : ${Pretty.pretty1(ty)(using bs)}" :: go(bs, ls)
+        case _ => impossible()
+    go(binds, locals).mkString("\n")
 
 object Ctx:
   def empty(pos: PosInfo) =

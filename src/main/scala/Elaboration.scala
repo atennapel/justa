@@ -10,7 +10,8 @@ import Core.{
   Val1 as V,
   Tm1 as T1,
   Tm0 as T0,
-  Cases,
+  Cases0,
+  Cases1,
   ProjType,
   ClosRec
 }
@@ -407,8 +408,11 @@ object Elaboration:
               err(
                 s"expected $x in record, checking against type: ${ctx.pretty1(topty)}"
               )
-            case Some(hd) => hd :: go(tl) // TODO: contemplate occ of _
+            case Some(hd) => hd :: go(tl)
     go(ts)
+
+  private def showNamedHole(x: Name, ty: VTy)(using ctx: Ctx): Nothing =
+    err(s"hole _$x : ${ctx.pretty1(ty)}\n${ctx.show}")
 
   // checking
   private def check0(tm: S, ty: VTy, cv: VTy)(using ctx: Ctx): T0 =
@@ -453,19 +457,19 @@ object Elaboration:
           T0.If(ctx.readback1(ty), ec, et, ef)
 
         case S.Hole(_, None)    => freshMeta(V.Lift(cv, ty)).splice
-        case S.Hole(_, Some(x)) => err(s"named hole _$x: ${ctx.pretty1(ty)}")
+        case S.Hole(_, Some(x)) => showNamedHole(x, ty)
 
         case S.Splice(_, t) => check1(t, V.Lift(cv, ty)).splice
 
-        case S.Match(_, Some(s), cs) => checkMatch(s, cs, ty, cv)
+        case S.Match(_, Some(s), sty, cs) => checkMatch0(s, sty, cs, ty, cv)
 
-        case S.Match(_, None, cs) =>
+        case S.Match(_, None, sty, cs) =>
+          if sty.isDefined then err(s"runtime level match cannot have type")
           val (t1, fcv, t2) = ensureFun(ty, cv)
           val bx = DoBind(Name("x"))
           val rt1 = ctx.readback1(t1)
-          val nctx =
-            ctx.bind0(DontBind, rt1, t1, T1.Val, V.Val)
-          val ecs = checkCases(t1, cs, t2, fcv)(using nctx)
+          val nctx = ctx.insert0(bx, rt1, T1.Val)
+          val ecs = checkCases0(t1, cs, t2, fcv)(using nctx)
           val nrt1 = nctx.readback1(t1)
           val rt2 = nctx.readback1(t2)
           T0.Lam(bx, rt1, T0.Case(rt2, nrt1, T0.Var(ix0), ecs))
@@ -597,24 +601,41 @@ object Elaboration:
         case (S.Quote(_, tm), V.Lift(cv, ty)) => check0(tm, ty, cv).quote
         case (tm, V.Lift(cv, ty))             => check0(tm, ty, cv).quote
 
-        case (S.Hole(_, None), _) => freshMeta(ty)
-        case (S.Hole(_, Some(x)), _) =>
-          err(s"named hole _$x: ${ctx.pretty1(ty)}")
+        case (S.Hole(_, None), _)    => freshMeta(ty)
+        case (S.Hole(_, Some(x)), _) => showNamedHole(x, ty)
 
-        case (S.Match(_, None, cs), V.Pi(x, Expl, a, b)) =>
-          val vdty = ctx.eval1(freshMeta(V.TypeV))
-          unify(a, V.Lift(V.Val, vdty))
-          val ra = ctx.readback1(a)
-          val nctx = ctx.bind1(DontBind, ra, a)
-          val vrcv = nctx.eval1(freshCV()(using nctx))
-          val vrty = nctx.eval1(freshMeta(V.Type(vrcv))(using nctx))
-          unify(b(V.Var(ctx.lvl)), V.Lift(vrcv, vrty))(using nctx)
-          val ndty = nctx.readback1(vdty)
-          val nvrty = nctx.readback1(vrty)
-          val ecs = checkCases(vdty, cs, vrty, vrcv)(using nctx)
-          val casetm = T0.Case(nvrty, ndty, T1.Var(ix0).splice, ecs)
-          val y = x.orElse(DoBind(Name("x")))
-          T1.Lam(y, Expl, ra, casetm.quote)
+        case (S.Match(_, Some(s), sty, cs), _) => checkMatch1(s, sty, cs, ty)
+
+        case (S.Match(_, None, sty, cs), V.Pi(x, Expl, a, b)) =>
+          forceAll1(a) match
+            case V.Lift(dcv, vdty) =>
+              if sty.isDefined then err(s"runtime level match cannot have type")
+              unify(dcv, V.Val)
+              val ra = ctx.readback1(a)
+              val nctx = ctx.insert1(x, ra)
+              val vrcv = nctx.eval1(freshCV()(using nctx))
+              val vrty = nctx.eval1(freshMeta(V.Type(vrcv))(using nctx))
+              unify(b(V.Var(ctx.lvl)), V.Lift(vrcv, vrty))(using nctx)
+              val ndty = nctx.readback1(vdty)
+              val nvrty = nctx.readback1(vrty)
+              val ecs = checkCases0(vdty, cs, vrty, vrcv)(using nctx)
+              val casetm = T0.Case(nvrty, ndty, T1.Var(ix0).splice, ecs)
+              val y = x.orElse(DoBind(Name("x")))
+              T1.Lam(y, Expl, ra, casetm.quote)
+            case _ =>
+              val ra = ctx.readback1(a)
+              val nctx = ctx.insert1(x, ra)
+              val escrut = T1.Var(ix0)
+              val res = inferMatch1ExType(a, sty)
+              val rexty = res.getOrElse(b)
+              val ecs = checkCases1(escrut, a, cs, rexty)(using nctx)
+              res.foreach { rexty2 =>
+                val v = ctx.eval1(escrut)
+                unify(rexty2(v), b(v))
+              }
+              val casetm = T1.Case(escrut, ecs)
+              val y = x.orElse(DoBind(Name("x")))
+              T1.Lam(y, Expl, ra, casetm)
 
         case (S.UnitLit(_), V.RecordTy1(ClosRec(_, Nil))) => T1.RecordConEmpty
 
@@ -1054,13 +1075,8 @@ object Elaboration:
 
         case S.Hole(_, _) => err("cannot infer hole")
 
-        case S.Match(_, None, _) => err("cannot infer lambda match")
-        case S.Match(_, Some(s), cs) =>
-          val cv = freshCV()
-          val excv = ctx.eval1(cv)
-          val exty = ctx.eval1(freshMeta(V.Type(excv)))
-          val etm = checkMatch(s, cs, exty, excv)
-          Infer0(etm, exty, excv)
+        case S.Match(_, None, _, _)       => err("cannot infer lambda match")
+        case S.Match(_, Some(s), sty, cs) => inferMatch(s, sty, cs)
 
         case S.UnitLit(_)       => err("cannot infer unit")
         case S.EmptyRecord(_)   => err("cannot infer empty record")
@@ -1084,6 +1100,7 @@ object Elaboration:
           val ty = ctx.readback1(vty)
           Infer0(T0.RecordCon(ty, efields), vty, V.TypeV)
 
+  // projection elaboration
   private def inferProj(tm: S, p: Surface.ProjType)(using ctx: Ctx): Infer =
     debug(s"inferProj $tm.$p")
     insertPi(infer(tm)) match
@@ -1123,7 +1140,9 @@ object Elaboration:
                           s"cannot project from ${ctx.pretty1(vty)}, not enough parameters in constructor $cx"
                         )
                       case Surface.ProjType.Indexed(i) =>
-                        val rty = eval1(params(i)._2)(using Env(dps.map(_._1)))
+                        val rty = eval1(params(i)._2)(using
+                          Env(dps.map(_._1))
+                        )
                         (None, i, rty)
                       case Surface.ProjType.Named(x) =>
                         params.zipWithIndex.find { case ((y, _), _) =>
@@ -1134,7 +1153,8 @@ object Elaboration:
                               s"cannot project from ${ctx.pretty1(vty)}, no parameter named $x in constructor $cx"
                             )
                           case Some(((_, ty), i)) =>
-                            val rty = eval1(ty)(using Env(dps.map(_._1)))
+                            val rty =
+                              eval1(ty)(using Env(dps.map(_._1)))
                             (Some(x), i, rty)
                   case _ => impossible()
           case _ => impossible()
@@ -1145,7 +1165,7 @@ object Elaboration:
             case Nil => err(s"failed to project .$p")
             case (x, ty) :: fs =>
               val found = p match
-                case Surface.ProjType.Named(y)     => nameEquals(x, y)
+                case Surface.ProjType.Named(y)     => x.equals(y)
                 case Surface.ProjType.Indexed(ix2) => ix == ix2
               if found then (x.toOption, ix, ty)
               else go(fs, ix + 1)
@@ -1165,7 +1185,7 @@ object Elaboration:
         case Nil => err(s"failed to project .$p")
         case (x, ty) :: fs =>
           val found = p match
-            case Surface.ProjType.Named(y)     => nameEquals(x, y)
+            case Surface.ProjType.Named(y)     => x.equals(y)
             case Surface.ProjType.Indexed(ix2) => ix == ix2
           if found then (x.toOption, ix, eval1(ty)(using env))
           else
@@ -1173,37 +1193,199 @@ object Elaboration:
             go(Env.Ext1(env, proj), fs, ix + 1)
     go(clos.env, clos.fields, 0)
 
-  private inline def nameEquals(x: Bind, y: Name): Boolean =
-    x match
-      case DontBind  => false
-      case DoBind(x) => x == y
+  // match elaboration
+  /*
+  private def inferMatch1ExType(
+      vscrutty: VTy,
+      sty: Option[(Bind, S)],
+      extyopt: Option[Clos1]
+  )(using ctx: Ctx): Option[Clos1] =
+    sty match
+      case None => extyopt
+      case Some((x, b)) =>
+        val nctx = ctx.bind1(x, ctx.readback1(vscrutty), vscrutty)
+        val eb = check1(b, V.Meta)(using nctx)
+        val exty = Clos1.Clos(ctx.env, eb)
+        extyopt.foreach { exty2 =>
+          val v = V.Var(ctx.lvl)
+          unify(exty2(v), exty(v))(using nctx)
+        }
+        Some(exty)
 
-  private def checkMatch(
+  private inline def inferMatch1ExType(
+      vscrutty: VTy,
+      sty: Option[(Bind, S)],
+      exty2: Clos1
+  )(using ctx: Ctx): Clos1 =
+    inferMatch1ExType(vscrutty, sty, Some(exty2)) match
+      case None    => impossible()
+      case Some(c) => c
+
+  private inline def inferMatch1ExType(
+      vscrutty: VTy,
+      sty: Option[(Bind, S)]
+  )(using ctx: Ctx): Option[Clos1] =
+    inferMatch1ExType(vscrutty, sty, None)
+   */
+
+  private def inferMatch1ExType(vscrutty: VTy, sty: Option[(Bind, S)])(using
+      ctx: Ctx
+  ): Option[Clos1] =
+    sty match
+      case None => None
+      case Some((x, b)) =>
+        val nctx = ctx.bind1(x, ctx.readback1(vscrutty), vscrutty)
+        val eb = check1(b, V.Meta)(using nctx)
+        Some(Clos1.Clos(ctx.env, eb))
+
+  private def inferMatch(
       scrut: S,
-      cs: List[(PosInfo, Bind, List[Bind], S)],
+      sty: Option[(Bind, S)],
+      cs: List[Surface.Case]
+  )(using
+      ctx: Ctx
+  ): Infer =
+    debug(
+      s"inferMatch $scrut${sty.fold("")((x, t) => s" : $x => $t")} { ${cs.mkString(" | ")} }"
+    )
+    infer(scrut) match
+      case Infer0(escrut, vscrutty, vscrutcv) =>
+        if sty.isDefined then err("runtime level match cannot have type")
+        unify(vscrutcv, V.Val)
+        val excv = ctx.eval1(freshCV())
+        val exty = ctx.eval1(freshMeta(V.Type(excv)))
+        val ecs = checkCases0(vscrutty, cs, exty, excv)
+        val ematch =
+          T0.Case(ctx.readback1(exty), ctx.readback1(vscrutty), escrut, ecs)
+        Infer0(ematch, exty, excv)
+      case Infer1(escrut, vscrutty) =>
+        forceAll1(vscrutty) match
+          case V.Lift(vscrutcv, dty) =>
+            if sty.isDefined then err("runtime level match cannot have type")
+            unify(vscrutcv, V.Val)
+            val excv = ctx.eval1(freshCV())
+            val exty = ctx.eval1(freshMeta(V.Type(excv)))
+            val ecs = checkCases0(dty, cs, exty, excv)
+            val ematch =
+              T0.Case(
+                ctx.readback1(exty),
+                ctx.readback1(dty),
+                escrut.splice,
+                ecs
+              )
+            Infer0(ematch, exty, excv)
+          case fty =>
+            val exty = inferMatch1ExType(vscrutty, sty) match
+              case None =>
+                val m = ctx.eval1(freshMeta(V.Meta))
+                Clos1.Fun(_ => m)
+              case Some(c) => c
+            val ecs = checkCases1(escrut, fty, cs, exty)
+            val rty = exty(ctx.eval1(escrut))
+            Infer1(T1.Case(escrut, ecs), rty)
+
+  private def checkMatch0(
+      scrut: S,
+      sty: Option[(Bind, S)],
+      cs: List[Surface.Case],
       exty: VTy,
       excv: VTy
   )(using
       ctx: Ctx
   ): T0 =
     debug(
-      s"checkMatch $scrut { ${cs.map((_, cx, ps, b) => s"$cx ${ps.mkString(" ")} => $b").mkString(" | ")} } : ${ctx.pretty1(exty)}"
+      s"checkMatch0 $scrut${sty.fold("")((x, t) => s" : $x => $t")} { ${cs.mkString(" | ")} } : ${ctx.pretty1(exty)}"
     )
-    val (escrut, vscrutty, vscrutcv) = infer0(scrut)
-    unify(vscrutcv, V.Val)
-    val ecs = checkCases(vscrutty, cs, exty, excv)
-    T0.Case(ctx.readback1(exty), ctx.readback1(vscrutty), escrut, ecs)
+    infer(scrut) match
+      case Infer0(escrut, vscrutty, vscrutcv) =>
+        if sty.isDefined then err("runtime level match cannot have type")
+        unify(vscrutcv, V.Val)
+        val ecs = checkCases0(vscrutty, cs, exty, excv)
+        T0.Case(ctx.readback1(exty), ctx.readback1(vscrutty), escrut, ecs)
+      case Infer1(escrut, vscrutty) =>
+        forceAll1(vscrutty) match
+          case V.Lift(vscrutcv, dty) =>
+            if sty.isDefined then err("runtime level match cannot have type")
+            unify(vscrutcv, V.Val)
+            val ecs = checkCases0(dty, cs, exty, excv)
+            T0.Case(
+              ctx.readback1(exty),
+              ctx.readback1(dty),
+              escrut.splice,
+              ecs
+            )
+          case fty =>
+            val res = inferMatch1ExType(vscrutty, sty)
+            val rexty1 = Clos1.Fun(_ => V.Lift(excv, exty))
+            val rexty2 = res.getOrElse(rexty1)
+            val tm =
+              T1.Case(escrut, checkCases1(escrut, fty, cs, rexty2)).splice
+            res.foreach { a =>
+              val v = ctx.eval1(escrut)
+              unify(a(v), rexty1(v))
+            }
+            tm
 
-  private def checkCases(
+  private def checkMatch1(
+      scrut: S,
+      sty: Option[(Bind, S)],
+      cs: List[Surface.Case],
+      exty: VTy
+  )(using
+      ctx: Ctx
+  ): T1 =
+    debug(
+      s"checkMatch1 $scrut${sty.fold("")((x, t) => s" : $x => $t")} { ${cs.mkString(" | ")} } : ${ctx.pretty1(exty)}"
+    )
+    infer(scrut) match
+      case Infer0(escrut, vscrutty, vscrutcv) =>
+        if sty.isDefined then err("runtime level match cannot have type")
+        unify(vscrutcv, V.Val)
+        val excv = ctx.eval1(freshCV())
+        val exty2 = ctx.eval1(freshMeta(V.Type(excv)))
+        unify(exty, V.Lift(excv, exty2))
+        val ecs = checkCases0(vscrutty, cs, exty2, excv)
+        T0.Case(ctx.readback1(exty2), ctx.readback1(vscrutty), escrut, ecs)
+          .quote
+      case Infer1(escrut, vscrutty) =>
+        forceAll1(vscrutty) match
+          case V.Lift(vscrutcv, dty) =>
+            if sty.isDefined then err("runtime level match cannot have type")
+            unify(vscrutcv, V.Val)
+            val excv = ctx.eval1(freshCV())
+            val exty2 = ctx.eval1(freshMeta(V.Type(excv)))
+            unify(exty, V.Lift(excv, exty2))
+            val ecs = checkCases0(dty, cs, exty2, excv)
+            T0.Case(
+              ctx.readback1(exty2),
+              ctx.readback1(dty),
+              escrut.splice,
+              ecs
+            ).quote
+          case fty =>
+            val res = inferMatch1ExType(vscrutty, sty)
+            val rexty1 = Clos1.Fun(_ => exty)
+            val rexty2 = res.getOrElse(rexty1)
+            val tm = T1.Case(
+              escrut,
+              checkCases1(escrut, fty, cs, rexty2)
+            )
+            res.foreach { a =>
+              val v = ctx.eval1(escrut)
+              unify(a(v), rexty1(v))
+            }
+            tm
+
+  private def checkCases0(
       vscrutty: VTy,
-      cs: List[(PosInfo, Bind, List[Bind], S)],
+      cs: List[Surface.Case],
       exty: VTy,
       excv: VTy
   )(using
       ctx: Ctx
-  ): Cases =
+  ): Cases0 =
     debug(
-      s"checkCases ${ctx.pretty1(vscrutty)} { ${cs.map((_, cx, ps, b) => s"$cx ${ps.mkString(" ")} => $b").mkString(" | ")} } : ${ctx.pretty1(exty)}"
+      s"checkCases0 ${ctx.pretty1(vscrutty)} { ${cs.mkString(" | ")} } : ${ctx.pretty1(exty)}"
     )
     val (m, dx, ps) = forceAll1(vscrutty) match
       case V.TypeCon0(m, dx, ps) => (m, dx, ps.map((t, _) => t))
@@ -1218,12 +1400,14 @@ object Elaboration:
         case Some(GlobalEntry.Con0(_, _, _, params, _, _, _, _, _)) =>
           params.map((_, ty) => eval1(ty)(using psenv))
         case _ => impossible()
-    inline def goBranch(m: Name, cx: Name, ps: List[Bind], b: S)(using
+    inline def goBranch(m: Name, cx: Name, ps: List[(Bind, Icit)], b: S)(using
         ctx: Ctx
     ): (List[(Bind, Ty)], T0) =
       val (innerctx, nps) =
         ps.zip(conTypes(m, cx)).foldLeft[(Ctx, List[(Bind, Ty)])]((ctx, Nil)) {
-          case ((innerctx, nps), (x, ty)) =>
+          case ((innerctx, nps), ((x, i), ty)) =>
+            if i == Impl then
+              err(s"runtime match cases cannot have implicit parameters")
             val rty = ctx.readback1(ty)
             (
               innerctx.bind0(x, rty, ty, T1.Val, V.Val),
@@ -1233,25 +1417,25 @@ object Elaboration:
       val nb = check0(b, exty, excv)(using innerctx)
       (nps, nb)
     def goCases(
-        cs: List[(PosInfo, Bind, List[Bind], S)],
+        cs: List[Surface.Case],
         cons: Set[Name],
         seen: Set[Name]
-    ): Cases =
+    ): Cases0 =
       cs match
         case Nil =>
           if cons.nonEmpty then
             err(
               s"match is not exhaustive, constructors left: ${cons.mkString(", ")}"
             )
-          Cases.Empty
-        case (pos, cx, ps, b) :: r =>
+          Cases0.Empty
+        case Surface.Case(pos, cx, ps, b) :: r =>
           enter(pos):
             cx match
               case DontBind =>
                 if r.nonEmpty then err(s"otherwise branch must be the last one")
                 if ps.nonEmpty then
                   err(s"otherwise branch cannot have parameters")
-                Cases.Otherwise(check0(b, exty, excv))
+                Cases0.Otherwise(check0(b, exty, excv))
               case DoBind(cx) =>
                 if !cons.contains(cx) then
                   err(s"constructor not part of datatype in match: $cx")
@@ -1259,7 +1443,101 @@ object Elaboration:
                   err(s"duplicate constructor in match: $cx")
                 val (eps, eb) = goBranch(m, cx, ps, b)
                 val er = goCases(r, cons - cx, seen + cx)
-                Cases.Ext(cx, eps, eb, er)
+                Cases0.Ext(cx, eps, eb, er)
+    goCases(cs, cons, Set.empty)
+
+  private def checkCases1(
+      escrut: T1,
+      vscrutty: VTy,
+      cs: List[Surface.Case],
+      exty: Clos1
+  )(using
+      ctx: Ctx
+  ): Cases1 =
+    debug(
+      s"checkCases1 $escrut : ${ctx.pretty1(vscrutty)} { ${cs.mkString(" | ")} } : ${ctx.prettyClos1(Name("x").toBind, exty)}"
+    )
+    val (m, dx, ps) = forceAll1(vscrutty) match
+      case V.TypeCon1(m, dx, ps) => (m, dx, ps.map((t, _) => t))
+      case _ =>
+        err(s"expected datatype in match but got ${ctx.pretty1(vscrutty)}")
+    val (dps, cons) = State.getGlobalDirect(m, dx) match
+      case Some(GlobalEntry.Data1(_, _, dps, cs, _, _, _, _)) => (dps, cs.toSet)
+      case _                                                  => impossible()
+    val psenv = Env(ps)
+    inline def conInfo(m: Name, cx: Name): (T1, List[(Bind, Icit, Ty)]) =
+      State.getGlobalDirect(m, cx) match
+        case Some(GlobalEntry.Con1(_, _, _, params, _, _, con, _, _)) =>
+          (con, params)
+        case _ => impossible()
+    inline def goBranch(m: Name, cx: Name, ps: List[(Bind, Icit)], b: S)(using
+        ctx: Ctx
+    ): (List[(Bind, Icit, Ty)], T1) =
+      val (con, cps) = conInfo(m, cx)
+      def goParams(
+          env: Env,
+          con: V,
+          ps: List[(Bind, Icit)],
+          cps: List[(Bind, Icit, Ty)]
+      )(using
+          ctx: Ctx
+      ): (Ctx, V, List[(Bind, Icit, Ty)]) =
+        (ps, cps) match
+          case (Nil, Nil) => (ctx, con, Nil)
+          case ((x, i) :: psr, (_, i2, pty) :: cpsr) if i == i2 => // match
+            val ety = ctx.readback1(eval1(pty)(using env))
+            val nctx1 = ctx.bind1(x, ety, ctx.eval1(ety))
+            val (nctx2, rcon, nps) =
+              goParams(
+                Env.Ext1(env, V.Var(ctx.lvl)),
+                vapp(con, V.Var(ctx.lvl), i),
+                psr,
+                cpsr
+              )(using nctx1)
+            (nctx2, rcon, (x, i, ety) :: nps)
+          case (ps, (x, Impl, pty) :: cpsr) => // insertion
+            val ety = ctx.readback1(eval1(pty)(using env))
+            val nctx1 = ctx.insert1(x, ety)
+            val (nctx2, rcon, nps) =
+              goParams(
+                Env.Ext1(env, V.Var(ctx.lvl)),
+                vappI(con, V.Var(ctx.lvl)),
+                ps,
+                cpsr
+              )(using nctx1)
+            (nctx2, rcon, (DontBind, Impl, ety) :: nps)
+          case _ => err(s"match case mismatch")
+      val (innerctx, vcon, nps) = goParams(psenv, ctx.eval1(con), ps, cps)
+      val nb = check1(b, exty(vcon))(using innerctx)
+      (nps, nb)
+    def goCases(
+        cs: List[Surface.Case],
+        cons: Set[Name],
+        seen: Set[Name]
+    ): Cases1 =
+      cs match
+        case Nil =>
+          if cons.nonEmpty then
+            err(
+              s"match is not exhaustive, constructors left: ${cons.mkString(", ")}"
+            )
+          Cases1.Empty
+        case Surface.Case(pos, cx, ps, b) :: r =>
+          enter(pos):
+            cx match
+              case DontBind =>
+                if r.nonEmpty then err(s"otherwise branch must be the last one")
+                if ps.nonEmpty then
+                  err(s"otherwise branch cannot have parameters")
+                Cases1.Otherwise(check1(b, exty(ctx.eval1(escrut))))
+              case DoBind(cx) =>
+                if !cons.contains(cx) then
+                  err(s"constructor not part of datatype in match: $cx")
+                if seen.contains(cx) then
+                  err(s"duplicate constructor in match: $cx")
+                val (eps, eb) = goBranch(m, cx, ps, b)
+                val er = goCases(r, cons - cx, seen + cx)
+                Cases1.Ext(cx, eps, eb, er)
     goCases(cs, cons, Set.empty)
 
   // elaboration
@@ -1531,6 +1809,7 @@ object Elaboration:
       if rex then State.addReexport(mod.name, y, m, x)
     }
     mod.defs.toList.foreach(elaborate)
+    checkUnsolvedMetas()(using Ctx.empty(mod.pos))
 
   def elaborate(mod: List[Surface.Module]): Unit =
     debug(s"elaborate modules ${mod.map(_.name).mkString("[", ",", "]")}")

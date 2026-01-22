@@ -102,11 +102,11 @@ object Unstaging:
       case Tm0.RecordCon(ty, fs) => Tm.Record(goTy(ty), fs.map(go))
 
       case Tm0.Case(rty, dty, s, cs) =>
-        def goCases(cs: Core.Cases): Cases =
+        def goCases(cs: Core.Cases0): Cases =
           cs match
-            case Core.Cases.Empty        => Cases.Empty
-            case Core.Cases.Otherwise(b) => Cases.Otherwise(go(b))
-            case Core.Cases.Ext(x, ps, b, r) =>
+            case Core.Cases0.Empty        => Cases.Empty
+            case Core.Cases0.Otherwise(b) => Cases.Otherwise(go(b))
+            case Core.Cases0.Ext(x, ps, b, r) =>
               @tailrec
               def addParamsRec(
                   ps: List[(Bind, Tm1)],

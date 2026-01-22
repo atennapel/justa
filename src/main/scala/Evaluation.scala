@@ -50,15 +50,15 @@ object Evaluation:
     case V0.Splice(v) => v
     case v            => V1.Quote(v)
 
-  def vapp1(f: V1, a: V1, i: Icit): V1 = f match
+  def vapp(f: V1, a: V1, i: Icit): V1 = f match
     case V1.Lam(x, _, _, b) => b(a)
     case V1.Flex(id, sp)    => V1.Flex(id, Spine.App(sp, a, i))
     case V1.Rigid(h, sp)    => V1.Rigid(h, Spine.App(sp, a, i))
     case V1.Unfold(h, sp, v) =>
-      V1.Unfold(h, Spine.App(sp, a, i), () => vapp1(v(), a, i))
+      V1.Unfold(h, Spine.App(sp, a, i), () => vapp(v(), a, i))
     case _ => impossible()
-  inline def vappE(f: V1, a: V1): V1 = vapp1(f, a, Expl)
-  inline def vappI(f: V1, a: V1): V1 = vapp1(f, a, Impl)
+  inline def vappE(f: V1, a: V1): V1 = vapp(f, a, Expl)
+  inline def vappI(f: V1, a: V1): V1 = vapp(f, a, Impl)
 
   def vmetaapp1(f: V1, a: V1): V1 = f match
     case V1.MetaLam1(b)  => b(a)
@@ -84,7 +84,7 @@ object Evaluation:
   inline def vprojIx(tm: Val1, ix: Int, name: Option[Name] = None): Val1 =
     vproj(tm, ProjType(name, ix))
 
-  def velimid(a: V1, x: V1, pp: V1, h: V1, y: V1, p: V1): V1 =
+  private def velimid(a: V1, x: V1, pp: V1, h: V1, y: V1, p: V1): V1 =
     p match
       case V1.Refl(_, _)    => h
       case V1.Rigid(hh, sp) => V1.Rigid(hh, Spine.ElimId(sp, a, x, pp, h, y))
@@ -97,12 +97,32 @@ object Evaluation:
         )
       case _ => impossible()
 
+  private def vcase(scrut: V1, cs: ClosCases1): V1 =
+    scrut match
+      case V1.Con1(_, _, cx, args) =>
+        @tailrec
+        def go(env: Env, cs: Cases1): V1 =
+          cs match
+            case Cases1.Ext(cx2, _, b, r) if cx == cx2 =>
+              val nenv = env.exts1(args.map(_._1))
+              eval1(b)(using nenv)
+            case Cases1.Ext(_, _, _, r) => go(env, r)
+            case Cases1.Otherwise(b)    => eval1(b)(using env)
+            case Cases1.Empty           => impossible()
+        go(cs.env, cs.cases)
+      case V1.Rigid(h, sp) => V1.Rigid(h, Spine.Case(sp, cs))
+      case V1.Flex(h, sp)  => V1.Flex(h, Spine.Case(sp, cs))
+      case V1.Unfold(h, sp, v) =>
+        V1.Unfold(h, Spine.Case(sp, cs), () => vcase(v(), cs))
+      case _ => impossible()
+
   private def vspine(v: V1, sp: Spine): V1 = sp match
     case Spine.Empty         => v
-    case Spine.App(sp, a, i) => vapp1(vspine(v, sp), a, i)
+    case Spine.App(sp, a, i) => vapp(vspine(v, sp), a, i)
     case Spine.Proj(sp, p)   => vproj(vspine(v, sp), p)
     case Spine.ElimId(sp, a, x, pp, h, y) =>
       velimid(a, x, pp, h, y, vspine(v, sp))
+    case Spine.Case(sp, cs)    => vcase(vspine(v, sp), cs)
     case Spine.MetaApp1(sp, a) => vmetaapp1(vspine(v, sp), a)
     case Spine.MetaApp0(sp, a) => vmetaapp0(vspine(v, sp), a)
 
@@ -132,7 +152,7 @@ object Evaluation:
       case T0.Splice(tm)      => vsplice(eval1(tm))
       case T0.If(ty, c, t, f) => V0.If(eval1(ty), eval0(c), eval0(t), eval0(f))
       case T0.Case(rty, dty, s, cs) =>
-        V0.Case(eval1(rty), eval1(dty), eval0(s), ClosCases(cs))
+        V0.Case(eval1(rty), eval1(dty), eval0(s), ClosCases0(cs))
       case Tm0.RecordCon(ty, fs) => Val0.RecordCon(eval1(ty), fs.map(eval0))
       case T0.Proj(rty, s, p)    => V0.Proj(eval1(rty), eval0(s), p)
       case T0.Wk1(t)             => eval0(t)(using env.wk1)
@@ -150,7 +170,7 @@ object Evaluation:
       case T1.Let(x, ty, v, b) => eval1(b)(using Env.Ext1(env, eval1(v)))
       case T1.Pi(x, i, ty, b)  => V1.Pi(x, i, eval1(ty), Clos1(b))
       case T1.Lam(x, i, ty, b) => V1.Lam(x, i, eval1(ty), Clos1(b))
-      case T1.App(f, a, i)     => vapp1(eval1(f), eval1(a), i)
+      case T1.App(f, a, i)     => vapp(eval1(f), eval1(a), i)
       case T1.Fun(p, cv, r)    => V1.Fun(eval1(p), eval1(cv), eval1(r))
       case T1.Lift(cv, ty)     => V1.Lift(eval1(cv), eval1(ty))
       case T1.Quote(tm)        => vquote(eval0(tm))
@@ -158,6 +178,7 @@ object Evaluation:
       case T1.RecordTy0(fs)  => Val1.RecordTy0(fs.map((x, t) => (x, eval1(t))))
       case T1.RecordCon(fs)  => Val1.RecordCon(fs.map(eval1))
       case T1.Proj(tm, p)    => vproj(eval1(tm), p)
+      case T1.Case(s, cs)    => vcase(eval1(s), ClosCases1(cs))
       case T1.Wk0(tm)        => eval1(tm)(using env.wk0)
       case T1.Wk1(tm)        => eval1(tm)(using env.wk1)
       case T1.Meta(id)       => vmeta(id)
@@ -271,6 +292,10 @@ object Evaluation:
     case Spine.Empty         => h
     case Spine.App(sp, v, i) => T1.App(readbackSpine(h, sp), readback1(v), i)
     case Spine.Proj(sp, p)   => T1.Proj(readbackSpine(h, sp), p)
+    case Spine.MetaApp1(sp, v) =>
+      T1.MetaApp1(readbackSpine(h, sp), readback1(v))
+    case Spine.MetaApp0(sp, v) =>
+      T1.MetaApp0(readbackSpine(h, sp), readback0(v))
     case Spine.ElimId(sp, a, x, pp, hh, y) =>
       val p = readbackSpine(h, sp)
       T1.App(
@@ -294,10 +319,17 @@ object Evaluation:
         p,
         Expl
       )
-    case Spine.MetaApp1(sp, v) =>
-      T1.MetaApp1(readbackSpine(h, sp), readback1(v))
-    case Spine.MetaApp0(sp, v) =>
-      T1.MetaApp0(readbackSpine(h, sp), readback0(v))
+    case Spine.Case(sp, cs) =>
+      def go(env: Env, cs: Cases1): Cases1 =
+        cs match
+          case Cases1.Ext(x, ps, b, r) =>
+            val (innerlvl, innerenv, nps) = addParams(ps)(using lvl, env)
+            val rb = readback1(eval1(b)(using innerenv))(using innerlvl)
+            Cases1.Ext(x, nps, rb, go(env, r))
+          case Cases1.Otherwise(b) =>
+            Cases1.Otherwise(readback1(eval1(b)(using env)))
+          case Cases1.Empty => Cases1.Empty
+      T1.Case(readbackSpine(h, sp), go(cs.env, cs.cases))
 
   def readback1(v: V1)(using lvl: Lvl, unfoldOption: UnfoldOption): T1 =
     inline def go0(v: V0): T0 = readback0(v)
@@ -325,8 +357,8 @@ object Evaluation:
         hd match
           case Head.Var(lvl)        => goSp(T1.Var(lvl.toIx), sp)
           case Head.Prim(p)         => goSp(T1.Prim(p), sp)
-          case Head.TypeCon1(m, x)  => goSp(T1.TypeCon0(m, x), sp)
-          case Head.Con1(m, dx, cx) => goSp(T1.Con0(m, dx, cx), sp)
+          case Head.TypeCon1(m, x)  => goSp(T1.TypeCon1(m, x), sp)
+          case Head.Con1(m, dx, cx) => goSp(T1.Con1(m, dx, cx), sp)
           case Head.TypeCon0(m, x)  => goSp(T1.TypeCon0(m, x), sp)
           case Head.Con0(m, dx, cx) => goSp(T1.Con0(m, dx, cx), sp)
       case V1.Flex(id, sp) => goSp(T1.Meta(id), sp)
@@ -369,15 +401,15 @@ object Evaluation:
       case V0.Proj(rty, s, p)   => T0.Proj(go1(rty), go0(s), p)
       case V0.RecordCon(ty, fs) => T0.RecordCon(go1(ty), fs.map(t => go0(t)))
       case V0.Case(rty, dty, s, cs) =>
-        def goCases(cs: Cases)(using env: Env): Cases =
+        def goCases(cs: Cases0)(using env: Env): Cases0 =
           cs match
-            case Cases.Empty        => Cases.Empty
-            case Cases.Otherwise(b) => Cases.Otherwise(go0(eval0(b)))
-            case Cases.Ext(x, ps, b, r) =>
-              val (innerlvl, innerenv) = addParams(ps)
+            case Cases0.Empty        => Cases0.Empty
+            case Cases0.Otherwise(b) => Cases0.Otherwise(go0(eval0(b)))
+            case Cases0.Ext(x, ps, b, r) =>
+              val (innerlvl, innerenv) = addParams(ps.size)
               val nps = ps.map((x, ty) => (x, go1(eval1(ty))))
               val rb = readback0(eval0(b)(using innerenv))(using innerlvl)
-              Cases.Ext(x, nps, rb, goCases(r))
+              Cases0.Ext(x, nps, rb, goCases(r))
         T0.Case(
           go1(rty),
           go1(dty),
@@ -385,12 +417,26 @@ object Evaluation:
           goCases(cs.cases)(using cs.env)
         )
 
-  def addParams(ps: List[(Bind, Ty)])(using lvl: Lvl, env: Env): (Lvl, Env) =
+  def addParams(n: Int)(using lvl: Lvl, env: Env): (Lvl, Env) =
+    @tailrec
     def go(n: Int, lvl: Lvl, env: Env): (Lvl, Env) =
       n match
         case 0 => (lvl, env)
         case n => go(n - 1, lvl + 1, Env.Ext0(env, V0.Var(lvl)))
-    go(ps.size, lvl, env)
+    go(n, lvl, env)
+
+  def addParams(ps: List[(Bind, Icit, Ty)])(using
+      lvl: Lvl,
+      env: Env,
+      unfoldOption: UnfoldOption
+  ): (Lvl, Env, List[(Bind, Icit, Ty)]) =
+    ps match
+      case Nil => (lvl, env, Nil)
+      case (x, i, ty) :: rest =>
+        val ety = readback1(eval1(ty))
+        val (nlvl, nenv, nps) =
+          addParams(rest)(using lvl + 1, Env.Ext1(env, V1.Var(lvl)))
+        (nlvl, nenv, (x, i, ety) :: nps)
 
   // helpers
   inline def readback1m(v: V1)(using lvl: Lvl): T1 =
@@ -423,6 +469,27 @@ object Evaluation:
           go1(a); go1(x); go1(pp); go1(h); go1(y); goSp(sp)
         case Spine.MetaApp1(sp, a) => go1(a); goSp(sp)
         case Spine.MetaApp0(sp, a) => go0(a); goSp(sp)
+        case Spine.Case(sp, cs) =>
+          @tailrec
+          def goCases(cs: Cases1)(using env: Env): Unit =
+            cs match
+              case Cases1.Empty        => ()
+              case Cases1.Otherwise(b) => go1(eval1(b))
+              case Cases1.Ext(x, ps, b, r) =>
+                @tailrec
+                def goParams(
+                    ps: List[(Bind, Icit, Ty)]
+                )(using lvl: Lvl, env: Env): (Lvl, Env) =
+                  ps match
+                    case Nil => (lvl, env)
+                    case (x, i, ty) :: rest =>
+                      go1(eval1(ty))
+                      goParams(rest)(using lvl + 1, Env.Ext1(env, V1.Var(lvl)))
+                val (innerlvl, innerenv) = goParams(ps)
+                go1(eval1(b)(using innerenv))(using innerlvl)
+                goCases(r)
+          goCases(cs.cases)(using cs.env)
+          goSp(sp)
     def goHead(h: Head): Unit =
       h match
         case Head.Var(_)          => ()
@@ -435,6 +502,7 @@ object Evaluation:
       h match
         case UnfoldHead.Global(m, x, v) => set += ((m, x)); go1(v)
     def goRec(c: ClosRec)(using lvl: Lvl): Unit =
+      @tailrec
       def go(env: Env, lvl: Lvl, fs: AssocBind[Ty]): Unit =
         fs match
           case Nil => ()
@@ -476,16 +544,17 @@ object Evaluation:
         case V0.Proj(rty, s, _)     => go1(rty); go0(s)
         case V0.RecordCon(ty, fs)   => go1(ty); fs.foreach(t => go0(t))
         case V0.Case(rty, dty, s, cs) =>
-          go1(rty); go1(dty); go0(s)
-          def goCases(cs: Cases)(using env: Env): Unit =
+          @tailrec
+          def goCases(cs: Cases0)(using env: Env): Unit =
             cs match
-              case Cases.Empty        => ()
-              case Cases.Otherwise(b) => go0(eval0(b))
-              case Cases.Ext(x, ps, b, r) =>
-                val (innerlvl, innerenv) = addParams(ps)
+              case Cases0.Empty        => ()
+              case Cases0.Otherwise(b) => go0(eval0(b))
+              case Cases0.Ext(x, ps, b, r) =>
+                val (innerlvl, innerenv) = addParams(ps.size)
                 val nps = ps.foreach((_, ty) => go1(eval1(ty)))
                 val rb = go0(eval0(b)(using innerenv))(using innerlvl)
                 goCases(r)
+          go1(rty); go1(dty); go0(s)
           goCases(cs.cases)(using cs.env)
     go1(v)(using lvl0)
     set.toSet

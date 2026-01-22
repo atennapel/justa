@@ -13,8 +13,10 @@ import Core.{
   Val0 as V0,
   Tm1 as T1,
   Tm0 as T0,
-  Cases,
-  ClosCases,
+  Cases0,
+  Cases1,
+  ClosCases0,
+  ClosCases1,
   ClosRec
 }
 import Evaluation.*
@@ -112,6 +114,7 @@ object Unification:
           invert1(v, V.Var(data._1), Expl, data)
         case Spine.Proj(_, p)               => err(s"projection in spine: .$p")
         case Spine.ElimId(_, _, _, _, _, _) => err(s"elimId in spine")
+        case Spine.Case(_, _)               => err(s"case in spine")
     val (dom, _, sub, pr, isLinear) = go(sp)
     (PSub(None, dom, lvl, sub), if isLinear then None else Some(pr))
 
@@ -221,6 +224,7 @@ object Unification:
       sp match
         case Spine.Empty      => (Nil, OKRenaming)
         case Spine.Proj(_, p) => err(s"cannot prune because of projection .$p")
+        case Spine.Case(_, _) => err(s"cannot prune because of match")
         case Spine.ElimId(_, _, _, _, _, _) =>
           err(s"cannot prune because of elimId")
         case Spine.App(sp, v, i)   => go1(sp, v, t => Prune1(t, i))
@@ -276,6 +280,10 @@ object Unification:
         go(sp)
           .orElse(Some((sp, Spine.Empty)))
           .map((l, r) => (l, Spine.ElimId(r, a, x, pp, h, y)))
+      case Spine.Case(sp, cs) =>
+        go(sp)
+          .orElse(Some((sp, Spine.Empty)))
+          .map((l, r) => (l, Spine.Case(r, cs)))
     go(sp).fold((sp, Spine.Empty))(x => x)
 
   // partial substitution action
@@ -303,20 +311,21 @@ object Unification:
         def addParams(
             ps: List[(Bind, Ty)]
         )(using psub: PSub, env: Env): (PSub, Env) =
+          @tailrec
           def go(n: Int, psub: PSub, env: Env): (PSub, Env) =
             n match
               case 0 => (psub, env)
               case n => go(n - 1, psub.lift0, Env.Ext0(env, V0.Var(psub.cod)))
           go(ps.size, psub, env)
-        def goCases(cs: Cases)(using env: Env): Cases =
+        def goCases(cs: Cases0)(using env: Env): Cases0 =
           cs match
-            case Cases.Ext(x, ps, b, r) =>
+            case Cases0.Ext(x, ps, b, r) =>
               val (innerpsub, innerenv) = addParams(ps)
               val nps = ps.map((x, ty) => (x, go1(eval1(ty))))
               val rb = psubst0(eval0(b)(using innerenv))(using innerpsub)
-              Cases.Ext(x, nps, rb, goCases(r))
-            case Cases.Otherwise(b) => Cases.Otherwise(go0(eval0(b)))
-            case Cases.Empty        => Cases.Empty
+              Cases0.Ext(x, nps, rb, goCases(r))
+            case Cases0.Otherwise(b) => Cases0.Otherwise(go0(eval0(b)))
+            case Cases0.Empty        => Cases0.Empty
         T0.Case(
           go1(rty),
           go1(dty),
@@ -354,6 +363,29 @@ object Unification:
           p,
           Expl
         )
+      case Spine.Case(sp, cs) =>
+        def addParams(
+            ps: List[(Bind, Icit, Ty)]
+        )(using psub: PSub, env: Env): (PSub, Env, List[(Bind, Icit, Ty)]) =
+          ps match
+            case Nil => (psub, env, Nil)
+            case (x, i, ty) :: rest =>
+              val ety = psubst1(eval1(ty))
+              val (npsub, nenv, nps) = addParams(rest)(using
+                psub.lift1,
+                Env.Ext1(env, V.Var(psub.cod))
+              )
+              (npsub, nenv, (x, i, ety) :: nps)
+        def go(cs: Cases1)(using env: Env): Cases1 =
+          cs match
+            case Cases1.Ext(x, ps, b, r) =>
+              val (innerpsub, innerenv, nps) = addParams(ps)(using env = env)
+              val rb = psubst1(eval1(b)(using innerenv))(using innerpsub)
+              Cases1.Ext(x, nps, rb, go(r))
+            case Cases1.Otherwise(b) =>
+              Cases1.Otherwise(psubst1(eval1(b)(using env)))
+            case Cases1.Empty => Cases1.Empty
+        T1.Case(psubstSpine(h, sp), go(cs.cases)(using cs.env))
 
   private def psubst1(v: V)(using psub: PSub): T1 =
     inline def go0(v: V0) = psubst0(v)
@@ -427,6 +459,32 @@ object Unification:
             unify1(a1, a2); unify1(x1, x2); unify1(pp1, pp2); unify1(h1, h2)
             unify1(y1, y2)
             go(x, s1, s2)
+          case (Spine.Case(s1, a), Spine.Case(s2, b)) =>
+            val env1 = a.env
+            val env2 = b.env
+            @tailrec
+            def goCases(a: Cases1, b: Cases1): Unit =
+              (a, b) match
+                case (Cases1.Empty, Cases1.Empty) => ()
+                case (Cases1.Otherwise(b1), Cases1.Otherwise(b2)) =>
+                  unify1(eval1(b1)(using env1), eval1(b2)(using env2))
+                case (
+                      Cases1.Ext(cx1, ps1, b1, rest1),
+                      Cases1.Ext(cx2, ps2, b2, rest2)
+                    ) if cx1 == cx2 && ps1.size == ps2.size =>
+                  val (innerlvl, innerenv1) =
+                    addParams(ps1.size)(using env = env1)
+                  val (_, innerenv2) = addParams(ps2.size)(using env = env2)
+                  val vb1 = eval1(b1)(using innerenv1)
+                  val vb2 = eval1(b2)(using innerenv2)
+                  unify1(vb1, vb2)(using innerlvl)
+                  goCases(rest1, rest2)
+                case _ =>
+                  err(
+                    s"cannot unify cases: case mismatch"
+                  )
+            goCases(a.cases, b.cases)
+            go(x, s1, s2)
           case _ => err(s"solve ?$m, spine mismatch")
       forceAll1(rhs) match
         case V.Rigid(x, rhsSp) => go(x, outer, rhsSp)
@@ -447,21 +505,21 @@ object Unification:
     solveMetaVar(m, sol)
 
   // unification
-  private def unify0(a: ClosCases, b: ClosCases, topa: V0, topb: V0)(using
+  private def unify0(a: ClosCases0, b: ClosCases0, topa: V0, topb: V0)(using
       lvl: Lvl
   ): Unit =
     val env1 = a.env
     val env2 = b.env
     @tailrec
-    def go(a: Cases, b: Cases): Unit =
+    def go(a: Cases0, b: Cases0): Unit =
       (a, b) match
-        case (Cases.Empty, Cases.Empty) => ()
-        case (Cases.Otherwise(b1), Cases.Otherwise(b2)) =>
+        case (Cases0.Empty, Cases0.Empty) => ()
+        case (Cases0.Otherwise(b1), Cases0.Otherwise(b2)) =>
           unify0(eval0(b1)(using env1), eval0(b2)(using env2))
-        case (Cases.Ext(cx1, ps1, b1, rest1), Cases.Ext(cx2, ps2, b2, rest2))
+        case (Cases0.Ext(cx1, ps1, b1, rest1), Cases0.Ext(cx2, ps2, b2, rest2))
             if cx1 == cx2 && ps1.size == ps2.size =>
-          val (innerlvl, innerenv1) = addParams(ps1)(using env = env1)
-          val (_, innerenv2) = addParams(ps2)(using env = env2)
+          val (innerlvl, innerenv1) = addParams(ps1.size)(using env = env1)
+          val (_, innerenv2) = addParams(ps2.size)(using env = env2)
           val vb1 = eval0(b1)(using innerenv1)
           val vb2 = eval0(b2)(using innerenv2)
           unify0(vb1, vb2)(using innerlvl)
@@ -544,7 +602,8 @@ object Unification:
         case (Spine.Proj(_, _), Spine.Proj(_, _)) => None
         case (Spine.ElimId(_, _, _, _, _, _), Spine.ElimId(_, _, _, _, _, _)) =>
           None
-        case _ => impossible()
+        case (Spine.Case(_, _), Spine.Case(_, _)) => None
+        case _                                    => impossible()
     val (sp1inner, outer1) = splitSpine(sp1)
     val (sp2inner, outer2) = splitSpine(sp2)
     if outer1.isEmpty && outer2.isEmpty then
@@ -554,6 +613,31 @@ object Unification:
         case Some(p) if p.exists(_ == PruneEntry.Skip) => pruneMeta(p, m)
         case _                                         => ()
     else unify1(V.Flex(m, sp1inner), sp1inner, V.Flex(m, sp2inner), sp2inner)
+
+  private def unify1(a: ClosCases1, b: ClosCases1, topa: V, topb: V)(using
+      lvl: Lvl
+  ): Unit =
+    val env1 = a.env
+    val env2 = b.env
+    @tailrec
+    def go(a: Cases1, b: Cases1): Unit =
+      (a, b) match
+        case (Cases1.Empty, Cases1.Empty) => ()
+        case (Cases1.Otherwise(b1), Cases1.Otherwise(b2)) =>
+          unify1(eval1(b1)(using env1), eval1(b2)(using env2))
+        case (Cases1.Ext(cx1, ps1, b1, rest1), Cases1.Ext(cx2, ps2, b2, rest2))
+            if cx1 == cx2 && ps1.size == ps2.size =>
+          val (innerlvl, innerenv1) = addParams(ps1.size)(using env = env1)
+          val (_, innerenv2) = addParams(ps2.size)(using env = env2)
+          val vb1 = eval1(b1)(using innerenv1)
+          val vb2 = eval1(b2)(using innerenv2)
+          unify1(vb1, vb2)(using innerlvl)
+          go(rest1, rest2)
+        case _ =>
+          err(
+            s"cannot unify ${readback1n(topa)} ~ ${readback1n(topb)}: case mismatch"
+          )
+    go(a.cases, b.cases)
 
   private def unify1(top1: V, sp1: Spine, top2: V, sp2: Spine)(using
       lvl: Lvl
@@ -575,6 +659,9 @@ object Unification:
         unify1(top1, sp1, top2, sp2)
         unify1(a1, a2); unify1(x1, x2); unify1(pp1, pp2); unify1(h1, h2)
         unify1(y1, y2)
+      case (Spine.Case(sp1, cs1), Spine.Case(sp2, cs2)) =>
+        unify1(top1, sp1, top2, sp2);
+        unify1(cs1, cs1, top1, top2)
       case _ => err(s"spine mismatch ${readback1n(top1)} ~ ${readback1n(top2)}")
 
   private inline def unfoldHeadEquals(a: UnfoldHead, b: UnfoldHead): Boolean =
@@ -628,10 +715,10 @@ object Unification:
       case (V.Lam(_, _, _, b1), V.Lam(_, _, _, b2)) => goClos(b1, b2)
       case (V.Lam(_, i, _, b), f) =>
         val v = V.Var(lvl)
-        unify1(b(v), vapp1(f, v, i))(using lvl + 1)
+        unify1(b(v), vapp(f, v, i))(using lvl + 1)
       case (f, V.Lam(_, i, _, b)) =>
         val v = V.Var(lvl)
-        unify1(vapp1(f, v, i), b(v))(using lvl + 1)
+        unify1(vapp(f, v, i), b(v))(using lvl + 1)
 
       case (V.MetaLam1(b1), V.MetaLam1(b2)) => goClos(b1, b2)
       case (V.MetaLam0(b1), V.MetaLam0(b2)) => goClos0(b1, b2)

@@ -10,21 +10,21 @@ object Core:
         case None    => ix.toString
         case Some(x) => x.toString
 
-  enum Cases derives CanEqual:
-    case Ext(x: Name, ps: List[(Bind, Ty)], body: Tm0, rest: Cases)
+  enum Cases0 derives CanEqual:
+    case Ext(x: Name, ps: List[(Bind, Ty)], body: Tm0, rest: Cases0)
     case Otherwise(body: Tm0)
     case Empty
 
     override def toString: String =
       this match
-        case Cases.Ext(x, Nil, b, r) =>
+        case Ext(x, Nil, b, r) =>
           val next = if r.isEmpty then "" else s" | $r}"
           s"$x => $b$next"
-        case Cases.Ext(x, ps, b, r) =>
+        case Ext(x, ps, b, r) =>
           val next = if r.isEmpty then "" else s" | $r}"
           s"$x ${ps.map((x, _) => x).mkString(" ")} => $b$next"
-        case Cases.Otherwise(b) => s"_ => $b"
-        case Cases.Empty        => s""
+        case Otherwise(b) => s"_ => $b"
+        case Empty        => s""
 
     def isEmpty: Boolean = this match
       case Empty => true
@@ -43,7 +43,7 @@ object Core:
     case Splice(tm: Tm1)
 
     case If(rty: Ty, cond: Tm0, ifTrue: Tm0, ifFalse: Tm0)
-    case Case(rty: Ty, dty: Ty, scrut: Tm0, cases: Cases)
+    case Case(rty: Ty, dty: Ty, scrut: Tm0, cases: Cases0)
 
     case RecordCon(ty: Ty, fields: List[Tm0])
     case Proj(rty: Ty, scrut: Tm0, p: ProjType)
@@ -67,24 +67,44 @@ object Core:
       case t => (t, Nil)
 
     override def toString: String = this match
-      case Var(ix)                    => s"'$ix"
-      case Global(m, x)               => s"$m.$x"
-      case IntLit(v)                  => s"$v"
-      case Let(x, ty, v, b)           => s"(let $x : $ty := $v; $b)"
-      case LetRec(x, ty, v, b)        => s"(let rec $x : $ty := $v; $b)"
-      case Lam(x, ty, b)              => s"(\\($x : $ty) => $b)"
-      case App(fn, arg)               => s"($fn $arg)"
-      case Splice(tm)                 => s"$$$tm"
-      case If(_, c, t, f)             => s"(if $c then $t else $f)"
-      case Wk1(tm)                    => s"Wk10($tm)"
-      case Wk0(tm)                    => s"Wk00($tm)"
-      case Case(_, _, s, Cases.Empty) => s"(match $s)"
-      case Case(_, _, s, cs)          => s"(match $s { $cs })"
-      case Proj(_, s, p)              => s"$s.$p"
-      case RecordCon(_, fs)           => fs.mkString("[", ", ", "]")
+      case Var(ix)                     => s"'$ix"
+      case Global(m, x)                => s"$m.$x"
+      case IntLit(v)                   => s"$v"
+      case Let(x, ty, v, b)            => s"(let $x : $ty := $v; $b)"
+      case LetRec(x, ty, v, b)         => s"(let rec $x : $ty := $v; $b)"
+      case Lam(x, ty, b)               => s"(\\($x : $ty) => $b)"
+      case App(fn, arg)                => s"($fn $arg)"
+      case Splice(tm)                  => s"$$$tm"
+      case If(_, c, t, f)              => s"(if $c then $t else $f)"
+      case Wk1(tm)                     => s"Wk10($tm)"
+      case Wk0(tm)                     => s"Wk00($tm)"
+      case Case(_, _, s, Cases0.Empty) => s"(match $s)"
+      case Case(_, _, s, cs)           => s"(match $s { $cs })"
+      case Proj(_, s, p)               => s"$s.$p"
+      case RecordCon(_, fs)            => fs.mkString("[", ", ", "]")
 
   object Tm0:
     val RecordConEmpty = RecordCon(Tm1.RecordTy0Empty, Nil)
+
+  enum Cases1 derives CanEqual:
+    case Ext(x: Name, ps: List[(Bind, Icit, Ty)], body: Tm1, rest: Cases1)
+    case Otherwise(body: Tm1)
+    case Empty
+
+    override def toString: String =
+      this match
+        case Ext(x, Nil, b, r) =>
+          val next = if r.isEmpty then "" else s" | $r}"
+          s"$x => $b$next"
+        case Ext(x, ps, b, r) =>
+          val next = if r.isEmpty then "" else s" | $r}"
+          s"$x ${ps.map((x, i, _) => if i == Impl then s"{$x}" else x).mkString(" ")} => $b$next"
+        case Otherwise(b) => s"_ => $b"
+        case Empty        => s""
+
+    def isEmpty: Boolean = this match
+      case Empty => true
+      case _     => false
 
   type Ty = Tm1
   enum Tm1:
@@ -110,6 +130,8 @@ object Core:
     case RecordTy0(fields: AssocBind[Ty])
     case RecordCon(fields: List[Tm1])
     case Proj(tm: Tm1, proj: ProjType)
+
+    case Case(scrut: Tm1, cases: Cases1)
 
     case Wk0(tm: Tm1)
     case Wk1(tm: Tm1)
@@ -157,18 +179,20 @@ object Core:
         fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
       case RecordTy0(fs) =>
         fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
-      case RecordCon(fs)     => fs.mkString("[", ", ", "]")
-      case Proj(tm, p)       => s"$tm.$p"
-      case Wk0(tm)           => s"Wk01($tm)"
-      case Wk1(tm)           => s"Wk11($tm)"
-      case Meta(id)          => s"?$id"
-      case MetaPi1(t, b)     => s"($t 1-> $b)"
-      case MetaLam1(b)       => s"(\\1 => $b)"
-      case MetaPi0(t, b)     => s"($t 0-> $b)"
-      case MetaLam0(b)       => s"(\\0 => $b)"
-      case MetaApp0(f, a)    => s"($f 0 $a)"
-      case MetaApp1(f, a)    => s"($f 1 $a)"
-      case AppPruning(id, p) => s"(?$id ...(${p.size}))"
+      case RecordCon(fs)         => fs.mkString("[", ", ", "]")
+      case Proj(tm, p)           => s"$tm.$p"
+      case Case(s, Cases1.Empty) => s"(match $s)"
+      case Case(s, cs)           => s"(match $s { $cs })"
+      case Wk0(tm)               => s"Wk01($tm)"
+      case Wk1(tm)               => s"Wk11($tm)"
+      case Meta(id)              => s"?$id"
+      case MetaPi1(t, b)         => s"($t 1-> $b)"
+      case MetaLam1(b)           => s"(\\1 => $b)"
+      case MetaPi0(t, b)         => s"($t 0-> $b)"
+      case MetaLam0(b)           => s"(\\0 => $b)"
+      case MetaApp0(f, a)        => s"($f 0 $a)"
+      case MetaApp1(f, a)        => s"($f 1 $a)"
+      case AppPruning(id, p)     => s"(?$id ...(${p.size}))"
 
   object Tm1:
     val MetaU = Prim(Primitive.Meta)
@@ -214,6 +238,8 @@ object Core:
       case Ext0(env, _) => env
       case Ext1(env, _) => env
       case _            => impossible()
+
+    inline def exts1(vs: List[Val1]): Env = vs.foldLeft(this)(Ext1.apply)
   object Env:
     def apply(vs: List[Val1]): Env = vs.foldLeft(Empty)(Ext1.apply)
 
@@ -223,9 +249,10 @@ object Core:
   object Clos0:
     def apply(tm: Tm0)(using env: Env): Clos0 = Clos(env, tm)
 
-  final case class ClosCases(env: Env, cases: Cases)
-  object ClosCases:
-    def apply(cases: Cases)(using env: Env): ClosCases = ClosCases(env, cases)
+  final case class ClosCases0(env: Env, cases: Cases0)
+  object ClosCases0:
+    def apply(cases: Cases0)(using env: Env): ClosCases0 =
+      ClosCases0(env, cases)
 
   enum Clos1:
     case Clos(env: Env, tm: Tm1)
@@ -239,6 +266,11 @@ object Core:
     def apply(fields: AssocBind[Ty])(using env: Env): ClosRec =
       ClosRec(env, fields)
 
+  final case class ClosCases1(env: Env, cases: Cases1)
+  object ClosCases1:
+    def apply(cases: Cases1)(using env: Env): ClosCases1 =
+      ClosCases1(env, cases)
+
   enum Val0:
     case Var(lvl: Lvl)
     case Global(mod: Name, name: Name)
@@ -248,7 +280,7 @@ object Core:
     case Lam(name: Bind, ty: VTy, body: Clos0)
     case App(fn: Val0, arg: Val0)
     case If(rty: VTy, cond: Val0, ifTrue: Val0, ifFalse: Val0)
-    case Case(rty: VTy, dty: VTy, scrut: Val0, cases: ClosCases)
+    case Case(rty: VTy, dty: VTy, scrut: Val0, cases: ClosCases0)
     case Proj(rty: VTy, scrut: Val0, p: ProjType)
     case RecordCon(ty: VTy, fields: List[Val0])
     case Splice(tm: Val1)
@@ -269,6 +301,7 @@ object Core:
     case App(sp: Spine, arg: Val1, icit: Icit)
     case Proj(sp: Spine, proj: ProjType)
     case ElimId(sp: Spine, a: Val1, x: Val1, pp: Val1, h: Val1, y: Val1)
+    case Case(sp: Spine, cases: ClosCases1)
     case MetaApp1(sp: Spine, arg: Val1)
     case MetaApp0(sp: Spine, arg: Val0)
 
@@ -279,6 +312,7 @@ object Core:
         case App(sp, _, _)              => go(acc + 1, sp)
         case Proj(sp, _)                => go(acc + 1, sp)
         case ElimId(sp, a, x, pp, h, y) => go(acc + 1, sp)
+        case Case(sp, _)                => go(acc + 1, sp)
         case MetaApp1(sp, _)            => go(acc + 1, sp)
         case MetaApp0(sp, _)            => go(acc + 1, sp)
       go(0, this)
@@ -290,6 +324,7 @@ object Core:
         case App(sp, v, i)              => go(App(acc, v, i), sp)
         case Proj(sp, p)                => go(Proj(acc, p), sp)
         case ElimId(sp, a, x, pp, h, y) => go(ElimId(acc, a, x, pp, h, y), sp)
+        case Case(sp, cs)               => go(Case(acc, cs), sp)
         case MetaApp1(sp, v)            => go(MetaApp1(acc, v), sp)
         case MetaApp0(sp, v)            => go(MetaApp0(acc, v), sp)
       go(Empty, this)

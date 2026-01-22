@@ -1,52 +1,87 @@
 module Meta
 
-data VoidM : meta
-data UnitM = UM
-data BoolM = TrueM | FalseM
+pub data VoidM : meta
+
+pub def absurdM {A} (v : VoidM) : A = match v {}
 
 -- identity type
-def (~) {A} (x y : A) = Id x y
-def (!~) {A} (x y : A) = x ~ y -> VoidM
+pub def (~) {A} (x y : A) = Id x y
+pub def (!~) {A} (x y : A) = x ~ y -> VoidM
 
-def idJ {A} (P : {a b : A} -> a ~ b -> meta) (h : {a} -> P {a} refl) {a b : A} (p : a ~ b) : P p =
+pub def idJ {A} (P : {a b : A} -> a ~ b -> meta) (h : {a} -> P {a} refl) {a b : A} (p : a ~ b) : P p =
   elimId (\{c} q => P {a} {c} q) h p
 
-def rewrite {A} (P : A -> meta) {a b : A} (p : a ~ b) (x : P a) : P b =
+pub def rewrite {A} (P : A -> meta) {a b : A} (p : a ~ b) (x : P a) : P b =
   idJ (\{a} {b} _ => P a -> P b) (\q => q) p x
 
-def cast {A B : meta} (p : A ~ B) (x : A) : B =
+pub def cast {A B : meta} (p : A ~ B) (x : A) : B =
   rewrite (\y => y) p x
 
-def sym {A} {a b : A} (p : a ~ b) : b ~ a =
+pub def sym {A} {a b : A} (p : a ~ b) : b ~ a =
   idJ (\{x} {y} _ => y ~ x) refl p
 
-def trans {A} {a b c : A} (p : b ~ c) (q : a ~ b) : a ~ c =
+pub def trans {A} {a b c : A} (p : b ~ c) (q : a ~ b) : a ~ c =
   rewrite ((~) a) p q
 
-def ap {A B} {a b : A} (f : A -> B) (p : a ~ b) : f a ~ f b =
+pub def ap {A B} {a b : A} (f : A -> B) (p : a ~ b) : f a ~ f b =
   rewrite {A} (\x => f a ~ f x) {a} {b} p refl
 
-def idRefl {A} {a : A} (p : a ~ a) : p ~ refl =
+pub def idRefl {A} {a : A} (p : a ~ a) : p ~ refl =
   elimId (\{c} q => Id q (refl {A} {c})) refl p
 
-def idK {A} {a : A} (P : a ~ a -> meta) (p : a ~ a) (h : P refl) : P p =
+pub def idK {A} {a : A} (P : a ~ a -> meta) (p : a ~ a) (h : P refl) : P p =
   rewrite P (sym (idRefl p)) h
 
-def uip {A} {a b : A} (p1 p2 : a ~ b) : p1 ~ p2 =
+pub def uip {A} {a b : A} (p1 p2 : a ~ b) : p1 ~ p2 =
   (elimId (\{c} p => (q : a ~ c) -> q ~ p) idRefl p2) p1
 
-def Singleton {A} (x : A) : meta = [value : A, proof : value ~ x]
-def MkSingleton {A} (x : A) : Singleton x = [x, refl]
-
 --
-def So b = b ~ TrueM
+pub def Singleton {A} (x : A) : meta = [value : A, proof : value ~ x]
+pub def MkSingleton {A} (x : A) : Singleton x = [x, refl]
 
-data Nat = Z | S Nat
+pub data UnitM = UM
 
-data Vec (n : Nat) A
-  | VNil (proof : Z ~ n)
-  | VCons {m} (head : A) (tail : Vec m A) (proof : S m ~ n)
+pub data BoolM = TrueM | FalseM
 
-def vnil {A} : Vec Z A = VNil refl
-def vcons {m A} (head : A) (tail : Vec m A) : Vec (S m) A =
+pub def notM (b : BoolM) =
+  match b
+  | TrueM => FalseM
+  | FalseM => TrueM
+
+pub def not_not_id {b} : notM (notM b) ~ b =
+  match b : b => notM (notM b) ~ b
+  | TrueM => refl
+  | FalseM => refl
+
+def LiftBool (b : BoolM) =
+  match b
+  | TrueM => UnitM
+  | FalseM => VoidM
+
+pub def true_neq_false : TrueM !~ FalseM =
+  \p => rewrite LiftBool p UM
+
+pub def So b = b ~ TrueM
+
+pub data NatM = ZM | SM NatM
+
+def LiftNat (n : NatM) =
+  match n
+  | ZM => UnitM
+  | SM _ => VoidM
+
+pub def z_neq_s {n} : ZM !~ SM n =
+  \p => rewrite LiftNat p UM
+
+pub data Vec (n : NatM) A
+  | VNil (proof : ZM ~ n)
+  | VCons {m} (head : A) (tail : Vec m A) (proof : SM m ~ n)
+
+pub def vnil {A} : Vec ZM A = VNil refl
+pub def vcons {m A} (head : A) (tail : Vec m A) : Vec (SM m) A =
   VCons head tail refl
+
+pub def head {A n} (v : Vec (SM n) A) : A =
+  match v
+  | VNil p => absurdM (z_neq_s p)
+  | VCons hd _ _ => hd

@@ -563,41 +563,59 @@ object Parser:
         }
       }
 
-    private def pcase(): (PosInfo, Bind, List[Bind], Tm) =
+    private def tryCaseParam(): List[(Bind, Icit)] | Null =
+      if trySymbol(L_BRACE) then
+        val xs = list(tryBind())
+        symbol(R_BRACE)
+        xs.map(x => (x, Impl)).toList
+      else
+        tryBind() match
+          case null => null
+          case x    => List((x, Expl))
+
+    private def pcase(): Case =
       val p = pos
       val fst = bind()
       val (cx, ps) = tryOp() match
-        case null => (fst, list(tryBind()).toList)
+        case null => (fst, list(tryCaseParam()).flatten.toList)
         case op =>
           val snd = bind()
-          (Bind.op(op), List(fst, snd))
+          (Bind.op(op), List((fst, Expl), (snd, Expl)))
       symbol(DOUBLE_ARROW)
       val b = expr()
-      (p, cx, ps, b)
+      Case(p, cx, ps, b)
 
     private def pmatch(): Tm =
       val p = pos
       var startedWithBracket = false
-      val scrut =
+      val (scrut, ty) =
         if trySymbol(L_BRACE) then
           startedWithBracket = true
-          None
-        else if trySymbol(PIPE) then None
+          (None, None)
+        else if trySymbol(PIPE) then (None, None)
         else
           val scrut = atom()
+          val ty =
+            if trySymbol(COLON) then
+              val x = bind()
+              symbol(DOUBLE_ARROW)
+              val ty = expr()
+              Some((x, ty))
+            else None
           if trySymbol(L_BRACE) then startedWithBracket = true
           else symbol(PIPE)
-          Some(scrut)
+          (Some(scrut), ty)
       val cs =
         if startedWithBracket && trySymbol(R_BRACE) then Nil
         else
           if startedWithBracket then trySymbol(PIPE)
           val hd = pcase()
-          val tl = mutable.ArrayBuffer.empty[(PosInfo, Bind, List[Bind], Tm)]
+          val tl =
+            mutable.ArrayBuffer.empty[Case]
           while trySymbol(PIPE) do tl += pcase()
           if startedWithBracket then symbol(R_BRACE)
           hd :: tl.toList
-      Tm.Match(p, scrut, cs)
+      Tm.Match(p, scrut, ty, cs)
 
     private def expr(): Tm =
       val p = pos

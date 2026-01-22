@@ -18,12 +18,13 @@ https://github.com/AndrasKovacs/cctt
 - [x] Re-exporting
 - [x] Record types
 - [x] Identity type
-- [ ] Meta datatypes
+- [x] Meta datatypes
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
 - [ ] Null handling
 - [ ] Mutual recursion
+- [ ] Mutual recursive datatypes
 - [ ] Pattern matching
 - [ ] Instance search
 - [ ] String and label types
@@ -36,3 +37,5 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Meta spine eta-expansion
 - [ ] Auto refl parameters to support fording
 - [ ] Overloaded constructors
+- [ ] Elaborate if-expressions for meta level
+- [ ] Meta-level recursion

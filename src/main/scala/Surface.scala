@@ -71,6 +71,20 @@ object Surface:
       case Named(x)    => x.toString
       case Indexed(ix) => ix.toString
 
+  final case class Case(
+      pos: PosInfo,
+      con: Bind,
+      params: List[(Bind, Icit)],
+      body: Tm
+  ):
+    override def toString: String =
+      params match
+        case Nil => s"$con => $body"
+        case ps =>
+          def showP(p: (Bind, Icit)): String =
+            if p._2 == Impl then s"{${p._1}}" else p._1.toString
+          s"$con ${ps.map(showP).mkString(" ")} => $body"
+
   type Ty = Tm
   enum Tm:
     case Var(_pos: PosInfo, name: Name)
@@ -95,7 +109,8 @@ object Surface:
     case Match(
         _pos: PosInfo,
         scrut: Option[Tm],
-        cases: List[(PosInfo, Bind, List[Bind], Tm)]
+        ty: Option[(Bind, Ty)],
+        cases: List[Case]
     )
 
     case UnitLit(_pos: PosInfo)
@@ -122,7 +137,7 @@ object Surface:
       case Quote(_pos, _)           => _pos
       case Splice(_pos, _)          => _pos
       case If(_pos, _, _, _)        => _pos
-      case Match(_pos, _, _)        => _pos
+      case Match(_pos, _, _, _)     => _pos
       case Hole(_pos, _)            => _pos
       case UnitLit(_pos)            => _pos
       case EmptyRecord(_pos)        => _pos
@@ -159,20 +174,20 @@ object Surface:
       case App(_, fn, arg, ArgInfo.Icit(Impl)) => s"($fn ${Impl.wrap(arg)})"
       case App(_, fn, arg, ArgInfo.Named(x)) =>
         s"($fn ${Impl.wrap(s"$x = $arg")})"
-      case Lift(_, ty)            => s"^$ty"
-      case Quote(_, tm)           => s"`$tm"
-      case Splice(_, tm)          => s"$$$tm"
-      case If(_, c, t, f)         => s"(if $c then $t else $f)"
-      case Hole(_, None)          => s"_"
-      case Hole(_, Some(x))       => s"_$x"
-      case Match(_, None, Nil)    => s"(match {})"
-      case Match(_, Some(s), Nil) => s"(match $s {})"
-      case Match(_, s, cs) =>
-        inline def show(c: (PosInfo, Bind, List[Bind], Tm)) =
-          c._3 match
-            case Nil => s"${c._2} => ${c._4}"
-            case ps  => s"${c._2} ${ps.mkString(" ")} => ${c._4}"
-        s"(match ${s.map(t => s"$t ").getOrElse("")}{ ${cs.map(show).mkString(" | ")} })"
+      case Lift(_, ty)                           => s"^$ty"
+      case Quote(_, tm)                          => s"`$tm"
+      case Splice(_, tm)                         => s"$$$tm"
+      case If(_, c, t, f)                        => s"(if $c then $t else $f)"
+      case Hole(_, None)                         => s"_"
+      case Hole(_, Some(x))                      => s"_$x"
+      case Match(_, None, _, Nil)                => s"(match {})"
+      case Match(_, Some(s), None, Nil)          => s"(match $s {})"
+      case Match(_, Some(s), Some((x, ty)), Nil) => s"(match $s : $x => $ty {})"
+      case Match(_, s, t, cs) =>
+        val ty = t match
+          case None          => ""
+          case Some((x, ty)) => s" : $x => $ty "
+        s"(match ${s.map(t => s"$t ").getOrElse("")}$ty{ ${cs.mkString(" | ")} })"
       case UnitLit(_)     => "()"
       case EmptyRecord(_) => "[]"
       case RecordTy(_, fs) =>
