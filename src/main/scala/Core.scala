@@ -1,5 +1,6 @@
 import Common.*
 import Common.Icit.*
+import Surface.PiIcit
 
 import scala.annotation.tailrec
 

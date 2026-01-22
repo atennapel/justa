@@ -104,7 +104,7 @@ object Lexer:
     case THEN
     case ELSE
     case MATCH
-    case AUTOREFL
+    case DEFAULT
 
     case META
     case TYPE
@@ -140,7 +140,7 @@ object Lexer:
         case THEN     => "then"
         case ELSE     => "else"
         case MATCH    => "match"
-        case AUTOREFL => "autorefl"
+        case DEFAULT  => "default"
         case META     => "meta"
         case TYPE     => "type"
         case CV       => "cv"
@@ -198,7 +198,7 @@ object Lexer:
         case "then"     => THEN
         case "else"     => ELSE
         case "match"    => MATCH
-        case "autorefl" => AUTOREFL
+        case "default"  => DEFAULT
         case "meta"     => META
         case "type"     => TYPE
         case "cv"       => CV

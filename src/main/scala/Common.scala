@@ -109,45 +109,9 @@ object Common:
       case Expl => s"$x"
       case Impl => s"{$x}"
 
-    def toPiIcit: PiIcit = this match
-      case Expl => PiIcit.Expl
-      case Impl => PiIcit.ImplU
-
     def isImpl: Boolean = this match
       case Expl => false
       case Impl => true
-
-  enum ImplMode derives CanEqual:
-    case Unif
-    case Refl
-
-    def show: String = this match
-      case Unif => ""
-      case Refl => "autorefl "
-
-  enum PiIcit derives CanEqual:
-    case Expl
-    case Impl(mode: ImplMode)
-
-    def wrap(x: Any): String = this match
-      case Expl    => s"($x)"
-      case Impl(m) => s"{$m$x}"
-
-    def wrapI(x: Any): String = this match
-      case Expl    => s"$x"
-      case Impl(m) => s"{$m$x}"
-
-    def toIcit: Icit = this match
-      case Expl    => Icit.Expl
-      case Impl(_) => Icit.Impl
-
-    def isImpl: Boolean = this match
-      case Expl    => false
-      case Impl(_) => true
-
-  object PiIcit:
-    val ImplU = Impl(ImplMode.Unif)
-    val ImplR = Impl(ImplMode.Refl)
 
   // pruning
   enum PruneEntry derives CanEqual:

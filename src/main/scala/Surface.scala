@@ -56,6 +56,42 @@ object Surface:
         val df = meta.fold("|")(m => if m then "=" else ":=")
         s"${if p then "pub " else ""}data $x ${ps.map((x, i, ty) => i.wrap(s"$x : $ty")).mkString(" ")}$ustr $df $css"
 
+  enum ImplMode derives CanEqual:
+    case Unif
+    case Default(tm: Tm)
+
+    def show: String = this match
+      case Unif        => ""
+      case Default(tm) => s"default $tm "
+
+  enum PiIcit derives CanEqual:
+    case Expl
+    case Impl(mode: ImplMode)
+
+    def wrap(x: Any): String = this match
+      case Expl    => s"($x)"
+      case Impl(m) => s"{$m$x}"
+
+    def wrapI(x: Any): String = this match
+      case Expl    => s"$x"
+      case Impl(m) => s"{$m$x}"
+
+    def toIcit: Icit = this match
+      case Expl    => Icit.Expl
+      case Impl(_) => Icit.Impl
+
+    def isImpl: Boolean = this match
+      case Expl    => false
+      case Impl(_) => true
+
+  object PiIcit:
+    val ImplU = Impl(ImplMode.Unif)
+    inline def ImplD(tm: Tm) = Impl(ImplMode.Default(tm))
+
+    def apply(i: Common.Icit): PiIcit = i match
+      case Common.Icit.Expl => PiIcit.Expl
+      case Common.Icit.Impl => PiIcit.ImplU
+
   enum ArgInfo[I] derives CanEqual:
     case Named(name: Name)
     case Icit(icit: I)
@@ -64,7 +100,7 @@ object Surface:
     val Impl = Icit(Common.Icit.Impl)
     val PiExpl = Icit(PiIcit.Expl)
     val PiImplU = Icit(PiIcit.ImplU)
-    val PiImplR = Icit(PiIcit.ImplR)
+    inline def PiImplD(tm: Tm) = Icit(PiIcit.ImplD(tm))
 
   enum ProjType:
     case Named(name: Name)

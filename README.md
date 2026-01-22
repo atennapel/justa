@@ -39,4 +39,4 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Meta spine eta-expansion
 - [ ] Row-types records (and variants)?
 - [ ] Postpone autos
-- [ ] Add a more general auto where any expression (including refl) is allowed
+- [ ] Check performance with lazy env and types
