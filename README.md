@@ -19,6 +19,9 @@ https://github.com/AndrasKovacs/cctt
 - [x] Record types
 - [x] Identity type
 - [x] Meta datatypes
+- [ ] Meta-level recursion
+- [ ] Elaborate if-expressions for meta level
+- [ ] Auto refl parameters to support fording
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
@@ -31,11 +34,8 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Import all(-hiding), re-export all(-hiding)
 - [ ] Accept trailing and leading commas where it makes sense
 - [ ] Give more context for cv unification errors in elaboration
-- [ ] Support record syntax for product-like datatypes
-- [ ] Row-types records (and variants)?
 - [ ] Generate private anonymous records if possible
-- [ ] Meta spine eta-expansion
-- [ ] Auto refl parameters to support fording
+- [ ] Support record syntax for product-like datatypes
 - [ ] Overloaded constructors
-- [ ] Elaborate if-expressions for meta level
-- [ ] Meta-level recursion
+- [ ] Meta spine eta-expansion
+- [ ] Row-types records (and variants)?
