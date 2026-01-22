@@ -21,9 +21,9 @@ object Pretty:
 
   private def prettyPi(tm: Ty)(using ns: List[Bind]): String = tm match
     case T1.Fun(a, _, b) => s"${prettyParen1(a, true)} -> ${prettyPi(b)}"
-    case T1.Pi(DontBind, Expl, t, b) =>
+    case T1.Pi(DontBind, PiIcit.Expl, t, b) =>
       s"${prettyParen1(t, true)} -> ${prettyPi(b)(using DontBind :: ns)}"
-    case T1.Pi(bx @ DoBind(x), Expl, t, b) =>
+    case T1.Pi(bx @ DoBind(x), PiIcit.Expl, t, b) =>
       s"($x : ${pretty1(t)}) -> ${prettyPi(b)(using bx :: ns)}"
     case T1.Pi(x, i, t, b) =>
       s"${i.wrap(s"$x : ${pretty1(t)}")} -> ${prettyPi(b)(using x :: ns)}"
@@ -44,10 +44,8 @@ object Pretty:
   private def prettyLam1(tm: Tm1)(using ns: List[Bind]): String =
     def go(tm: Tm1, first: Boolean = false)(using ns: List[Bind]): String =
       tm match
-        case T1.Lam(x, Expl, _, b) =>
-          s"${if first then "" else " "}$x${go(b)(using x :: ns)}"
-        case T1.Lam(x, Impl, _, b) =>
-          s"${if first then "" else " "}{$x}${go(b)(using x :: ns)}"
+        case T1.Lam(x, i, _, b) =>
+          s"${if first then "" else " "}${i.wrapI(x)}${go(b)(using x :: ns)}"
         case T1.MetaLam1(b) =>
           s"${if first then "" else " "}1${go(b)(using DontBind :: ns)}"
         case T1.MetaLam0(b) =>
@@ -203,7 +201,7 @@ object Pretty:
           case Cases1.Ext(x, ps, b, r) =>
             val innerns = ps.map((x, _, _) => x).reverse ++ ns
             val next = if r.isEmpty then "" else s" | ${go(r)}"
-            s"$x ${ps.map((x, i, _) => if i == Impl then s"{$x}" else x).mkString(" ")} => ${pretty1(b)(using innerns)}$next"
+            s"$x ${ps.map((x, i, _) => i.wrapI(x)).mkString(" ")} => ${pretty1(b)(using innerns)}$next"
           case Cases1.Otherwise(b) => s"_ => ${pretty1(b)}"
           case Cases1.Empty        => s""
       s"match ${pretty1(s)} { ${go(cs)} }"

@@ -21,7 +21,6 @@ https://github.com/AndrasKovacs/cctt
 - [x] Meta datatypes
 - [ ] Meta-level recursion
 - [ ] Elaborate if-expressions for meta level
-- [ ] Auto refl parameters to support fording
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
@@ -39,3 +38,5 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Overloaded constructors
 - [ ] Meta spine eta-expansion
 - [ ] Row-types records (and variants)?
+- [ ] Postpone autos
+- [ ] Add a more general auto where any expression (including refl) is allowed

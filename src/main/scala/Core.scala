@@ -98,7 +98,7 @@ object Core:
           s"$x => $b$next"
         case Ext(x, ps, b, r) =>
           val next = if r.isEmpty then "" else s" | $r}"
-          s"$x ${ps.map((x, i, _) => if i == Impl then s"{$x}" else x).mkString(" ")} => $b$next"
+          s"$x ${ps.map((x, i, _) => i.wrapI(x)).mkString(" ")} => $b$next"
         case Otherwise(b) => s"_ => $b"
         case Empty        => s""
 
@@ -117,8 +117,8 @@ object Core:
     case Con0(mod: Name, dx: Name, cx: Name)
     case Let(name: Name, ty: Ty, value: Tm1, body: Tm1)
 
-    case Pi(name: Bind, icit: Icit, ty: Ty, body: Ty)
-    case Lam(name: Bind, icit: Icit, ty: Ty, body: Tm1)
+    case Pi(name: Bind, icit: PiIcit, ty: Ty, body: Ty)
+    case Lam(name: Bind, icit: PiIcit, ty: Ty, body: Tm1)
     case App(fn: Tm1, arg: Tm1, icit: Icit)
 
     case Fun(pty: Ty, cv: Ty, rty: Ty)
@@ -348,8 +348,8 @@ object Core:
     case Flex(id: MetaId, spine: Spine)
     case Unfold(head: UnfoldHead, spine: Spine, value: () => Val1)
 
-    case Pi(name: Bind, icit: Icit, ty: VTy, body: Clos1)
-    case Lam(name: Bind, icit: Icit, ty: VTy, body: Clos1)
+    case Pi(name: Bind, icit: PiIcit, ty: VTy, body: Clos1)
+    case Lam(name: Bind, icit: PiIcit, ty: VTy, body: Clos1)
 
     case Fun(pty: VTy, cv: VTy, rty: VTy)
     case Lift(cv: VTy, ty: VTy)
@@ -518,14 +518,14 @@ object Core:
     private inline def bind(x: String): Bind =
       if x == "_" then Bind.DontBind else Bind.DoBind(Name(x))
     def lam1(x: String, ty: VTy, b: Val1 => Val1): Val1 =
-      Val1.Lam(bind(x), Expl, ty, Clos1.Fun(b))
+      Val1.Lam(bind(x), PiIcit.Expl, ty, Clos1.Fun(b))
     def lamI(x: String, ty: VTy, b: Val1 => Val1): Val1 =
-      Val1.Lam(bind(x), Impl, ty, Clos1.Fun(b))
+      Val1.Lam(bind(x), PiIcit.ImplU, ty, Clos1.Fun(b))
     def fun1(ty: VTy, rt: VTy): VTy =
-      Val1.Pi(Bind.DontBind, Expl, ty, Clos1.Fun(_ => rt))
+      Val1.Pi(Bind.DontBind, PiIcit.Expl, ty, Clos1.Fun(_ => rt))
     def pi(x: String, ty: VTy, b: VTy => VTy): VTy =
-      Val1.Pi(bind(x), Expl, ty, Clos1.Fun(b))
+      Val1.Pi(bind(x), PiIcit.Expl, ty, Clos1.Fun(b))
     def piI(x: String, ty: VTy, b: Val1 => VTy): VTy =
-      Val1.Pi(bind(x), Impl, ty, Clos1.Fun(b))
+      Val1.Pi(bind(x), PiIcit.ImplU, ty, Clos1.Fun(b))
     def liftV(ty: VTy): VTy = Lift(Val, ty)
     def liftC(ty: VTy): VTy = Lift(Comp, ty)

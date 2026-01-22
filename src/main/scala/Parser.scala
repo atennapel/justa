@@ -32,7 +32,7 @@ object Parser:
 
   // Implementation
   private type DefParam =
-    (ArgInfo, mutable.ArrayBuffer[(PosInfo, Bind)], Tm | Null)
+    (ArgInfo[PiIcit], mutable.ArrayBuffer[(PosInfo, Bind)], Tm | Null)
   private final class State(
       var tokens: mutable.ArrayBuffer[Token],
       var ix: Int = 0
@@ -240,7 +240,7 @@ object Parser:
                           Tm.Lam(
                             p,
                             DoBind(x),
-                            ArgInfo.Expl,
+                            ArgInfo.PiExpl,
                             None,
                             Tm.App(
                               p,
@@ -386,7 +386,7 @@ object Parser:
         val p = pos
         if trySymbol(ARROW) then
           val rt = expr()
-          Tm.Pi(p, DontBind, Expl, tm, rt)
+          Tm.Pi(p, DontBind, PiIcit.Expl, tm, rt)
         else tm
       val p = pos
       tryOp() match
@@ -435,9 +435,9 @@ object Parser:
       if stack.length != 1 then err("failed to parse application")
       stack.pop()
 
-    private def tryArg(): (Tm, ArgInfo) | Null =
+    private def tryArg(): (Tm, ArgInfo[Icit]) | Null =
       if trySymbol(L_BRACE) then
-        inline def next(i: ArgInfo): (Tm, ArgInfo) | Null =
+        inline def next(i: ArgInfo[Icit]): (Tm, ArgInfo[Icit]) | Null =
           val a = expr()
           symbol(R_BRACE)
           (a, i)
@@ -463,8 +463,8 @@ object Parser:
       val ty = if trySymbol(COLON) then expr() else null
       (xs, ty)
 
-    private def tryPiParam(): (Icit, mutable.ArrayBuffer[(PosInfo, Bind)], Tm) |
-      Null =
+    private def tryPiParam()
+        : (PiIcit, mutable.ArrayBuffer[(PosInfo, Bind)], Tm) | Null =
       if trySymbol(L_PAREN) then
         if trySymbol(R_PAREN) then null
         else
@@ -478,16 +478,17 @@ object Parser:
               if trySymbol(COLON) then
                 val ty = expr()
                 symbol(R_PAREN)
-                (Expl, xs, ty)
+                (PiIcit.Expl, xs, ty)
               else null
       else if trySymbol(L_BRACE) then
+        val i = if tryKeyword(AUTOREFL) then PiIcit.ImplR else PiIcit.ImplU
         val (xs, prety) = grouping()
         val p = pos
         val ty = prety match
           case null => Tm.Hole(p, None)
           case ty   => ty
         symbol(R_BRACE)
-        (Impl, xs, ty)
+        (i, xs, ty)
       else null
 
     private def lam(): Tm =
@@ -502,20 +503,22 @@ object Parser:
       if trySymbol(L_PAREN) then
         val (xs, ty) = grouping()
         symbol(R_PAREN)
-        (ArgInfo.Expl, xs, ty)
+        (ArgInfo.PiExpl, xs, ty)
       else if trySymbol(L_BRACE) then
+        val i =
+          if tryKeyword(AUTOREFL) then ArgInfo.PiImplR else ArgInfo.PiImplU
         val (xs, ty) = grouping()
         val named = if trySymbol(EQUALS) then nameOrOp() else null
         symbol(R_BRACE)
         val arginfo = named match
-          case null => ArgInfo.Impl
+          case null => i
           case x    => ArgInfo.Named(x)
         (arginfo, xs, ty)
       else
         val p = pos
         tryBind() match
           case null => null
-          case x    => (ArgInfo.Expl, mutable.ArrayBuffer((p, x)), null)
+          case x    => (ArgInfo.PiExpl, mutable.ArrayBuffer((p, x)), null)
 
     private def defn(): (Boolean, Name, Tm | Null, Tm) =
       val x = nameOrOp()
@@ -649,18 +652,19 @@ object Parser:
               xs.foldRight(rt) { case ((p, x), rt) => Tm.Pi(p, x, i, ty, rt) }
             }
 
-    private def tryDataConParam(): List[(Bind, Icit, Ty)] | Null =
+    private def tryDataConParam(): List[(Bind, PiIcit, Ty)] | Null =
       if trySymbol(L_BRACE) then
         val p = pos
+        val i = if tryKeyword(AUTOREFL) then PiIcit.ImplR else PiIcit.ImplU
         val x = bind()
         val xs = list(tryBind())
         if trySymbol(COLON) then
           val ty = expr()
           symbol(R_BRACE)
-          (x :: xs.toList).map(x => (x, Impl, ty))
+          (x :: xs.toList).map(x => (x, i, ty))
         else
           symbol(R_BRACE)
-          (x :: xs.toList).map(x => (x, Impl, Tm.Hole(p, None)))
+          (x :: xs.toList).map(x => (x, i, Tm.Hole(p, None)))
       else
         backtrack {
           if trySymbol(L_PAREN) then
@@ -671,14 +675,14 @@ object Parser:
                 if trySymbol(COLON) then
                   val ty = expr()
                   symbol(R_PAREN)
-                  (x :: xs.toList).map(x => (x, Expl, ty))
+                  (x :: xs.toList).map(x => (x, PiIcit.Expl, ty))
                 else null
           else null
         } match
           case null =>
             tryAtom() match
               case null => null
-              case t    => List((DontBind, Expl, t))
+              case t    => List((DontBind, PiIcit.Expl, t))
           case p => p
 
     private def dataCon(dataPub: Boolean): Constructor =

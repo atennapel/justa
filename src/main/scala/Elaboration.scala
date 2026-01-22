@@ -82,12 +82,24 @@ object Elaboration:
     @tailrec
     def go(tm: T1, ty: VTy): (T1, VTy) =
       forceAll1(ty) match
-        case V.Pi(y, Impl, a, b) =>
+        case V.Pi(y, PiIcit.Impl(im), a, b) =>
           mode match
             case Until(x) if DoBind(x) == y => (tm, ty)
             case _ =>
-              val m = freshMeta(a)
-              go(T1.App(tm, m, Impl), b(ctx.eval1(m)))
+              im match
+                case ImplMode.Unif =>
+                  val m = freshMeta(a)
+                  go(T1.App(tm, m, Impl), b(ctx.eval1(m)))
+                case ImplMode.Refl =>
+                  forceAll1(a) match
+                    case V.Id(t1, t2, v1, v2) =>
+                      unify(t1, t2)
+                      unify(v1, v2)
+                      val vrefl = V.Refl(t1, v1)
+                      go(T1.App(tm, ctx.readback1(vrefl), Impl), b(vrefl))
+                    case _ =>
+                      // TODO: postpone
+                      err(s"autorefl type is not Id but ${ctx.pretty1(a)}")
         case _ =>
           mode match
             case Until(x) => err(s"no implicit pi found with parameter $x")
@@ -102,8 +114,8 @@ object Elaboration:
 
   private def insert(inp: (T1, VTy))(using ctx: Ctx): (T1, VTy) =
     inp._1 match
-      case T1.Lam(_, Impl, _, _) => inp
-      case _                     => insertPi(inp)
+      case T1.Lam(_, PiIcit.Impl(_), _, _) => inp
+      case _                               => insertPi(inp)
 
   private def insert(inp: Infer)(using ctx: Ctx): Infer = inp match
     case Infer0(t, a, cv) => inp
@@ -118,7 +130,7 @@ object Elaboration:
     val qb = readback1(b)(using unfoldOption = UnfoldOption.None)
     V.Pi(
       DontBind,
-      Expl,
+      PiIcit.Expl,
       V.Lift(V.Val, a),
       Clos1.Clos(ctx.env, T1.Lift(qbcv, qb))
     )
@@ -129,7 +141,7 @@ object Elaboration:
       case DoBind(x) => x
     T1.Lam(
       DoBind(y),
-      Expl,
+      PiIcit.Expl,
       T1.Lift(T1.Val, ctx.readback1(a)),
       T1.Quote(T0.App(T0.Wk1(t.splice), T0.Splice(T1.Var(ix0))))
     )
@@ -230,7 +242,7 @@ object Elaboration:
           go(T1.Var(ix0), a2, a1) match
             case None =>
               go(
-                T1.App(T1.Wk1(t), T1.Var(ix0), i),
+                T1.App(T1.Wk1(t), T1.Var(ix0), i.toIcit),
                 b1(ctx2.eval1(T1.Var(ix0))),
                 b2(V.Var(ctx.lvl))
               ).map(b => T1.Lam(x, i, ctx.readback1(a2), b))
@@ -241,7 +253,7 @@ object Elaboration:
                   i,
                   ctx.readback1(a2),
                   coe(
-                    T1.App(T1.Wk1(t), coev0, i),
+                    T1.App(T1.Wk1(t), coev0, i.toIcit),
                     b1(ctx2.eval1(coev0)),
                     b2(V.Var(ctx.lvl))
                   )
@@ -270,7 +282,7 @@ object Elaboration:
           val qty = ctx.readback1(ty)
           Some(spliceRec(qty, coe(t, a, V.RecordTy1(liftRec(fs))), fs))
 
-        case (pi @ V.Pi(x, Expl, a, b), V.Lift(cv, a2)) =>
+        case (pi @ V.Pi(x, PiIcit.Expl, a, b), V.Lift(cv, a2)) =>
           unify(cv, V.Comp)
           val a1 = ctx.eval1(freshMeta(V.TypeV))
           val a2cv = freshCV()
@@ -279,7 +291,7 @@ object Elaboration:
           val fun = V.Fun(a1, va2cv, a2_)
           unify(a2, fun)
           go(t, pi, V.Lift(V.Comp, fun))
-        case (V.Lift(cv, a), pi @ V.Pi(x, Expl, t1, t2)) =>
+        case (V.Lift(cv, a), pi @ V.Pi(x, PiIcit.Expl, t1, t2)) =>
           unify(cv, V.Comp)
           val a1 = ctx.eval1(freshMeta(V.TypeV))
           val a2cv = freshCV()
@@ -346,7 +358,7 @@ object Elaboration:
     debug(s"apply1 ${ctx.pretty1(a)} $i @ $u")
     forceAll1(a) match
       case V.Pi(x, i2, a, b) =>
-        if i != i2 then err(s"icit mismatch in apply1")
+        if i != i2.toIcit then err(s"icit mismatch in apply1")
         val u2 = check1(u, a)
         Infer1(T1.App(t, u2, i), b(ctx.eval1(u2)))
       case V.Lift(_, V.Fun(a, bcv, b)) =>
@@ -359,19 +371,20 @@ object Elaboration:
         val x = DoBind(Name("x"))
         val b2 =
           Clos1.Clos(ctx.env, freshMeta(V.Meta)(using ctx.bind1(x, a2, va2)))
-        val t2 = coe(t, a, V.Pi(x, i, va2, b2))
+        val t2 = coe(t, a, V.Pi(x, i.toPiIcit, va2, b2))
         val u2 = check1(u, ctx.eval1(a2))
         Infer1(T1.App(t2, u2, i), b2(ctx.eval1(u2)))
 
   private def coeQuote(t: T1, a1: VTy, a2: VTy, cv: VTy)(using ctx: Ctx): T0 =
     coe(t, a1, V.Lift(cv, a2)).splice
 
-  private def icitMatch(i: ArgInfo, x: Bind, i2: Icit): Boolean = i match
-    case ArgInfo.Named(y) =>
-      x match
-        case DontBind  => false
-        case DoBind(x) => x == y
-    case ArgInfo.Icit(i) => i == i2
+  private def icitMatch(i: ArgInfo[PiIcit], x: Bind, i2: PiIcit): Boolean =
+    i match
+      case ArgInfo.Named(y) =>
+        x match
+          case DontBind  => false
+          case DoBind(x) => x == y
+      case ArgInfo.Icit(i) => i == i2
 
   private def varHasUnknownType1(x: Name)(using ctx: Ctx): Boolean =
     ctx.lookup(x) match
@@ -420,7 +433,7 @@ object Elaboration:
     enter(tm.pos):
       tm match
         case S.Lam(_, x, i, ma, b) =>
-          if i != ArgInfo.Icit(Expl) then err(s"implicit lambda in Ty")
+          if i != ArgInfo.PiExpl then err(s"implicit lambda in Ty")
           val (t1, fcv, t2) = ensureFun(ty, cv)
           ma.foreach { sty => unify(ctx.eval1(check1(sty, V.TypeV)), t1) }
           val qt1 = ctx.readback1(t1)
@@ -560,21 +573,22 @@ object Elaboration:
             check1(b, t2(V.Var(ctx.lvl)))(using ctx.bind1(x, qt1, t1))
           )
 
-        case (S.Var(_, x), V.Pi(_, Impl, _, _)) if varHasUnknownType1(x) =>
+        case (S.Var(_, x), V.Pi(_, PiIcit.Impl(_), _, _))
+            if varHasUnknownType1(x) =>
           val Some(NameInfo.Name1(lvl, ty2)) = ctx.lookup(x): @unchecked
           unify(ty2, ty)
           T1.Var(lvl.toIx(using ctx.lvl))
 
-        case (tm, V.Pi(x, Impl, t1, t2)) =>
+        case (tm, V.Pi(x, i @ PiIcit.Impl(_), t1, t2)) =>
           val qt1 = ctx.readback1(t1)
           T1.Lam(
             x,
-            Impl,
+            i,
             qt1,
             check1(tm, t2(V.Var(ctx.lvl)))(using ctx.insert1(x, qt1))
           )
 
-        case (S.Pi(_, DontBind, Expl, t1, t2), V.Type(cv)) =>
+        case (S.Pi(_, DontBind, PiIcit.Expl, t1, t2), V.Type(cv)) =>
           unify(cv, V.Comp)
           val et1 = check1(t1, V.TypeV)
           val fcv = freshCV()
@@ -606,7 +620,7 @@ object Elaboration:
 
         case (S.Match(_, Some(s), sty, cs), _) => checkMatch1(s, sty, cs, ty)
 
-        case (S.Match(_, None, sty, cs), V.Pi(x, Expl, a, b)) =>
+        case (S.Match(_, None, sty, cs), V.Pi(x, PiIcit.Expl, a, b)) =>
           forceAll1(a) match
             case V.Lift(dcv, vdty) =>
               if sty.isDefined then err(s"runtime level match cannot have type")
@@ -621,7 +635,7 @@ object Elaboration:
               val ecs = checkCases0(vdty, cs, vrty, vrcv)(using nctx)
               val casetm = T0.Case(nvrty, ndty, T1.Var(ix0).splice, ecs)
               val y = x.orElse(DoBind(Name("x")))
-              T1.Lam(y, Expl, ra, casetm.quote)
+              T1.Lam(y, PiIcit.Expl, ra, casetm.quote)
             case _ =>
               val ra = ctx.readback1(a)
               val nctx = ctx.insert1(x, ra)
@@ -635,7 +649,7 @@ object Elaboration:
               }
               val casetm = T1.Case(escrut, ecs)
               val y = x.orElse(DoBind(Name("x")))
-              T1.Lam(y, Expl, ra, casetm)
+              T1.Lam(y, PiIcit.Expl, ra, casetm)
 
         case (S.UnitLit(_), V.RecordTy1(ClosRec(_, Nil))) => T1.RecordConEmpty
 
@@ -756,9 +770,9 @@ object Elaboration:
       tm match
         case S.Lam(_, x, i, mty, b) =>
           i match
-            case ArgInfo.Named(_)   => err(s"implicit lambda in type")
-            case ArgInfo.Icit(Impl) => err(s"implicit lambda in type")
-            case ArgInfo.Icit(Expl) =>
+            case ArgInfo.Named(_)             => err(s"implicit lambda in type")
+            case ArgInfo.Icit(PiIcit.Impl(_)) => err(s"implicit lambda in type")
+            case ArgInfo.Icit(PiIcit.Expl) =>
               val acv = T1.Val
               val avcv = ctx.eval1(acv)
               val ety = tyAnnot(mty, V.Type(avcv))
@@ -999,7 +1013,7 @@ object Elaboration:
             infer1(b)(using ctx.define(x, lty, vlty, ev, ctx.eval1(ev)))
           Infer1(T1.Let(x, lty, ev, eb), rty)
 
-        case S.Pi(_, DontBind, Expl, a, b) =>
+        case S.Pi(_, DontBind, PiIcit.Expl, a, b) =>
           val (ea, vta) = insert(infer1(a))
           forceAll1(vta) match
             case V.Type(cv) =>
@@ -1011,7 +1025,7 @@ object Elaboration:
             case V.Meta =>
               val eb =
                 check1(b, V.Meta)(using ctx.bind1(DontBind, ea, ctx.eval1(ea)))
-              Infer1(T1.Pi(DontBind, Expl, ea, eb), V.Meta)
+              Infer1(T1.Pi(DontBind, PiIcit.Expl, ea, eb), V.Meta)
             case _ => err("expected type for Pi parameter")
         case S.Pi(_, x, i, a, b) =>
           val ea = check1(a, V.Meta)
@@ -1020,17 +1034,17 @@ object Elaboration:
 
         case S.Lam(_, x, i, mty, b) =>
           i match
-            case ArgInfo.Named(_)   => err("cannot infer")
-            case ArgInfo.Icit(Expl) => err("cannot infer")
-            case ArgInfo.Icit(Impl) =>
+            case ArgInfo.Named(_)          => err("cannot infer")
+            case ArgInfo.Icit(PiIcit.Expl) => err("cannot infer")
+            case ArgInfo.Icit(i @ PiIcit.Impl(_)) =>
               val ety = tyAnnot(mty, V.Meta)
               val vty = ctx.eval1(ety)
               val ctx2 = ctx.bind1(x, ety, vty)
               val (eb, vrt) = insert(infer1(b)(using ctx2))(using ctx2)
               val qrt = ctx2.readback1(vrt)
               Infer1(
-                T1.Lam(x, Impl, ety, eb),
-                V.Pi(x, Impl, vty, Clos1.Clos(ctx.env, qrt))
+                T1.Lam(x, i, ety, eb),
+                V.Pi(x, i, vty, Clos1.Clos(ctx.env, qrt))
               )
 
         case s @ S.App(_, f, a, i) =>
@@ -1465,7 +1479,7 @@ object Elaboration:
       case Some(GlobalEntry.Data1(_, _, dps, cs, _, _, _, _)) => (dps, cs.toSet)
       case _                                                  => impossible()
     val psenv = Env(ps)
-    inline def conInfo(m: Name, cx: Name): (T1, List[(Bind, Icit, Ty)]) =
+    inline def conInfo(m: Name, cx: Name): (T1, List[(Bind, PiIcit, Ty)]) =
       State.getGlobalDirect(m, cx) match
         case Some(GlobalEntry.Con1(_, _, _, params, _, _, con, _, _)) =>
           (con, params)
@@ -1478,13 +1492,14 @@ object Elaboration:
           env: Env,
           con: V,
           ps: List[(Bind, Icit)],
-          cps: List[(Bind, Icit, Ty)]
+          cps: List[(Bind, PiIcit, Ty)]
       )(using
           ctx: Ctx
       ): (Ctx, V, List[(Bind, Icit, Ty)]) =
         (ps, cps) match
           case (Nil, Nil) => (ctx, con, Nil)
-          case ((x, i) :: psr, (_, i2, pty) :: cpsr) if i == i2 => // match
+          case ((x, i) :: psr, (_, i2, pty) :: cpsr)
+              if i == i2.toIcit => // match
             val ety = ctx.readback1(eval1(pty)(using env))
             val nctx1 = ctx.bind1(x, ety, ctx.eval1(ety))
             val (nctx2, rcon, nps) =
@@ -1495,7 +1510,7 @@ object Elaboration:
                 cpsr
               )(using nctx1)
             (nctx2, rcon, (x, i, ety) :: nps)
-          case (ps, (x, Impl, pty) :: cpsr) => // insertion
+          case (ps, (x, PiIcit.Impl(_), pty) :: cpsr) => // insertion
             val ety = ctx.readback1(eval1(pty)(using env))
             val nctx1 = ctx.insert1(x, ety)
             val (nctx2, rcon, nps) =
@@ -1620,8 +1635,8 @@ object Elaboration:
           case (Some(b), None)            => b
           case (None, Some(b))            => b
           case _ =>
-            val hasImplParam = ps.exists((_, i, _) => i == Impl) ||
-              cs.exists(c => c.params.exists((_, i, _) => i == Impl))
+            val hasImplParam = ps.exists((_, i, _) => i.isImpl) ||
+              cs.exists(c => c.params.exists((_, i, _) => i.isImpl))
             // TODO: adjust this is runtime datatypes allow implicit parameters
             if hasImplParam then true
             else err(s"ambigious universe for datatype")
@@ -1657,7 +1672,7 @@ object Elaboration:
     val singleCon = if cs.size == 1 then Some(cs.head.name) else None
     val ty = T1.TypeCon1(State.currentModule, x)
     val fulltype = eps.foldRight(T1.MetaU) { case ((px, i, ty), rt) =>
-      T1.Pi(px.toBind, i, ty, rt)
+      T1.Pi(px.toBind, i.toPiIcit, ty, rt)
     }
     val vty = ctx.eval1(fulltype)
     if pub then checkAccessibility(vty)
@@ -1680,8 +1695,8 @@ object Elaboration:
           err(s"duplicate name $cx")
         def goConParams(
             ctx: Ctx,
-            cps: List[(Bind, Icit, S)]
-        ): List[(Bind, Icit, Ty)] =
+            cps: List[(Bind, PiIcit, S)]
+        ): List[(Bind, PiIcit, Ty)] =
           cps match
             case Nil => Nil
             case (px, i, ty) :: rest =>
@@ -1699,7 +1714,7 @@ object Elaboration:
         }
         val cty =
           eps.foldRight(cty0) { case ((x, _, ty), rty) =>
-            T1.Pi(x.toBind, Impl, ty, rty)
+            T1.Pi(x.toBind, PiIcit.ImplU, ty, rty)
           }
         val vcty = ctx.eval1(cty)
         if cpub then checkAccessibility(vcty)
@@ -1760,7 +1775,7 @@ object Elaboration:
         if State.currentModuleHasName(cx) || State.hasImport(cx) then
           err(s"duplicate name $cx")
         val eps = cps.map { (x, i, t) =>
-          if (i == Impl)
+          if (i.isImpl)
             err("runtime datatype constructors cannot have implicit parameters")
           (x, check1(t, V.TypeV))
         }
@@ -1768,10 +1783,12 @@ object Elaboration:
           ps.indices.foldRight(ty)((i, ty) => T1.App(ty, T1.Var(mkIx(i)), Expl))
         val cty0 = eps.foldRight(T1.Lift(T1.Val, tyapp)) {
           case ((x, pty), rty) =>
-            T1.Pi(x, Expl, T1.Lift(T1.Val, pty), T1.Wk1(rty))
+            T1.Pi(x, PiIcit.Expl, T1.Lift(T1.Val, pty), T1.Wk1(rty))
         }
         val cty =
-          ps.foldRight(cty0)((x, rty) => T1.Pi(x.toBind, Impl, T1.TypeV, rty))
+          ps.foldRight(cty0)((x, rty) =>
+            T1.Pi(x.toBind, PiIcit.ImplU, T1.TypeV, rty)
+          )
         val vcty = ctx.eval1(cty)
         if cpub then checkAccessibility(vcty)
         State.addGlobal(

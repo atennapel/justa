@@ -74,14 +74,10 @@ pub def z_neq_s {n} : ZM !~ SM n =
   \p => rewrite LiftNat p UM
 
 pub data Vec (n : NatM) A
-  | VNil (proof : ZM ~ n)
-  | VCons {m} (head : A) (tail : Vec m A) (proof : SM m ~ n)
-
-pub def vnil {A} : Vec ZM A = VNil refl
-pub def vcons {m A} (head : A) (tail : Vec m A) : Vec (SM m) A =
-  VCons head tail refl
+| VNil {autorefl proof : ZM ~ n}
+| VCons {m} {autorefl proof : SM m ~ n} (head : A) (tail : Vec m A)
 
 pub def head {A n} (v : Vec (SM n) A) : A =
   match v
-  | VNil p => absurdM (z_neq_s p)
-  | VCons hd _ _ => hd
+  | VNil {p} => absurdM (z_neq_s p)
+  | VCons hd _ => hd

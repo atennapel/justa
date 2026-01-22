@@ -112,7 +112,7 @@ object State:
         pub: Boolean,
         x: Name,
         typarams: List[(Name, Icit, Ty)],
-        params: List[(Bind, Icit, Ty)],
+        params: List[(Bind, PiIcit, Ty)],
         dx: Name,
         ix: Int,
         tm: Tm1,

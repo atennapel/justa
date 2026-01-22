@@ -21,7 +21,7 @@ object Surface:
       pos: PosInfo,
       pub: Boolean,
       name: Name,
-      params: List[(Bind, Icit, Ty)]
+      params: List[(Bind, PiIcit, Ty)]
   ):
     override def toString: String =
       params match
@@ -56,12 +56,15 @@ object Surface:
         val df = meta.fold("|")(m => if m then "=" else ":=")
         s"${if p then "pub " else ""}data $x ${ps.map((x, i, ty) => i.wrap(s"$x : $ty")).mkString(" ")}$ustr $df $css"
 
-  enum ArgInfo derives CanEqual:
+  enum ArgInfo[I] derives CanEqual:
     case Named(name: Name)
-    case Icit(icit: Common.Icit)
+    case Icit(icit: I)
   object ArgInfo:
     val Expl = Icit(Common.Icit.Expl)
     val Impl = Icit(Common.Icit.Impl)
+    val PiExpl = Icit(PiIcit.Expl)
+    val PiImplU = Icit(PiIcit.ImplU)
+    val PiImplR = Icit(PiIcit.ImplR)
 
   enum ProjType:
     case Named(name: Name)
@@ -81,8 +84,7 @@ object Surface:
       params match
         case Nil => s"$con => $body"
         case ps =>
-          def showP(p: (Bind, Icit)): String =
-            if p._2 == Impl then s"{${p._1}}" else p._1.toString
+          inline def showP(p: (Bind, Icit)): String = p._2.wrapI(p._1)
           s"$con ${ps.map(showP).mkString(" ")} => $body"
 
   type Ty = Tm
@@ -97,9 +99,15 @@ object Surface:
 
     case Proj(_pos: PosInfo, tm: Tm, proj: ProjType)
 
-    case Pi(_pos: PosInfo, name: Bind, icit: Icit, ty: Ty, body: Ty)
-    case Lam(_pos: PosInfo, name: Bind, info: ArgInfo, ty: Option[Ty], body: Tm)
-    case App(_pos: PosInfo, fn: Tm, arg: Tm, info: ArgInfo)
+    case Pi(_pos: PosInfo, name: Bind, icit: PiIcit, ty: Ty, body: Ty)
+    case Lam(
+        _pos: PosInfo,
+        name: Bind,
+        info: ArgInfo[PiIcit],
+        ty: Option[Ty],
+        body: Tm
+    )
+    case App(_pos: PosInfo, fn: Tm, arg: Tm, info: ArgInfo[Icit])
 
     case Lift(_pos: PosInfo, ty: Ty)
     case Quote(_pos: PosInfo, tm: Tm)
@@ -163,9 +171,9 @@ object Surface:
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} = $v; $b)"
       case LetRec(_, x, ty, v, b) =>
         s"(let rec $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
-      case Pi(_, Bind.DontBind, Expl, ty, b) => s"($ty -> $b)"
+      case Pi(_, Bind.DontBind, PiIcit.Expl, ty, b) => s"($ty -> $b)"
       case Pi(_, x, i, ty, b) => s"(${i.wrap(s"$x : $ty")} -> $b)"
-      case Lam(_, x, ArgInfo.Icit(Expl), None, b) => s"(\\$x => $b)"
+      case Lam(_, x, ArgInfo.Icit(PiIcit.Expl), None, b) => s"(\\$x => $b)"
       case Lam(_, x, ArgInfo.Icit(i), ty, b) =>
         s"(\\${i.wrap(s"$x${ty.map(t => s" : $t").getOrElse("")}")} => $b)"
       case Lam(_, x, ArgInfo.Named(y), ty, b) =>

@@ -715,10 +715,10 @@ object Unification:
       case (V.Lam(_, _, _, b1), V.Lam(_, _, _, b2)) => goClos(b1, b2)
       case (V.Lam(_, i, _, b), f) =>
         val v = V.Var(lvl)
-        unify1(b(v), vapp(f, v, i))(using lvl + 1)
+        unify1(b(v), vapp(f, v, i.toIcit))(using lvl + 1)
       case (f, V.Lam(_, i, _, b)) =>
         val v = V.Var(lvl)
-        unify1(vapp(f, v, i), b(v))(using lvl + 1)
+        unify1(vapp(f, v, i.toIcit), b(v))(using lvl + 1)
 
       case (V.MetaLam1(b1), V.MetaLam1(b2)) => goClos(b1, b2)
       case (V.MetaLam0(b1), V.MetaLam0(b2)) => goClos0(b1, b2)
