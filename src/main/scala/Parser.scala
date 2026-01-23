@@ -464,6 +464,11 @@ object Parser:
       val ty = if trySymbol(COLON) then expr() else null
       (xs, ty)
 
+    private def piIcit(): PiIcit =
+      if tryKeyword(DEFAULT) then PiIcit.ImplD(atom())
+      else if tryKeyword(AUTO) then PiIcit.ImplA
+      else PiIcit.ImplU
+
     private def tryPiParam()
         : (PiIcit, mutable.ArrayBuffer[(PosInfo, Bind)], Tm) | Null =
       if trySymbol(L_PAREN) then
@@ -482,9 +487,7 @@ object Parser:
                 (PiIcit.Expl, xs, ty)
               else null
       else if trySymbol(L_BRACE) then
-        val i =
-          if tryKeyword(DEFAULT) then PiIcit.ImplD(atom())
-          else PiIcit.ImplU
+        val i = piIcit()
         val (xs, prety) = grouping()
         val p = pos
         val ty = prety match
@@ -510,6 +513,7 @@ object Parser:
       else if trySymbol(L_BRACE) then
         val i =
           if tryKeyword(DEFAULT) then ArgInfo.PiImplD(atom())
+          else if tryKeyword(AUTO) then ArgInfo.PiImplA
           else ArgInfo.PiImplU
         val (xs, ty) = grouping()
         val named = if trySymbol(EQUALS) then nameOrOp() else null
@@ -659,8 +663,7 @@ object Parser:
     private def tryDataConParam(): List[(Bind, PiIcit, Ty)] | Null =
       if trySymbol(L_BRACE) then
         val p = pos
-        val i =
-          if tryKeyword(DEFAULT) then PiIcit.ImplD(atom()) else PiIcit.ImplU
+        val i = piIcit()
         val x = bind()
         val xs = list(tryBind())
         if trySymbol(COLON) then

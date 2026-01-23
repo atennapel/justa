@@ -59,10 +59,12 @@ object Surface:
   enum ImplMode derives CanEqual:
     case Unif
     case Default(tm: Tm)
+    case Auto
 
     def show: String = this match
       case Unif        => ""
       case Default(tm) => s"default $tm "
+      case Auto        => "auto "
 
   enum PiIcit derives CanEqual:
     case Expl
@@ -86,6 +88,7 @@ object Surface:
 
   object PiIcit:
     val ImplU = Impl(ImplMode.Unif)
+    val ImplA = Impl(ImplMode.Auto)
     inline def ImplD(tm: Tm) = Impl(ImplMode.Default(tm))
 
     def apply(i: Common.Icit): PiIcit = i match
@@ -100,6 +103,7 @@ object Surface:
     val Impl = Icit(Common.Icit.Impl)
     val PiExpl = Icit(PiIcit.Expl)
     val PiImplU = Icit(PiIcit.ImplU)
+    val PiImplA = Icit(PiIcit.ImplA)
     inline def PiImplD(tm: Tm) = Icit(PiIcit.ImplD(tm))
 
   enum ProjType:

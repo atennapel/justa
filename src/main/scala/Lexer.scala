@@ -105,6 +105,7 @@ object Lexer:
     case ELSE
     case MATCH
     case DEFAULT
+    case AUTO
 
     case META
     case TYPE
@@ -142,6 +143,7 @@ object Lexer:
         case ELSE     => "else"
         case MATCH    => "match"
         case DEFAULT  => "default"
+        case AUTO     => "auto"
         case META     => "meta"
         case TYPE     => "type"
         case CV       => "cv"
@@ -202,6 +204,7 @@ object Lexer:
         case "else"     => ELSE
         case "match"    => MATCH
         case "default"  => DEFAULT
+        case "auto"     => AUTO
         case "meta"     => META
         case "type"     => TYPE
         case "cv"       => CV

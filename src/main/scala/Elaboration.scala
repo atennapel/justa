@@ -95,6 +95,7 @@ object Elaboration:
                 case ImplMode.Default(d) =>
                   val etm = check1(d, a) // TODO: postpone if a is meta
                   go(Tm1.App(tm, etm, Impl), b(ctx.eval1(etm)))
+                case ImplMode.Auto => ???
         case _ =>
           mode match
             case Until(x) => err(s"no implicit pi found with parameter $x")
