@@ -919,6 +919,47 @@ object Elaboration:
                   )
               )
           )
+      ),
+    /*
+    {I : meta} {A : I -> meta} {B : (i : I) -> A i -> meta}
+    -> (({i : I} (x : A i) -> B i x) -> {i : I} (x : A i) -> B i x)
+    -> {i : I} (x : A i)
+    -> B i x
+     */
+    Primitive.FixIx ->
+      V.piI(
+        "I",
+        V.Meta,
+        ii =>
+          V.piI(
+            "A",
+            V.fun1(ii, V.Meta),
+            a =>
+              V.piI(
+                "B",
+                V.pi("i", ii, i => V.fun1(vappE(a, i), V.Meta)),
+                b =>
+                  V.fun1(
+                    V.fun1(
+                      V.piI(
+                        "i",
+                        ii,
+                        i => V.pi("x", vappE(a, i), x => vappE(vappE(b, i), x))
+                      ),
+                      V.piI(
+                        "i",
+                        ii,
+                        i => V.pi("x", vappE(a, i), x => vappE(vappE(b, i), x))
+                      )
+                    ),
+                    V.piI(
+                      "i",
+                      ii,
+                      i => V.pi("x", vappE(a, i), x => vappE(vappE(b, i), x))
+                    )
+                  )
+              )
+          )
       )
   )
 

@@ -291,6 +291,7 @@ object Parser:
             case ID       => return Primitive.Id
             case REFL     => return Primitive.Refl
             case ELIMID   => return Primitive.ElimId
+            case FIXIX    => return Primitive.FixIx
             case _        => return null
         i += 1
       }

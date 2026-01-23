@@ -114,6 +114,7 @@ object Unification:
           invert1(v, V.Var(data._1), Expl, data)
         case Spine.Proj(_, p)               => err(s"projection in spine: .$p")
         case Spine.ElimId(_, _, _, _, _, _) => err(s"elimId in spine")
+        case Spine.FixIx(_, _, _, _, _, _)  => err(s"fixIx in spine")
         case Spine.Case(_, _)               => err(s"case in spine")
     val (dom, _, sub, pr, isLinear) = go(sp)
     (PSub(None, dom, lvl, sub), if isLinear then None else Some(pr))
@@ -227,6 +228,8 @@ object Unification:
         case Spine.Case(_, _) => err(s"cannot prune because of match")
         case Spine.ElimId(_, _, _, _, _, _) =>
           err(s"cannot prune because of elimId")
+        case Spine.FixIx(_, _, _, _, _, _) =>
+          err(s"cannot prune because of fixIx")
         case Spine.App(sp, v, i)   => go1(sp, v, t => Prune1(t, i))
         case Spine.MetaApp1(sp, v) => go1(sp, v, t => PruneMeta1(t))
         case Spine.MetaApp0(sp, v) =>
@@ -280,6 +283,10 @@ object Unification:
         go(sp)
           .orElse(Some((sp, Spine.Empty)))
           .map((l, r) => (l, Spine.ElimId(r, a, x, pp, h, y)))
+      case Spine.FixIx(sp, ii, a, b, f, i) =>
+        go(sp)
+          .orElse(Some((sp, Spine.Empty)))
+          .map((l, r) => (l, Spine.FixIx(r, ii, a, b, f, i)))
       case Spine.Case(sp, cs) =>
         go(sp)
           .orElse(Some((sp, Spine.Empty)))
@@ -361,6 +368,29 @@ object Unification:
             Impl
           ),
           p,
+          Expl
+        )
+      case Spine.FixIx(sp, ii, a, b, f, i) =>
+        val x = psubstSpine(h, sp)
+        T1.App(
+          T1.App(
+            T1.App(
+              T1.App(
+                T1.App(
+                  T1.App(T1.Prim(Primitive.FixIx), psubst1(ii), Impl),
+                  psubst1(a),
+                  Impl
+                ),
+                psubst1(b),
+                Impl
+              ),
+              psubst1(f),
+              Expl
+            ),
+            psubst1(i),
+            Impl
+          ),
+          x,
           Expl
         )
       case Spine.Case(sp, cs) =>
@@ -455,6 +485,13 @@ object Unification:
           case (
                 Spine.ElimId(s1, a1, x1, pp1, h1, y1),
                 Spine.ElimId(s2, a2, x2, pp2, h2, y2)
+              ) =>
+            unify1(a1, a2); unify1(x1, x2); unify1(pp1, pp2); unify1(h1, h2)
+            unify1(y1, y2)
+            go(x, s1, s2)
+          case (
+                Spine.FixIx(s1, a1, x1, pp1, h1, y1),
+                Spine.FixIx(s2, a2, x2, pp2, h2, y2)
               ) =>
             unify1(a1, a2); unify1(x1, x2); unify1(pp1, pp2); unify1(h1, h2)
             unify1(y1, y2)
@@ -602,6 +639,8 @@ object Unification:
         case (Spine.Proj(_, _), Spine.Proj(_, _)) => None
         case (Spine.ElimId(_, _, _, _, _, _), Spine.ElimId(_, _, _, _, _, _)) =>
           None
+        case (Spine.FixIx(_, _, _, _, _, _), Spine.FixIx(_, _, _, _, _, _)) =>
+          None
         case (Spine.Case(_, _), Spine.Case(_, _)) => None
         case _                                    => impossible()
     val (sp1inner, outer1) = splitSpine(sp1)
@@ -655,6 +694,13 @@ object Unification:
       case (
             Spine.ElimId(sp1, a1, x1, pp1, h1, y1),
             Spine.ElimId(sp2, a2, x2, pp2, h2, y2)
+          ) =>
+        unify1(top1, sp1, top2, sp2)
+        unify1(a1, a2); unify1(x1, x2); unify1(pp1, pp2); unify1(h1, h2)
+        unify1(y1, y2)
+      case (
+            Spine.FixIx(sp1, a1, x1, pp1, h1, y1),
+            Spine.FixIx(sp2, a2, x2, pp2, h2, y2)
           ) =>
         unify1(top1, sp1, top2, sp2)
         unify1(a1, a2); unify1(x1, x2); unify1(pp1, pp2); unify1(h1, h2)

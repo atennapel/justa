@@ -302,6 +302,7 @@ object Core:
     case App(sp: Spine, arg: Val1, icit: Icit)
     case Proj(sp: Spine, proj: ProjType)
     case ElimId(sp: Spine, a: Val1, x: Val1, pp: Val1, h: Val1, y: Val1)
+    case FixIx(sp: Spine, ii: Val1, a: Val1, b: Val1, f: Val1, i: Val1)
     case Case(sp: Spine, cases: ClosCases1)
     case MetaApp1(sp: Spine, arg: Val1)
     case MetaApp0(sp: Spine, arg: Val0)
@@ -309,13 +310,14 @@ object Core:
     def size: Int =
       @tailrec
       def go(acc: Int, sp: Spine): Int = sp match
-        case Empty                      => acc
-        case App(sp, _, _)              => go(acc + 1, sp)
-        case Proj(sp, _)                => go(acc + 1, sp)
-        case ElimId(sp, a, x, pp, h, y) => go(acc + 1, sp)
-        case Case(sp, _)                => go(acc + 1, sp)
-        case MetaApp1(sp, _)            => go(acc + 1, sp)
-        case MetaApp0(sp, _)            => go(acc + 1, sp)
+        case Empty                     => acc
+        case App(sp, _, _)             => go(acc + 1, sp)
+        case Proj(sp, _)               => go(acc + 1, sp)
+        case ElimId(sp, _, _, _, _, _) => go(acc + 1, sp)
+        case FixIx(sp, _, _, _, _, _)  => go(acc + 1, sp)
+        case Case(sp, _)               => go(acc + 1, sp)
+        case MetaApp1(sp, _)           => go(acc + 1, sp)
+        case MetaApp0(sp, _)           => go(acc + 1, sp)
       go(0, this)
 
     def reverse: Spine =
@@ -325,6 +327,7 @@ object Core:
         case App(sp, v, i)              => go(App(acc, v, i), sp)
         case Proj(sp, p)                => go(Proj(acc, p), sp)
         case ElimId(sp, a, x, pp, h, y) => go(ElimId(acc, a, x, pp, h, y), sp)
+        case FixIx(sp, ii, a, b, f, i)  => go(FixIx(acc, ii, a, b, f, i), sp)
         case Case(sp, cs)               => go(Case(acc, cs), sp)
         case MetaApp1(sp, v)            => go(MetaApp1(acc, v), sp)
         case MetaApp0(sp, v)            => go(MetaApp0(acc, v), sp)

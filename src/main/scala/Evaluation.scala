@@ -97,6 +97,33 @@ object Evaluation:
         )
       case _ => impossible()
 
+  private def vfixix(ii: V1, a: V1, b: V1, f: V1, i: V1, x: V1): V1 =
+    x match
+      case V1.Rigid(h, sp) => V1.Rigid(h, Spine.FixIx(sp, ii, a, b, f, i))
+      case V1.Flex(h, sp)  => V1.Flex(h, Spine.FixIx(sp, ii, a, b, f, i))
+      case V1.Unfold(h, sp, v) =>
+        V1.Unfold(
+          h,
+          Spine.FixIx(sp, ii, a, b, f, i),
+          () => vfixix(ii, a, b, f, i, v())
+        )
+      // fixIx {I} {A} {B} f {i} v ~> f (\{j} y => fixIx {I} {A} {B} f {j} y) {i} v
+      case v =>
+        vappE(
+          vappI(
+            vappE(
+              f,
+              V1.lamI(
+                "i",
+                ii,
+                j => V1.lam1("x", vappE(a, j), y => vfixix(ii, a, b, f, j, y))
+              )
+            ),
+            i
+          ),
+          x
+        )
+
   private def vcase(scrut: V1, cs: ClosCases1): V1 =
     scrut match
       case V1.Con1(_, _, cx, args) =>
@@ -122,6 +149,8 @@ object Evaluation:
     case Spine.Proj(sp, p)   => vproj(vspine(v, sp), p)
     case Spine.ElimId(sp, a, x, pp, h, y) =>
       velimid(a, x, pp, h, y, vspine(v, sp))
+    case Spine.FixIx(sp, ii, a, b, f, i) =>
+      vfixix(ii, a, b, f, i, vspine(v, sp))
     case Spine.Case(sp, cs)    => vcase(vspine(v, sp), cs)
     case Spine.MetaApp1(sp, a) => vmetaapp1(vspine(v, sp), a)
     case Spine.MetaApp0(sp, a) => vmetaapp0(vspine(v, sp), a)
@@ -221,6 +250,50 @@ object Evaluation:
                 )
             )
         )
+      case T1.Prim(Primitive.FixIx) =>
+        V1.lamI(
+          "I",
+          V1.Meta,
+          ii =>
+            V1.lamI(
+              "A",
+              V1.fun1(ii, V1.Meta),
+              a =>
+                V1.lamI(
+                  "B",
+                  V1.pi("i", ii, i => V1.fun1(vappE(a, i), V1.Meta)),
+                  b =>
+                    V1.lam1(
+                      "f",
+                      V1.fun1(
+                        V1.piI(
+                          "i",
+                          ii,
+                          i =>
+                            V1.pi("x", vappE(a, i), x => vappE(vappE(b, i), x))
+                        ),
+                        V1.piI(
+                          "i",
+                          ii,
+                          i =>
+                            V1.pi("x", vappE(a, i), x => vappE(vappE(b, i), x))
+                        )
+                      ),
+                      f =>
+                        V1.lamI(
+                          "i",
+                          ii,
+                          i =>
+                            V1.lam1(
+                              "x",
+                              vappE(a, i),
+                              x => vfixix(ii, a, b, f, i, x)
+                            )
+                        )
+                    )
+                )
+            )
+        )
       case T1.Prim(p) => V1.Prim(p)
 
   // forcing
@@ -296,6 +369,17 @@ object Evaluation:
       T1.MetaApp1(readbackSpine(h, sp), readback1(v))
     case Spine.MetaApp0(sp, v) =>
       T1.MetaApp0(readbackSpine(h, sp), readback0(v))
+    case Spine.Case(sp, cs) =>
+      def go(env: Env, cs: Cases1): Cases1 =
+        cs match
+          case Cases1.Ext(x, ps, b, r) =>
+            val (innerlvl, innerenv, nps) = addParams(ps)(using lvl, env)
+            val rb = readback1(eval1(b)(using innerenv))(using innerlvl)
+            Cases1.Ext(x, nps, rb, go(env, r))
+          case Cases1.Otherwise(b) =>
+            Cases1.Otherwise(readback1(eval1(b)(using env)))
+          case Cases1.Empty => Cases1.Empty
+      T1.Case(readbackSpine(h, sp), go(cs.env, cs.cases))
     case Spine.ElimId(sp, a, x, pp, hh, y) =>
       val p = readbackSpine(h, sp)
       T1.App(
@@ -319,17 +403,29 @@ object Evaluation:
         p,
         Expl
       )
-    case Spine.Case(sp, cs) =>
-      def go(env: Env, cs: Cases1): Cases1 =
-        cs match
-          case Cases1.Ext(x, ps, b, r) =>
-            val (innerlvl, innerenv, nps) = addParams(ps)(using lvl, env)
-            val rb = readback1(eval1(b)(using innerenv))(using innerlvl)
-            Cases1.Ext(x, nps, rb, go(env, r))
-          case Cases1.Otherwise(b) =>
-            Cases1.Otherwise(readback1(eval1(b)(using env)))
-          case Cases1.Empty => Cases1.Empty
-      T1.Case(readbackSpine(h, sp), go(cs.env, cs.cases))
+    case Spine.FixIx(sp, ii, a, b, f, i) =>
+      val x = readbackSpine(h, sp)
+      T1.App(
+        T1.App(
+          T1.App(
+            T1.App(
+              T1.App(
+                T1.App(T1.Prim(Primitive.FixIx), readback1(ii), Impl),
+                readback1(a),
+                Impl
+              ),
+              readback1(b),
+              Impl
+            ),
+            readback1(f),
+            Expl
+          ),
+          readback1(i),
+          Impl
+        ),
+        x,
+        Expl
+      )
 
   def readback1(v: V1)(using lvl: Lvl, unfoldOption: UnfoldOption): T1 =
     inline def go0(v: V0): T0 = readback0(v)
@@ -467,6 +563,8 @@ object Evaluation:
         case Spine.Proj(sp, _)   => goSp(sp)
         case Spine.ElimId(sp, a, x, pp, h, y) =>
           go1(a); go1(x); go1(pp); go1(h); go1(y); goSp(sp)
+        case Spine.FixIx(sp, ii, a, b, f, i) =>
+          go1(ii); go1(a); go1(b); go1(f); go1(i); goSp(sp)
         case Spine.MetaApp1(sp, a) => go1(a); goSp(sp)
         case Spine.MetaApp0(sp, a) => go0(a); goSp(sp)
         case Spine.Case(sp, cs) =>

@@ -2,6 +2,11 @@ module Meta
 
 pub data VoidM : meta
 
+pub data UnitM = UM
+
+pub def fix {A : meta} {B : A -> meta} (go : ((x : A) -> B x) -> (x : A) -> B x) (x : A) : B x =
+  fixIx {UnitM} {\_ => A} {\_ x => B x} (\r {i} x => go (r {i}) x) {UM} x
+
 pub def absurdM {A} (v : VoidM) : A = match v {}
 
 -- identity type
@@ -23,7 +28,7 @@ pub def sym {A} {a b : A} (p : a ~ b) : b ~ a =
 pub def trans {A} {a b c : A} (p : b ~ c) (q : a ~ b) : a ~ c =
   rewrite ((~) a) p q
 
-pub def ap {A B} {a b : A} (f : A -> B) (p : a ~ b) : f a ~ f b =
+pub def cong {A B} {a b : A} (f : A -> B) (p : a ~ b) : f a ~ f b =
   rewrite {A} (\x => f a ~ f x) {a} {b} p refl
 
 pub def idRefl {A} {a : A} (p : a ~ a) : p ~ refl =
@@ -38,8 +43,6 @@ pub def uip {A} {a b : A} (p1 p2 : a ~ b) : p1 ~ p2 =
 --
 pub def Singleton {A} (x : A) : meta = [value : A, proof : value ~ x]
 pub def MkSingleton {A} (x : A) : Singleton x = [x, refl]
-
-pub data UnitM = UM
 
 pub data BoolM = TrueM | FalseM
 
@@ -65,6 +68,11 @@ pub def So b = b ~ TrueM
 
 pub data NatM = ZM | SM NatM
 
+pub def predM (n : NatM) =
+  match n
+  | ZM => ZM
+  | SM n => n
+
 def LiftNat (n : NatM) =
   match n
   | ZM => UnitM
@@ -72,6 +80,9 @@ def LiftNat (n : NatM) =
 
 pub def z_neq_s {n} : ZM !~ SM n =
   \p => rewrite LiftNat p UM
+
+pub def s_cong {a b} (p : SM a ~ SM b) : a ~ b =
+  cong predM p
 
 pub data Vec (n : NatM) A
 | VNil {default refl proof : ZM ~ n}
@@ -83,3 +94,16 @@ pub def head {A n} (v : Vec (SM n) A) : A =
   match v
   | VNil {p} => absurdM (z_neq_s p)
   | VCons hd _ => hd
+
+pub def tail {A n} (v : Vec (SM n) A) : Vec n A =
+  match v
+  | VNil {p} => absurdM (z_neq_s p)
+  | VCons {_} {p} _ tl => rewrite (\n => Vec n A) (s_cong p) tl
+
+pub def map {A B n} (f : A -> B) (v : Vec n A) : Vec n B =
+  fixIx (
+    \go {n} (v : Vec n A) =>
+      match v
+      | VNil {p} => rewrite (\n => Vec n B) p VNil
+      | VCons {_} {p} hd tl => rewrite (\n => Vec n B) p (VCons (f hd) (go tl))
+  ) v

@@ -19,7 +19,7 @@ https://github.com/AndrasKovacs/cctt
 - [x] Record types
 - [x] Identity type
 - [x] Meta datatypes
-- [ ] Meta-level recursion
+- [x] Meta-level recursion
 - [ ] Elaborate if-expressions for meta level
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations

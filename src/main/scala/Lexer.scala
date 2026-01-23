@@ -125,6 +125,7 @@ object Lexer:
     case ID
     case REFL
     case ELIMID
+    case FIXIX
 
     def pretty: String =
       this match
@@ -160,6 +161,7 @@ object Lexer:
         case ID       => "Id"
         case REFL     => "refl"
         case ELIMID   => "elimId"
+        case FIXIX    => "fixIx"
 
   object Keyword:
     val Primitives: Array[Keyword] = Array(
@@ -181,7 +183,8 @@ object Lexer:
       BINDIO,
       ID,
       REFL,
-      ELIMID
+      ELIMID,
+      FIXIX
     )
 
     def parse(keyword: String): Keyword | Null =
@@ -218,6 +221,7 @@ object Lexer:
         case "Id"       => ID
         case "refl"     => REFL
         case "elimId"   => ELIMID
+        case "fixIx"    => FIXIX
         case _          => null
 
   enum Token:
