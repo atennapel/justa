@@ -12,6 +12,7 @@ final case class Ctx(
     pruning: Pruning,
     binds: List[Bind],
     names: NameMap,
+    allTypes1: List[Option[(VTy, Option[Val1])]],
     pos: PosInfo
 ):
   import Ctx.NameInfo
@@ -47,6 +48,7 @@ final case class Ctx(
       PruneEntry.Bind1(Expl) :: pruning,
       x :: binds,
       addName(x, Name1(lvl, vty)),
+      Some((vty, None)) :: allTypes1,
       pos
     )
 
@@ -58,6 +60,7 @@ final case class Ctx(
       PruneEntry.Bind1(Expl) :: pruning,
       x :: binds,
       names,
+      Some((eval1(ty), None)) :: allTypes1,
       pos
     )
 
@@ -69,6 +72,7 @@ final case class Ctx(
       PruneEntry.Skip :: pruning,
       Bind.DoBind(x) :: binds,
       names + (x -> Name1(lvl, vty)),
+      Some((vty, Some(vv))) :: allTypes1,
       pos
     )
 
@@ -80,6 +84,7 @@ final case class Ctx(
       PruneEntry.Skip :: pruning,
       Bind.DoBind(x) :: binds,
       names,
+      Some((eval1(ty), Some(vv))) :: allTypes1,
       pos
     )
 
@@ -91,6 +96,7 @@ final case class Ctx(
       PruneEntry.Bind0 :: pruning,
       x :: binds,
       addName(x, Name0(lvl, vty, vcv)),
+      None :: allTypes1,
       pos
     )
 
@@ -102,6 +108,7 @@ final case class Ctx(
       PruneEntry.Bind0 :: pruning,
       x :: binds,
       names,
+      None :: allTypes1,
       pos
     )
 
@@ -162,7 +169,7 @@ final case class Ctx(
 
 object Ctx:
   def empty(pos: PosInfo) =
-    Ctx(lvl0, Env.Empty, Locals.Empty, Nil, Nil, Map.empty, pos)
+    Ctx(lvl0, Env.Empty, Locals.Empty, Nil, Nil, Map.empty, Nil, pos)
 
   enum NameInfo:
     case Name0(_lvl: Lvl, ty: VTy, cv: VTy)

@@ -34,7 +34,14 @@ object Surface:
 
   enum Def:
     case Def0(pos: PosInfo, pub: Boolean, name: Name, ty: Option[Ty], value: Tm)
-    case Def1(pos: PosInfo, pub: Boolean, name: Name, ty: Option[Ty], value: Tm)
+    case Def1(
+        pos: PosInfo,
+        pub: Boolean,
+        auto: Boolean,
+        name: Name,
+        ty: Option[Ty],
+        value: Tm
+    )
     case Data(
         pos: PosInfo,
         pub: Boolean,
@@ -48,8 +55,8 @@ object Surface:
     override def toString: String = this match
       case Def0(_, p, x, t, v) =>
         s"${if p then "public " else ""}def $x${t.map(t => s" : $t").getOrElse("")} := $v"
-      case Def1(_, p, x, t, v) =>
-        s"${if p then "pub " else ""}def $x${t.map(t => s" : $t").getOrElse("")} = $v"
+      case Def1(_, p, a, x, t, v) =>
+        s"${if p then "pub " else ""}${if p then "auto " else ""}def $x${t.map(t => s" : $t").getOrElse("")} = $v"
       case Data(_, p, meta, x, ps, u, cs) =>
         val css = cs.mkString(" | ")
         val ustr = u.fold("")(t => s" : $t")
@@ -61,7 +68,7 @@ object Surface:
     case Default(tm: Tm)
     case Auto
 
-    def show: String = this match
+    override def toString: String = this match
       case Unif        => ""
       case Default(tm) => s"default $tm "
       case Auto        => "auto "

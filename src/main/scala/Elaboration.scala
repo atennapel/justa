@@ -72,14 +72,140 @@ object Elaboration:
 
   private inline def freshCV()(using ctx: Ctx): Tm1 = freshMeta(V.CV)
 
+  // autos
+  private def checkAutoType(ty: VTy)(using
+      ctx: Ctx
+  ): (Name, Name, List[(V, Icit)]) =
+    forceAll1(ty) match
+      case V.TypeCon1(m, dx, args) => (m, dx, args)
+      case _ => err(s"invalid auto type: ${ctx.pretty1(ty)}")
+
+  private def checkAutoDef(ty: VTy)(using
+      ctx: Ctx
+  ): (Name, Name, List[(V, Icit)]) =
+    forceAll1(ty) match
+      case V.Pi(x, PiIcit.Impl(_), a, b) =>
+        checkAutoDef(b(V.Var(ctx.lvl)))(using ctx.bind1(x, ctx.readback1(a), a))
+      case ty => checkAutoType(ty)
+
+  private def checkNotOnlyMetas(ty: VTy, args: List[(V, Icit)])(using
+      ctx: Ctx
+  ): Unit =
+    inline def allMetas = args.forall { a =>
+      forceAll1(a._1) match
+        case V.Flex(_, _) => true
+        case _            => false
+    }
+    if (args.size > 0 && allMetas)
+      err(s"invalid auto type, all metas: ${ctx.pretty1(ty)}")
+
+  private inline def transactMetas(inline k: Tm1): Option[Tm1] =
+    try
+      State.pushMetas()
+      val etm = k
+      State.discardMetas()
+      Some(etm)
+    catch
+      case err: ElaborateError =>
+        debug(s"transactMetas failed: ${err.getMessage}")
+        State.rollbackMetas()
+        None
+
+  private val AutoSearchLimit = 1000
+  private def searchAuto(m: Name, dx: Name, ty: VTy, depth: Int)(using
+      ctx: Ctx
+  ): Tm1 =
+    debug(s"search auto ${ctx.pretty1(ty)} (depth = $depth)")
+    if depth >= AutoSearchLimit then
+      err(s"auto search limit reached for type: ${ctx.pretty1(ty)}")
+
+    tryLocalAutos(
+      ty: VTy,
+      ctx.binds,
+      ctx.allTypes1,
+      ctx.lvl - 1,
+      depth: Int
+    ) match
+      case Some(etm) => etm
+      case None      =>
+        // TODO: consider only imported autos
+        tryGlobalAutos(ty, State.getAutos(m, dx), depth) match
+          case Some(etm) => etm
+          case None => err(s"failed to solve auto of type: ${ctx.pretty1(ty)}")
+
+  @tailrec
+  private def tryLocalAutos(
+      ty: VTy,
+      binds: List[Bind],
+      types: List[Option[(VTy, Option[V])]],
+      lvl: Lvl,
+      depth: Int
+  )(using
+      ctx: Ctx
+  ): Option[Tm1] =
+    // TODO: consider only locals marked as auto
+    (binds, types) match
+      case (Nil, Nil) => None
+      case (_ :: xs, None :: ts) =>
+        tryLocalAutos(ty, xs, ts, lvl - 1, depth)
+      case (x :: xs, Some(lty, Some(v)) :: ts) =>
+        debug(s"try local auto $x : ${ctx.pretty1(lty)} for ${ctx.pretty1(ty)}")
+        tryAuto(ty, ctx.readback1(v), lty, depth) match
+          case None => tryLocalAutos(ty, xs, ts, lvl - 1, depth)
+          case Some(etm) =>
+            debug(
+              s"using local auto ${ctx.pretty1(etm)} for ${ctx.pretty1(ty)}"
+            )
+            Some(etm)
+      case (x :: xs, Some(lty, None) :: ts) =>
+        debug(s"try local auto $x : ${ctx.pretty1(lty)} for ${ctx.pretty1(ty)}")
+        val tm = Tm1.Var(lvl.toIx(using ctx.lvl))
+        tryAuto(ty, tm, lty, depth) match
+          case None => tryLocalAutos(ty, xs, ts, lvl - 1, depth)
+          case Some(etm) =>
+            debug(
+              s"using local auto ${ctx.pretty1(etm)} for ${ctx.pretty1(ty)}"
+            )
+            Some(etm)
+      case _ => impossible()
+
+  @tailrec
+  private def tryGlobalAutos(
+      ty: VTy,
+      autos: List[(Name, Name)],
+      depth: Int
+  )(using ctx: Ctx): Option[Tm1] =
+    autos match
+      case Nil => None
+      case (m, x) :: rest =>
+        val (gv, gt) = State.getGlobalDirect(m, x) match
+          case Some(GlobalEntry.Def1(_, _, _, _, v, t)) => (v, t)
+          case _                                        => impossible()
+        debug(s"try auto $m.$x : ${ctx.pretty1(gt)} for ${ctx.pretty1(ty)}")
+        tryAuto(ty, Tm1.Global(m, x, gv), gt, depth) match
+          case None => tryGlobalAutos(ty, rest, depth)
+          case Some(etm) =>
+            debug(s"using auto ${ctx.pretty1(etm)} for ${ctx.pretty1(ty)}")
+            Some(etm)
+
+  private def tryAuto(ty: VTy, atm: Tm1, aty: VTy, depth: Int)(using
+      ctx: Ctx
+  ): Option[Tm1] =
+    transactMetas {
+      val (etm, gty) =
+        insertPi((atm, aty), depth = depth + 1)
+      unify(gty, ty)
+      etm
+    }
+
   // meta insertion
   private enum InsertMode:
     case All
     case Until(name: Name)
   import InsertMode.*
 
-  private def insertPi(inp: (Tm1, VTy), mode: InsertMode = All)(using
-      ctx: Ctx
+  private def insertPi(inp: (Tm1, VTy), mode: InsertMode = All, depth: Int = 0)(
+      using ctx: Ctx
   ): (Tm1, VTy) =
     @tailrec
     def go(tm: Tm1, ty: VTy): (Tm1, VTy) =
@@ -95,7 +221,12 @@ object Elaboration:
                 case ImplMode.Default(d) =>
                   val etm = check1(d, a) // TODO: postpone if a is meta
                   go(Tm1.App(tm, etm, Impl), b(ctx.eval1(etm)))
-                case ImplMode.Auto => ???
+                case ImplMode.Auto =>
+                  val (m, dx, args) = checkAutoType(a)
+                  if depth == 0 then
+                    checkNotOnlyMetas(a, args) // TODO: postpone if fails
+                  val etm = searchAuto(m, dx, a, depth)
+                  go(Tm1.App(tm, etm, Impl), b(ctx.eval1(etm)))
         case _ =>
           mode match
             case Until(x) => err(s"no implicit pi found with parameter $x")
@@ -1645,7 +1776,7 @@ object Elaboration:
         State.addGlobal(
           GlobalEntry.Def0(pub, x, ev, ty, cv, ctx.eval0(ev), vty, vcv)
         )
-      case Surface.Def.Def1(pos, pub, x, mty, v) =>
+      case Surface.Def.Def1(pos, pub, auto, x, mty, v) =>
         given ctx: Ctx = Ctx.empty(pos)
         if State.currentModuleHasName(x) || State.hasImport(x) then
           err(s"duplicate definition $x")
@@ -1660,6 +1791,9 @@ object Elaboration:
             (ev, ety, ctx.eval1(ev), vty)
         freeze()
         if pub then checkAccessibility(vty)
+        if auto then
+          val (m, dx, _) = checkAutoDef(vty)
+          State.addAuto(State.currentModule, x, m, dx)
         State.addGlobal(GlobalEntry.Def1(pub, x, ev, ty, vv, vty))
       case Surface.Def.Data(pos, pub, meta, x, ps, univ, cs) =>
         given ctx: Ctx = Ctx.empty(pos)

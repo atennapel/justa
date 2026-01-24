@@ -750,10 +750,13 @@ object Parser:
     private def tryDef(): Def | Null =
       val p = pos
       val pub = tryKeyword(PUB)
+      val auto = tryKeyword(AUTO)
       if tryKeyword(DEF) then
         val (meta, x, ty, body) = defn()
-        if meta then Def.Def1(p, pub, x, Option(ty), body)
-        else Def.Def0(p, pub, x, Option(ty), body)
+        if meta then Def.Def1(p, pub, auto, x, Option(ty), body)
+        else
+          if auto then err(s"runtime def cannot be auto")
+          Def.Def0(p, pub, x, Option(ty), body)
       else if tryKeyword(DATA) then data(p, pub)
       else null
 

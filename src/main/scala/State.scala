@@ -3,7 +3,6 @@ import Core.*
 import Surface.PiIcit
 
 import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
 
 object State:
   // metas
@@ -11,8 +10,17 @@ object State:
     case Unsolved(ty: VTy)
     case Solved(value: Val1, ty: VTy)
 
-  private val metas: ArrayBuffer[MetaEntry] = ArrayBuffer.empty
+  private var metas: mutable.ArrayBuffer[MetaEntry] = mutable.ArrayBuffer.empty
   private var frozen: MetaId = metaId(0)
+
+  private val metaStack: mutable.ArrayBuffer[mutable.ArrayBuffer[MetaEntry]] =
+    mutable.ArrayBuffer.empty
+
+  def pushMetas(): Unit = metaStack += metas.clone()
+  def discardMetas(): Unit = metaStack.dropRightInPlace(1)
+  def rollbackMetas(): Unit =
+    metas = metaStack.last
+    metaStack.dropRightInPlace(1)
 
   def newMeta(ty: VTy): MetaId =
     val id = metaId(metas.size)
@@ -150,6 +158,10 @@ object State:
   private val reexports: mutable.Map[Name, mutable.Map[Name, (Name, Name)]] =
     mutable.Map.empty
 
+  private val autos
+      : mutable.Map[(Name, Name), mutable.ArrayBuffer[(Name, Name)]] =
+    mutable.Map.empty
+
   private var moduleCtx: Option[ModuleCtx] = None
 
   def currentModule: Name = moduleCtx.get.name
@@ -186,6 +198,16 @@ object State:
 
   def addGlobal(entry: GlobalEntry): Unit =
     module(currentModule) += entry
+
+  def addAuto(m: Name, x: Name, am: Name, adx: Name): Unit =
+    val k = (am, adx)
+    val arr = autos.getOrElseUpdate((am, adx), mutable.ArrayBuffer.empty)
+    arr += ((m, x))
+
+  def getAutos(m: Name, dx: Name): List[(Name, Name)] =
+    autos.get((m, dx)) match
+      case None    => Nil
+      case Some(a) => a.toList
 
   def moduleExists(mod: Name): Boolean = globals.contains(mod)
   def moduleHasName(mod: Name, x: Name): Boolean =
