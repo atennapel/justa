@@ -5,6 +5,15 @@ import Surface.PiIcit
 import scala.collection.mutable
 
 object State:
+  // holes
+  type HoleEntry = (Ctx, Name, VTy)
+  private val holes: mutable.ArrayBuffer[HoleEntry] = mutable.ArrayBuffer.empty
+
+  def addHole(x: Name, ty: VTy)(using ctx: Ctx): Unit =
+    holes += ((ctx, x, ty))
+
+  def getHoles(): List[HoleEntry] = holes.toList
+
   // metas
   enum MetaEntry:
     case Unsolved(ty: VTy)
@@ -29,7 +38,7 @@ object State:
       : mutable.ArrayBuffer[mutable.ArrayBuffer[PostponedAutoEntry]] =
     mutable.ArrayBuffer.empty
 
-  def postponeAuto(ctx: Ctx, m: Tm1, ty: VTy): Unit =
+  def postponeAuto(m: Tm1, ty: VTy)(using ctx: Ctx): Unit =
     postponedAutos += ((ctx, m, ty))
 
   def getPostponedAutos(): List[PostponedAutoEntry] =

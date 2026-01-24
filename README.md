@@ -38,5 +38,4 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Overloaded constructors
 - [ ] Meta spine eta-expansion
 - [ ] Row-types records (and variants)?
-- [ ] Postpone autos
 - [ ] Check performance with lazy env and types

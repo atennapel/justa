@@ -128,7 +128,7 @@ object Elaboration:
         err(s"invalid auto type, all metas: ${ctx.pretty1(ty)}")
       else
         val m = freshMeta(ty)
-        State.postponeAuto(ctx, m, ty)
+        State.postponeAuto(m, ty)
         m
     else
       tryLocalAutos(ty, ctx.getAutos(m, dx), depth) match
@@ -546,9 +546,6 @@ object Elaboration:
             case Some(hd) => hd :: go(tl)
     go(ts)
 
-  private def showNamedHole(x: Name, ty: VTy)(using ctx: Ctx): Nothing =
-    err(s"hole _$x : ${ctx.pretty1(ty)}\n${ctx.show}")
-
   // checking
   private def check0(tm: S, ty: VTy, cv: VTy)(using ctx: Ctx): Tm0 =
     debug(s"check0 $tm : ${ctx.pretty1(ty)} : ${ctx.pretty1(cv)}")
@@ -591,8 +588,10 @@ object Elaboration:
           val ef = check0(f, ty, cv)
           Tm0.If(ctx.readback1(ty), ec, et, ef)
 
-        case S.Hole(_, None)    => freshMeta(V.Lift(cv, ty)).splice
-        case S.Hole(_, Some(x)) => showNamedHole(x, ty)
+        case S.Hole(_, ox) =>
+          val mty = V.Lift(cv, ty)
+          ox.foreach(x => State.addHole(x, mty))
+          freshMeta(mty).splice
 
         case S.Splice(_, t) => check1(t, V.Lift(cv, ty)).splice
 
@@ -746,8 +745,9 @@ object Elaboration:
         case (S.Quote(_, tm), V.Lift(cv, ty)) => check0(tm, ty, cv).quote
         case (tm, V.Lift(cv, ty))             => check0(tm, ty, cv).quote
 
-        case (S.Hole(_, None), _)    => freshMeta(ty)
-        case (S.Hole(_, Some(x)), _) => showNamedHole(x, ty)
+        case (S.Hole(_, ox), _) =>
+          ox.foreach(x => State.addHole(x, ty))
+          freshMeta(ty)
 
         case (S.Match(_, Some(s), sty, cs), _) => checkMatch1(s, sty, cs, ty)
 
@@ -1267,7 +1267,11 @@ object Elaboration:
           val ef = check0(f, ty, cv)
           Infer0(Tm0.If(ctx.readback1(ty), ec, et, ef), ty, cv)
 
-        case S.Hole(_, _) => err("cannot infer hole")
+        case S.Hole(_, ox) =>
+          val ty = ctx.eval1(freshMeta(V.Meta))
+          ox.foreach(x => State.addHole(x, ty))
+          val tm = freshMeta(ty)
+          Infer1(tm, ty)
 
         case S.Match(_, None, _, _)       => err("cannot infer lambda match")
         case S.Match(_, Some(s), sty, cs) => inferMatch(s, sty, cs)
@@ -2012,6 +2016,9 @@ object Elaboration:
       err(s"unsolved autos: $str")
     freeze()
 
+  private def showNamedHole(ctx: Ctx, x: Name, ty: VTy): String =
+    s"hole _$x : ${ctx.pretty1(ty)}\n${ctx.show}"
+
   private def elaborate(mod: Surface.Module): Unit =
     debug(s"elaborate module ${mod.name}")
     State.enterModule(mod.name)
@@ -2031,6 +2038,11 @@ object Elaboration:
       if rex then State.addReexport(mod.name, y, m, x)
     }
     mod.defs.toList.foreach(elaborateDef)
+    val holes = State.getHoles()
+    if holes.nonEmpty then
+      val hstr =
+        holes.map((ctx, x, ty) => showNamedHole(ctx, x, ty)).mkString("\n\n")
+      err(s"there are ${holes.size} holes:\n\n$hstr")(using Ctx.empty(mod.pos))
     checkUnsolvedMetas()(using Ctx.empty(mod.pos))
 
   def elaborate(mod: List[Surface.Module]): Unit =
