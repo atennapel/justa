@@ -22,6 +22,27 @@ object State:
     metas = metaStack.last
     metaStack.dropRightInPlace(1)
 
+  type PostponedAutoEntry = (Ctx, Tm1, VTy)
+  private var postponedAutos: mutable.ArrayBuffer[PostponedAutoEntry] =
+    mutable.ArrayBuffer.empty
+  private var postponedAutosStack
+      : mutable.ArrayBuffer[mutable.ArrayBuffer[PostponedAutoEntry]] =
+    mutable.ArrayBuffer.empty
+
+  def postponeAuto(ctx: Ctx, m: Tm1, ty: VTy): Unit =
+    postponedAutos += ((ctx, m, ty))
+
+  def getPostponedAutos(): List[PostponedAutoEntry] =
+    val l = postponedAutos.toList
+    postponedAutos.clear()
+    l
+
+  def pushPostponedAutos(): Unit = postponedAutosStack += postponedAutos.clone()
+  def discardPostponedAutos(): Unit = postponedAutosStack.dropRightInPlace(1)
+  def rollbackPostponedAutos(): Unit =
+    postponedAutos = postponedAutosStack.last
+    postponedAutosStack.dropRightInPlace(1)
+
   def newMeta(ty: VTy): MetaId =
     val id = metaId(metas.size)
     metas += MetaEntry.Unsolved(ty)
@@ -256,6 +277,10 @@ object State:
 
   def addImport(m: Name, x: Name, r: Name): Unit =
     moduleCtx.get.imports += r -> (m, x)
+
+  def isAccessibleGlobal(m: Name, x: Name): Boolean =
+    m == currentModule ||
+      moduleCtx.get.imports.values.exists((m2, x2) => m2 == m && x2 == x)
 
   enum GlobalLookupFailure derives CanEqual:
     case ModuleNotFound

@@ -631,14 +631,17 @@ object Parser:
     private def expr(): Tm =
       val p = pos
       if tryKeyword(LET) then
+        val auto = tryKeyword(AUTO)
         val rec = tryKeyword(REC)
         val (meta, x, t, v) = defn()
         if rec && meta then err(s"meta level let cannot be recursive")
         symbol(SEMICOLON)
         val b = expr()
-        if meta then Tm.Let1(p, x, Option(t), v, b)
-        else if rec then Tm.LetRec(p, x, Option(t), v, b)
-        else Tm.Let0(p, x, Option(t), v, b)
+        if meta then Tm.Let1(p, auto, x, Option(t), v, b)
+        else
+          if auto then err(s"runtime let cannot have auto")
+          if rec then Tm.LetRec(p, x, Option(t), v, b)
+          else Tm.Let0(p, x, Option(t), v, b)
       else if tryKeyword(IF) then
         val c = expr()
         keyword(THEN)

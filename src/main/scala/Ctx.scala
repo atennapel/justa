@@ -2,7 +2,7 @@ import Common.*
 import Common.Icit.*
 import Core.*
 import Evaluation.UnfoldOption
-import Ctx.NameMap
+import Ctx.{AutoMap, AutoMapEntry, NameMap}
 import Evaluation.apply
 
 final case class Ctx(
@@ -12,7 +12,7 @@ final case class Ctx(
     pruning: Pruning,
     binds: List[Bind],
     names: NameMap,
-    allTypes1: List[Option[(VTy, Option[Val1])]],
+    autos: AutoMap,
     pos: PosInfo
 ):
   import Ctx.NameInfo
@@ -40,7 +40,24 @@ final case class Ctx(
 
   inline def lookup(x: Name): Option[NameInfo] = names.get(x)
 
-  def bind1(x: Bind, ty: Ty, vty: VTy): Ctx =
+  inline def getAutos(m: Name, dx: Name): List[AutoMapEntry] =
+    autos.get((m, dx)).getOrElse(Nil)
+
+  private def addAuto(
+      auto: Option[(Name, Name)],
+      x: Bind,
+      vty: VTy,
+      v: Option[Val1] = None
+  ): AutoMap =
+    auto match
+      case None => autos
+      case Some((m, dx)) =>
+        val k = (m, dx)
+        autos.get(k) match
+          case None    => autos + (k -> List((x, lvl, vty, v)))
+          case Some(l) => autos + (k -> ((x, lvl, vty, v) :: l))
+
+  def bind1(x: Bind, ty: Ty, vty: VTy, auto: Option[(Name, Name)] = None): Ctx =
     Ctx(
       lvl + 1,
       Env.Ext1(env, Val1.Var(lvl)),
@@ -48,11 +65,11 @@ final case class Ctx(
       PruneEntry.Bind1(Expl) :: pruning,
       x :: binds,
       addName(x, Name1(lvl, vty)),
-      Some((vty, None)) :: allTypes1,
+      addAuto(auto, x, vty),
       pos
     )
 
-  def insert1(x: Bind, ty: Ty): Ctx =
+  def insert1(x: Bind, ty: Ty, auto: Option[(Name, Name)] = None): Ctx =
     Ctx(
       lvl + 1,
       Env.Ext1(env, Val1.Var(lvl)),
@@ -60,11 +77,18 @@ final case class Ctx(
       PruneEntry.Bind1(Expl) :: pruning,
       x :: binds,
       names,
-      Some((eval1(ty), None)) :: allTypes1,
+      addAuto(auto, x, eval1(ty)),
       pos
     )
 
-  def define(x: Name, ty: Ty, vty: VTy, v: Tm1, vv: Val1): Ctx =
+  def define(
+      x: Name,
+      ty: Ty,
+      vty: VTy,
+      v: Tm1,
+      vv: Val1,
+      auto: Option[(Name, Name)] = None
+  ): Ctx =
     Ctx(
       lvl + 1,
       Env.Ext1(env, vv),
@@ -72,7 +96,7 @@ final case class Ctx(
       PruneEntry.Skip :: pruning,
       Bind.DoBind(x) :: binds,
       names + (x -> Name1(lvl, vty)),
-      Some((vty, Some(vv))) :: allTypes1,
+      addAuto(auto, x.toBind, vty, Some(vv)),
       pos
     )
 
@@ -84,7 +108,7 @@ final case class Ctx(
       PruneEntry.Skip :: pruning,
       Bind.DoBind(x) :: binds,
       names,
-      Some((eval1(ty), Some(vv))) :: allTypes1,
+      autos,
       pos
     )
 
@@ -96,7 +120,7 @@ final case class Ctx(
       PruneEntry.Bind0 :: pruning,
       x :: binds,
       addName(x, Name0(lvl, vty, vcv)),
-      None :: allTypes1,
+      autos,
       pos
     )
 
@@ -108,7 +132,7 @@ final case class Ctx(
       PruneEntry.Bind0 :: pruning,
       x :: binds,
       names,
-      None :: allTypes1,
+      autos,
       pos
     )
 
@@ -169,7 +193,7 @@ final case class Ctx(
 
 object Ctx:
   def empty(pos: PosInfo) =
-    Ctx(lvl0, Env.Empty, Locals.Empty, Nil, Nil, Map.empty, Nil, pos)
+    Ctx(lvl0, Env.Empty, Locals.Empty, Nil, Nil, Map.empty, Map.empty, pos)
 
   enum NameInfo:
     case Name0(_lvl: Lvl, ty: VTy, cv: VTy)
@@ -179,3 +203,6 @@ object Ctx:
       case Name1(_lvl, ty)     => _lvl
 
   type NameMap = Map[Name, NameInfo]
+
+  type AutoMapEntry = (Bind, Lvl, VTy, Option[Val1])
+  type AutoMap = Map[(Name, Name), List[AutoMapEntry]]

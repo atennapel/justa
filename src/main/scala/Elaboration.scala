@@ -27,6 +27,9 @@ import Debug.debug
 import scala.annotation.tailrec
 
 object Elaboration:
+  private val AutoSearchLimit = 1000
+  private val AutoSearchRetryLimit = 1000
+
   final class ElaborateError(val pos: PosInfo, val module: Name, msg: String)
       extends Exception(msg)
 
@@ -88,86 +91,80 @@ object Elaboration:
         checkAutoDef(b(V.Var(ctx.lvl)))(using ctx.bind1(x, ctx.readback1(a), a))
       case ty => checkAutoType(ty)
 
-  private def checkNotOnlyMetas(ty: VTy, args: List[(V, Icit)])(using
+  private def checkOnlyMetas(ty: VTy, args: List[(V, Icit)])(using
       ctx: Ctx
-  ): Unit =
+  ): Boolean =
     inline def allMetas = args.forall { a =>
       forceAll1(a._1) match
         case V.Flex(_, _) => true
         case _            => false
     }
-    if (args.size > 0 && allMetas)
-      err(s"invalid auto type, all metas: ${ctx.pretty1(ty)}")
+    args.size > 0 && allMetas
 
   private inline def transactMetas(inline k: Tm1): Option[Tm1] =
     try
       State.pushMetas()
+      State.pushPostponedAutos()
       val etm = k
       State.discardMetas()
+      State.discardPostponedAutos()
       Some(etm)
     catch
       case err: ElaborateError =>
         debug(s"transactMetas failed: ${err.getMessage}")
         State.rollbackMetas()
+        State.rollbackPostponedAutos()
         None
 
-  private val AutoSearchLimit = 1000
-  private def searchAuto(m: Name, dx: Name, ty: VTy, depth: Int)(using
-      ctx: Ctx
+  private def searchAuto(ty: VTy, depth: Int, failIfAllMetas: Boolean = false)(
+      using ctx: Ctx
   ): Tm1 =
     debug(s"search auto ${ctx.pretty1(ty)} (depth = $depth)")
     if depth >= AutoSearchLimit then
       err(s"auto search limit reached for type: ${ctx.pretty1(ty)}")
-
-    tryLocalAutos(
-      ty: VTy,
-      ctx.binds,
-      ctx.allTypes1,
-      ctx.lvl - 1,
-      depth: Int
-    ) match
-      case Some(etm) => etm
-      case None      =>
-        // TODO: consider only imported autos
-        tryGlobalAutos(ty, State.getAutos(m, dx), depth) match
-          case Some(etm) => etm
-          case None => err(s"failed to solve auto of type: ${ctx.pretty1(ty)}")
+    val (m, dx, args) = checkAutoType(ty)
+    if depth == 0 && checkOnlyMetas(ty, args) then
+      if failIfAllMetas then
+        err(s"invalid auto type, all metas: ${ctx.pretty1(ty)}")
+      else
+        val m = freshMeta(ty)
+        State.postponeAuto(ctx, m, ty)
+        m
+    else
+      tryLocalAutos(ty, ctx.getAutos(m, dx), depth) match
+        case Some(etm) => etm
+        case None =>
+          val gautos =
+            State
+              .getAutos(m, dx)
+              .filter((m, x) => State.isAccessibleGlobal(m, x))
+          tryGlobalAutos(ty, gautos, depth) match
+            case Some(etm) => etm
+            case None =>
+              err(s"failed to solve auto of type: ${ctx.pretty1(ty)}")
 
   @tailrec
   private def tryLocalAutos(
       ty: VTy,
-      binds: List[Bind],
-      types: List[Option[(VTy, Option[V])]],
-      lvl: Lvl,
+      entries: List[Ctx.AutoMapEntry],
       depth: Int
   )(using
       ctx: Ctx
   ): Option[Tm1] =
-    // TODO: consider only locals marked as auto
-    (binds, types) match
-      case (Nil, Nil) => None
-      case (_ :: xs, None :: ts) =>
-        tryLocalAutos(ty, xs, ts, lvl - 1, depth)
-      case (x :: xs, Some(lty, Some(v)) :: ts) =>
+    entries match
+      case Nil => None
+      case (x, lvl, lty, ov) :: ts =>
         debug(s"try local auto $x : ${ctx.pretty1(lty)} for ${ctx.pretty1(ty)}")
-        tryAuto(ty, ctx.readback1(v), lty, depth) match
-          case None => tryLocalAutos(ty, xs, ts, lvl - 1, depth)
-          case Some(etm) =>
-            debug(
-              s"using local auto ${ctx.pretty1(etm)} for ${ctx.pretty1(ty)}"
-            )
-            Some(etm)
-      case (x :: xs, Some(lty, None) :: ts) =>
-        debug(s"try local auto $x : ${ctx.pretty1(lty)} for ${ctx.pretty1(ty)}")
-        val tm = Tm1.Var(lvl.toIx(using ctx.lvl))
+        val tm = ov match
+          case None    => Tm1.Var(lvl.toIx(using ctx.lvl))
+          case Some(v) => ctx.readback1(v)
         tryAuto(ty, tm, lty, depth) match
-          case None => tryLocalAutos(ty, xs, ts, lvl - 1, depth)
+          case None => tryLocalAutos(ty, ts, depth)
           case Some(etm) =>
             debug(
               s"using local auto ${ctx.pretty1(etm)} for ${ctx.pretty1(ty)}"
             )
             Some(etm)
-      case _ => impossible()
 
   @tailrec
   private def tryGlobalAutos(
@@ -222,10 +219,7 @@ object Elaboration:
                   val etm = check1(d, a) // TODO: postpone if a is meta
                   go(Tm1.App(tm, etm, Impl), b(ctx.eval1(etm)))
                 case ImplMode.Auto =>
-                  val (m, dx, args) = checkAutoType(a)
-                  if depth == 0 then
-                    checkNotOnlyMetas(a, args) // TODO: postpone if fails
-                  val etm = searchAuto(m, dx, a, depth)
+                  val etm = searchAuto(a, depth)
                   go(Tm1.App(tm, etm, Impl), b(ctx.eval1(etm)))
         case _ =>
           mode match
@@ -693,13 +687,15 @@ object Elaboration:
         case (S.Lam(_, x, i, ma, b), V.Pi(x2, i2, t1, t2))
             if icitMatch(i, x2, i2) =>
           ma.foreach { sty => unify(ctx.eval1(check1(sty, V.Meta)), t1) }
+          val autod = i2 match // TODO: do this when elaborating the pi type
+            case Surface.PiIcit.Impl(Surface.ImplMode.Auto) =>
+              val (m, dx, _) = checkAutoDef(t1)
+              Some((m, dx))
+            case _ => None
           val qt1 = ctx.readback1(t1)
-          Tm1.Lam(
-            x,
-            i2,
-            qt1,
-            check1(b, t2(V.Var(ctx.lvl)))(using ctx.bind1(x, qt1, t1))
-          )
+          val nctx = ctx.bind1(x, qt1, t1, autod)
+          val eb = check1(b, t2(V.Var(ctx.lvl)))(using nctx)
+          Tm1.Lam(x, i2, qt1, eb)
 
         case (S.Var(_, x), V.Pi(_, PiIcit.Impl(_), _, _))
             if varHasUnknownType1(x) =>
@@ -707,14 +703,16 @@ object Elaboration:
           unify(ty2, ty)
           Tm1.Var(lvl.toIx(using ctx.lvl))
 
-        case (tm, V.Pi(x, i @ PiIcit.Impl(_), t1, t2)) =>
+        case (tm, V.Pi(x, i @ PiIcit.Impl(im), t1, t2)) =>
+          val autod = im match // TODO: do this when elaborating the pi type
+            case Surface.ImplMode.Auto =>
+              val (m, dx, _) = checkAutoDef(t1)
+              Some((m, dx))
+            case _ => None
           val qt1 = ctx.readback1(t1)
-          Tm1.Lam(
-            x,
-            i,
-            qt1,
-            check1(tm, t2(V.Var(ctx.lvl)))(using ctx.insert1(x, qt1))
-          )
+          val nctx = ctx.insert1(x, qt1, autod)
+          val eb = check1(tm, t2(V.Var(ctx.lvl)))(using nctx)
+          Tm1.Lam(x, i, qt1, eb)
 
         case (S.Pi(_, DontBind, PiIcit.Expl, t1, t2), V.Type(cv)) =>
           unify(cv, V.Comp)
@@ -732,12 +730,17 @@ object Elaboration:
           val cv = freshCV()
           Tm1.Lift(cv, check1(tm, V.Type(ctx.eval1(cv))))
 
-        case (S.Let1(_, x, mlty, v, b), _) =>
+        case (S.Let1(_, auto, x, mlty, v, b), _) =>
           val lty = tyAnnot(mlty, V.Meta)
           val vlty = ctx.eval1(lty)
+          val autod =
+            if auto then
+              val (m, dx, _) = checkAutoDef(vlty)
+              Some((m, dx))
+            else None
           val ev = check1(v, vlty)
-          val eb =
-            check1(b, ty)(using ctx.define(x, lty, vlty, ev, ctx.eval1(ev)))
+          val nctx = ctx.define(x, lty, vlty, ev, ctx.eval1(ev), autod)
+          val eb = check1(b, ty)(using nctx)
           Tm1.Let(x, lty, ev, eb)
 
         case (S.Quote(_, tm), V.Lift(cv, ty)) => check0(tm, ty, cv).quote
@@ -1177,12 +1180,17 @@ object Elaboration:
           val (eb, rty, rcv) = infer0(b)(using nctx)
           Infer0(Tm0.Let(x, ety, ev, eb), rty, rcv)
 
-        case S.Let1(_, x, mty, v, b) =>
+        case S.Let1(_, auto, x, mty, v, b) =>
           val lty = tyAnnot(mty, V.Meta)
           val vlty = ctx.eval1(lty)
+          val autod =
+            if auto then
+              val (m, dx, _) = checkAutoDef(vlty)
+              Some((m, dx))
+            else None
           val ev = check1(v, vlty)
-          val (eb, rty) =
-            infer1(b)(using ctx.define(x, lty, vlty, ev, ctx.eval1(ev)))
+          val nctx = ctx.define(x, lty, vlty, ev, ctx.eval1(ev), autod)
+          val (eb, rty) = infer1(b)(using nctx)
           Infer1(Tm1.Let(x, lty, ev, eb), rty)
 
         case S.Pi(_, DontBind, PiIcit.Expl, a, b) =>
@@ -1751,11 +1759,9 @@ object Elaboration:
     val errs = allGlobals(ty).flatMap(checkGlobal)
     if errs.nonEmpty then err(errs.mkString("\n"))
 
-  private def elaborate(d: Surface.Def): Unit =
-    debug(s"elaborate $d")
+  private def elaborateDefInner(d: Surface.Def)(using ctx: Ctx): Unit =
     d match
-      case Surface.Def.Def0(pos, pub, x, mty, v) =>
-        given ctx: Ctx = Ctx.empty(pos)
+      case Surface.Def.Def0(_, pub, x, mty, v) =>
         if State.currentModuleHasName(x) || State.hasImport(x) then
           err(s"duplicate definition $x")
         val (ev, ty, cv, vty, vcv) = mty match
@@ -1771,13 +1777,11 @@ object Elaboration:
             val vty = ctx.eval1(ety)
             val ev = check0(v, vty, vcv)(using ctx)
             (ev, ety, cv, vty, vcv)
-        freeze()
         if pub then checkAccessibility(vty)
         State.addGlobal(
           GlobalEntry.Def0(pub, x, ev, ty, cv, ctx.eval0(ev), vty, vcv)
         )
-      case Surface.Def.Def1(pos, pub, auto, x, mty, v) =>
-        given ctx: Ctx = Ctx.empty(pos)
+      case Surface.Def.Def1(_, pub, auto, x, mty, v) =>
         if State.currentModuleHasName(x) || State.hasImport(x) then
           err(s"duplicate definition $x")
         val (ev, ty, vv, vty) = mty match
@@ -1789,14 +1793,12 @@ object Elaboration:
             val vty = ctx.eval1(ety)
             val ev = check1(v, vty)
             (ev, ety, ctx.eval1(ev), vty)
-        freeze()
         if pub then checkAccessibility(vty)
         if auto then
           val (m, dx, _) = checkAutoDef(vty)
           State.addAuto(State.currentModule, x, m, dx)
         State.addGlobal(GlobalEntry.Def1(pub, x, ev, ty, vv, vty))
-      case Surface.Def.Data(pos, pub, meta, x, ps, univ, cs) =>
-        given ctx: Ctx = Ctx.empty(pos)
+      case Surface.Def.Data(_, pub, meta, x, ps, univ, cs) =>
         val u = univ match
           case Some(ty) =>
             val ety = check1(ty, V.Meta)
@@ -1910,7 +1912,6 @@ object Elaboration:
           )
         )
     }
-    freeze()
 
   private def elaborateData0(
       pub: Boolean,
@@ -1985,6 +1986,30 @@ object Elaboration:
           )
         )
     }
+
+  private def elaborateDef(d: Surface.Def): Unit =
+    debug(s"elaborate $d")
+    given ctx: Ctx = Ctx.empty(d.pos)
+    elaborateDefInner(d)
+    var attempt = 0
+    var continue = true
+    debug(s"perform postponed autos ($attempt)")
+    while continue do
+      val autos = State.getPostponedAutos()
+      if autos.isEmpty then continue = false
+      else
+        autos.foreach { (ctx, m, vty) =>
+          debug(s"postponed auto: ${ctx.pretty1(vty)}")
+          given Ctx = ctx
+          val tm = searchAuto(vty, 0, true)
+          unify(ctx.eval1(m), ctx.eval1(tm))
+        }
+        attempt += 1
+        if attempt >= AutoSearchRetryLimit then continue = false
+    val leftovers = State.getPostponedAutos()
+    if leftovers.nonEmpty then
+      val str = leftovers.map((ctx, _, vty) => ctx.pretty1(vty)).mkString(", ")
+      err(s"unsolved autos: $str")
     freeze()
 
   private def elaborate(mod: Surface.Module): Unit =
@@ -2005,7 +2030,7 @@ object Elaboration:
       else State.addImport(m, x, y)
       if rex then State.addReexport(mod.name, y, m, x)
     }
-    mod.defs.toList.foreach(elaborate)
+    mod.defs.toList.foreach(elaborateDef)
     checkUnsolvedMetas()(using Ctx.empty(mod.pos))
 
   def elaborate(mod: List[Surface.Module]): Unit =

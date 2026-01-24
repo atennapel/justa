@@ -33,9 +33,15 @@ object Surface:
           s"${if pub then "" else "priv "}$name $ps"
 
   enum Def:
-    case Def0(pos: PosInfo, pub: Boolean, name: Name, ty: Option[Ty], value: Tm)
+    case Def0(
+        _pos: PosInfo,
+        pub: Boolean,
+        name: Name,
+        ty: Option[Ty],
+        value: Tm
+    )
     case Def1(
-        pos: PosInfo,
+        _pos: PosInfo,
         pub: Boolean,
         auto: Boolean,
         name: Name,
@@ -43,7 +49,7 @@ object Surface:
         value: Tm
     )
     case Data(
-        pos: PosInfo,
+        _pos: PosInfo,
         pub: Boolean,
         meta: Option[Boolean],
         name: Name,
@@ -62,6 +68,11 @@ object Surface:
         val ustr = u.fold("")(t => s" : $t")
         val df = meta.fold("|")(m => if m then "=" else ":=")
         s"${if p then "pub " else ""}data $x ${ps.map((x, i, ty) => i.wrap(s"$x : $ty")).mkString(" ")}$ustr $df $css"
+
+    def pos: PosInfo = this match
+      case Def0(p, _, _, _, _)       => p
+      case Def1(p, _, _, _, _, _)    => p
+      case Data(p, _, _, _, _, _, _) => p
 
   enum ImplMode derives CanEqual:
     case Unif
@@ -141,7 +152,14 @@ object Surface:
     case IntLit(_pos: PosInfo, value: Int)
 
     case Let0(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
-    case Let1(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
+    case Let1(
+        _pos: PosInfo,
+        auto: Boolean,
+        name: Name,
+        ty: Option[Ty],
+        value: Tm,
+        body: Tm
+    )
     case LetRec(_pos: PosInfo, name: Name, ty: Option[Ty], value: Tm, body: Tm)
 
     case Proj(_pos: PosInfo, tm: Tm, proj: ProjType)
@@ -178,28 +196,28 @@ object Surface:
     case Hole(_pos: PosInfo, name: Option[Name])
 
     def pos: PosInfo = this match
-      case Var(_pos, _)             => _pos
-      case Prim(_pos, _)            => _pos
-      case IntLit(_pos, _)          => _pos
-      case Proj(_pos, _, _)         => _pos
-      case Let0(_pos, _, _, _, _)   => _pos
-      case Let1(_pos, _, _, _, _)   => _pos
-      case LetRec(_pos, _, _, _, _) => _pos
-      case Pi(_pos, _, _, _, _)     => _pos
-      case Lam(_pos, _, _, _, _)    => _pos
-      case App(_pos, _, _, _)       => _pos
-      case Lift(_pos, _)            => _pos
-      case Quote(_pos, _)           => _pos
-      case Splice(_pos, _)          => _pos
-      case If(_pos, _, _, _)        => _pos
-      case Match(_pos, _, _, _)     => _pos
-      case Hole(_pos, _)            => _pos
-      case UnitLit(_pos)            => _pos
-      case EmptyRecord(_pos)        => _pos
-      case RecordTy(_pos, _)        => _pos
-      case RecordCon1(_pos, _)      => _pos
-      case RecordCon0(_pos, _)      => _pos
-      case Tuple(_pos, _)           => _pos
+      case Var(_pos, _)              => _pos
+      case Prim(_pos, _)             => _pos
+      case IntLit(_pos, _)           => _pos
+      case Proj(_pos, _, _)          => _pos
+      case Let0(_pos, _, _, _, _)    => _pos
+      case Let1(_pos, _, _, _, _, _) => _pos
+      case LetRec(_pos, _, _, _, _)  => _pos
+      case Pi(_pos, _, _, _, _)      => _pos
+      case Lam(_pos, _, _, _, _)     => _pos
+      case App(_pos, _, _, _)        => _pos
+      case Lift(_pos, _)             => _pos
+      case Quote(_pos, _)            => _pos
+      case Splice(_pos, _)           => _pos
+      case If(_pos, _, _, _)         => _pos
+      case Match(_pos, _, _, _)      => _pos
+      case Hole(_pos, _)             => _pos
+      case UnitLit(_pos)             => _pos
+      case EmptyRecord(_pos)         => _pos
+      case RecordTy(_pos, _)         => _pos
+      case RecordCon1(_pos, _)       => _pos
+      case RecordCon0(_pos, _)       => _pos
+      case Tuple(_pos, _)            => _pos
 
     def splitProjs: (Tm, List[(PosInfo, ProjType)]) = this match
       case Proj(pos, tm, proj) =>
@@ -214,8 +232,9 @@ object Surface:
       case Proj(_, t, p) => s"$t.$p"
       case Let0(_, x, ty, v, b) =>
         s"(let $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
-      case Let1(_, x, ty, v, b) =>
-        s"(let $x${ty.map(t => s" : $t").getOrElse("")} = $v; $b)"
+      case Let1(_, auto, x, ty, v, b) =>
+        val a = if auto then s"auto " else ""
+        s"(let $a$x${ty.map(t => s" : $t").getOrElse("")} = $v; $b)"
       case LetRec(_, x, ty, v, b) =>
         s"(let rec $x${ty.map(t => s" : $t").getOrElse("")} := $v; $b)"
       case Pi(_, Bind.DontBind, PiIcit.Expl, ty, b) => s"($ty -> $b)"

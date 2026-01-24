@@ -20,6 +20,7 @@ https://github.com/AndrasKovacs/cctt
 - [x] Identity type
 - [x] Meta datatypes
 - [x] Meta-level recursion
+- [x] Instance search
 - [ ] Elaborate if-expressions for meta level
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
@@ -28,7 +29,6 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Mutual recursion
 - [ ] Mutual recursive datatypes
 - [ ] Pattern matching
-- [ ] Instance search
 - [ ] String and label types
 - [ ] Import all(-hiding), re-export all(-hiding)
 - [ ] Accept trailing and leading commas where it makes sense

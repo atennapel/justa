@@ -47,8 +47,6 @@ pub def unit {A} {auto m : Monoid A} : A=
   match m
   | MkMonoid unit _ => unit
 
-def test : Unit = unit {Unit}
-
 pub def append {A} {auto m : Monoid A} : A -> A -> A =
   match m
   | MkMonoid _ append => append
@@ -59,9 +57,7 @@ pub def appendOption {A} {auto m : Monoid A} (a b : Option A) : Option A =
   | Some x =>
     match b
     | None => a
-    | Some y => Some (append {A} x y)
+    | Some y => Some (append x y)
 
 pub auto def MonoidOption {A} {auto m : Monoid A} : Monoid (Option A) =
-  MkMonoid None (appendOption {A})
-
-def test2 = append {Option Unit} (Some U) (unit {Option Unit})
+  MkMonoid None appendOption
