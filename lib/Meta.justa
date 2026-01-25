@@ -2,47 +2,12 @@ module Meta
 
 pub data VoidM : meta
 
+pub def absurdM {A} (v : VoidM) : A = match v {}
+
 pub data UnitM = UM
 
 pub def fix {A : meta} {B : A -> meta} (go : ((x : A) -> B x) -> (x : A) -> B x) (x : A) : B x =
   fixIx {UnitM} {\_ => A} {\_ x => B x} (\r {i} x => go (r {i}) x) {UM} x
-
-pub def absurdM {A} (v : VoidM) : A = match v {}
-
--- identity type
-pub def (~) {A} (x y : A) = Id x y
-pub def (!~) {A} (x y : A) = x ~ y -> VoidM
-
-pub def idJ {A} (P : {a b : A} -> a ~ b -> meta) (h : {a} -> P {a} refl) {a b : A} (p : a ~ b) : P p =
-  elimId (\{c} q => P {a} {c} q) h p
-
-pub def rewrite {A} (P : A -> meta) {a b : A} (p : a ~ b) (x : P a) : P b =
-  idJ (\{a} {b} _ => P a -> P b) (\q => q) p x
-
-pub def cast {A B : meta} (p : A ~ B) (x : A) : B =
-  rewrite (\y => y) p x
-
-pub def sym {A} {a b : A} (p : a ~ b) : b ~ a =
-  idJ (\{x} {y} _ => y ~ x) refl p
-
-pub def trans {A} {a b c : A} (p : b ~ c) (q : a ~ b) : a ~ c =
-  rewrite ((~) a) p q
-
-pub def cong {A B} {a b : A} (f : A -> B) (p : a ~ b) : f a ~ f b =
-  rewrite {A} (\x => f a ~ f x) {a} {b} p refl
-
-pub def idRefl {A} {a : A} (p : a ~ a) : p ~ refl =
-  elimId (\{c} q => Id q (refl {A} {c})) refl p
-
-pub def idK {A} {a : A} (P : a ~ a -> meta) (p : a ~ a) (h : P refl) : P p =
-  rewrite P (sym (idRefl p)) h
-
-pub def uip {A} {a b : A} (p1 p2 : a ~ b) : p1 ~ p2 =
-  (elimId (\{c} p => (q : a ~ c) -> q ~ p) idRefl p2) p1
-
---
-pub def Singleton {A} (x : A) : meta = [value : A, proof : value ~ x]
-pub def MkSingleton {A} (x : A) : Singleton x = [x, refl]
 
 pub data BoolM = TrueM | FalseM
 
@@ -51,21 +16,6 @@ pub def notM (b : BoolM) =
   | TrueM => FalseM
   | FalseM => TrueM
 
-pub def not_not_id {b} : notM (notM b) ~ b =
-  match b : b => notM (notM b) ~ b
-  | TrueM => refl
-  | FalseM => refl
-
-def LiftBool (b : BoolM) =
-  match b
-  | TrueM => UnitM
-  | FalseM => VoidM
-
-pub def true_neq_false : TrueM !~ FalseM =
-  \p => rewrite LiftBool p UM
-
-pub def So b = b ~ TrueM
-
 pub data NatM = ZM | SM NatM
 
 pub def predM (n : NatM) =
@@ -73,37 +23,7 @@ pub def predM (n : NatM) =
   | ZM => ZM
   | SM n => n
 
-def LiftNat (n : NatM) =
-  match n
-  | ZM => UnitM
-  | SM _ => VoidM
-
-pub def z_neq_s {n} : ZM !~ SM n =
-  \p => rewrite LiftNat p UM
-
-pub def s_cong {a b} (p : SM a ~ SM b) : a ~ b =
-  cong predM p
-
-pub data Vec (n : NatM) A
-| VNil {default refl proof : ZM ~ n}
-| VCons {m} {default refl proof : SM m ~ n} (head : A) (tail : Vec m A)
-
-def v = VCons TrueM VNil
-
-pub def head {A n} (v : Vec (SM n) A) : A =
-  match v
-  | VNil {p} => absurdM (z_neq_s p)
-  | VCons hd _ => hd
-
-pub def tail {A n} (v : Vec (SM n) A) : Vec n A =
-  match v
-  | VNil {p} => absurdM (z_neq_s p)
-  | VCons {_} {p} _ tl => rewrite (\n => Vec n A) (s_cong p) tl
-
-pub def map {A B n} (f : A -> B) (v : Vec n A) : Vec n B =
-  fixIx (
-    \go {n} (v : Vec n A) =>
-      match v
-      | VNil {p} => rewrite (\n => Vec n B) p VNil
-      | VCons {_} {p} hd tl => rewrite (\n => Vec n B) p (VCons (f hd) (go tl))
-  ) v
+pub def addM (a b : NatM) : NatM =
+  fix {NatM} (\go a => match a
+  | ZM => b
+  | SM m => SM (go m)) a

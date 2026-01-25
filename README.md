@@ -21,6 +21,9 @@ https://github.com/AndrasKovacs/cctt
 - [x] Meta datatypes
 - [x] Meta-level recursion
 - [x] Instance search
+- [ ] Fix Test file
+- [ ] Fix right-assoc operators
+- [ ] Support record syntax for product-like datatypes
 - [ ] Mutual recursive datatypes
 - [ ] Elaborate if-expressions for meta level
 - [ ] JVM bytecode generation
@@ -34,8 +37,9 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Accept trailing and leading commas where it makes sense
 - [ ] Give more context for cv unification errors in elaboration
 - [ ] Generate private anonymous records if possible
-- [ ] Support record syntax for product-like datatypes
 - [ ] Overloaded constructors
 - [ ] Meta spine eta-expansion
 - [ ] Row-types records (and variants)?
 - [ ] Check performance with lazy env and types
+- [ ] Sugar for lists and other data structures
+- [ ] Sugar for fixIx and fix

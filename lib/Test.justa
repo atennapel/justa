@@ -1,0 +1,22 @@
+module Test
+
+import Prelude (vtype, (+), Option, None, Some)
+import List (List, Nil, (::), map => mapList)
+
+data Functor (F : vtype -> vtype) =
+  MkFunctor (map : {A B : vtype} -> (A -> B) -> F A -> F B)
+
+def map {F} {auto fnc : Functor F} {A B : vtype} (f : A -> B) (x : F A) : F B =
+  match fnc
+  | MkFunctor map => map f x
+
+def mapOption {A B : vtype} (f : A -> B) (x : Option A) : Option B =
+  match x
+  | None => None
+  | Some v => Some (f v)
+
+auto def FunctorOption : Functor Option = MkFunctor mapOption
+auto def FunctorList : Functor List = MkFunctor mapList
+
+def list = (Some 1) :: (None :: ((Some 3) :: Nil))
+def list2 := map (\o => map (\n => n + 1) o) list

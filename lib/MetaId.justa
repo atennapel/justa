@@ -1,0 +1,55 @@
+module MetaId
+
+import Meta (VoidM, absurdM, UnitM, UM, BoolM, TrueM, FalseM, notM, NatM, ZM, SM, predM)
+import IdUtil ((~), (!~), rewrite, cong)
+
+pub def Singleton {A} (x : A) : meta = [value : A, proof : value ~ x]
+pub def MkSingleton {A} (x : A) : Singleton x = [x, refl]
+
+pub def not_not_id {b} : notM (notM b) ~ b =
+  match b : b => notM (notM b) ~ b
+  | TrueM => refl
+  | FalseM => refl
+
+def LiftBool (b : BoolM) =
+  match b
+  | TrueM => UnitM
+  | FalseM => VoidM
+
+pub def true_neq_false : TrueM !~ FalseM =
+  \p => rewrite LiftBool p UM
+
+pub def So b = b ~ TrueM
+
+def LiftNat (n : NatM) =
+  match n
+  | ZM => UnitM
+  | SM _ => VoidM
+
+pub def z_neq_s {n} : ZM !~ SM n =
+  \p => rewrite LiftNat p UM
+
+pub def s_cong {a b} (p : SM a ~ SM b) : a ~ b =
+  cong predM p
+
+pub data Vec (n : NatM) A
+| VNil {default refl proof : ZM ~ n}
+| VCons {m} {default refl proof : SM m ~ n} (head : A) (tail : Vec m A)
+
+pub def head {A n} (v : Vec (SM n) A) : A =
+  match v
+  | VNil {p} => absurdM (z_neq_s p)
+  | VCons hd _ => hd
+
+pub def tail {A n} (v : Vec (SM n) A) : Vec n A =
+  match v
+  | VNil {p} => absurdM (z_neq_s p)
+  | VCons {_} {p} _ tl => rewrite (\n => Vec n A) (s_cong p) tl
+
+pub def map {A B n} (f : A -> B) (v : Vec n A) : Vec n B =
+  fixIx (
+    \go {n} (v : Vec n A) =>
+      match v
+      | VNil {p} => rewrite (\n => Vec n B) p VNil
+      | VCons {_} {p} hd tl => rewrite (\n => Vec n B) p (VCons (f hd) (go tl))
+  ) v
