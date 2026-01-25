@@ -21,10 +21,10 @@ https://github.com/AndrasKovacs/cctt
 - [x] Meta datatypes
 - [x] Meta-level recursion
 - [x] Instance search
-- [ ] Fix Test file
 - [ ] Support record syntax for product-like datatypes
 - [ ] Mutual recursive datatypes
 - [ ] Elaborate if-expressions for meta level
+- [ ] Fix unification issues in test file
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism

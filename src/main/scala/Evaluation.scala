@@ -130,8 +130,9 @@ object Evaluation:
         @tailrec
         def go(env: Env, cs: Cases1): V1 =
           cs match
-            case Cases1.Ext(cx2, _, b, r) if cx == cx2 =>
-              val nenv = env.exts1(args.map(_._1))
+            case Cases1.Ext(cx2, ps, b, r) if cx == cx2 =>
+              // TODO: can we just drop the first few args?
+              val nenv = env.exts1(args.drop(args.size - ps.size).map(_._1))
               eval1(b)(using nenv)
             case Cases1.Ext(_, _, _, r) => go(env, r)
             case Cases1.Otherwise(b)    => eval1(b)(using env)

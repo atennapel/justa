@@ -536,8 +536,8 @@ object Unification:
     val mty = entry.ty
     iv._2.foreach(p => pruneTy(RevPruning(p), mty))
     val rhs2 = psubst1(rhs)(using psub.copy(occ = Some(m)))
-    debug(s"solution ?$m := $rhs2")
     val rhs2lams = lams(psub.dom, mty, rhs2)
+    debug(s"solution ?$m := $rhs2lams")
     val sol = eval1(rhs2lams)(using Env.Empty)
     solveMetaVar(m, sol)
 
