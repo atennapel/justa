@@ -93,13 +93,17 @@ object Elaboration:
 
   private def checkOnlyMetas(ty: VTy, args: List[(V, Icit)])(using
       ctx: Ctx
-  ): Boolean =
-    inline def allMetas = args.forall { a =>
+  ): Option[Set[MetaId]] =
+    inline def allMetas = args.flatMap { a =>
       forceAll1(a._1) match
-        case V.Flex(_, _) => true
-        case _            => false
-    }
-    args.size > 0 && allMetas
+        case V.Flex(m, _) => Some(m)
+        case _            => None
+    }.toSet
+    if args.isEmpty then None
+    else
+      val am = allMetas
+      if am.size == args.size then Some(allMetas)
+      else None
 
   private inline def transactMetas(inline k: Tm1): Option[Tm1] =
     try
@@ -123,25 +127,26 @@ object Elaboration:
     if depth >= AutoSearchLimit then
       err(s"auto search limit reached for type: ${ctx.pretty1(ty)}")
     val (m, dx, args) = checkAutoType(ty)
-    if depth == 0 && checkOnlyMetas(ty, args) then
-      if failIfAllMetas then
-        err(s"invalid auto type, all metas: ${ctx.pretty1(ty)}")
-      else
-        val m = freshMeta(ty)
-        State.postponeAuto(m, ty)
-        m
-    else
-      tryLocalAutos(ty, ctx.getAutos(m, dx), depth) match
-        case Some(etm) => etm
-        case None =>
-          val gautos =
-            State
-              .getAutos(m, dx)
-              .filter((m, x) => State.isAccessibleGlobal(m, x))
-          tryGlobalAutos(ty, gautos, depth) match
-            case Some(etm) => etm
-            case None =>
-              err(s"failed to solve auto of type: ${ctx.pretty1(ty)}")
+    checkOnlyMetas(ty, args) match
+      case Some(blocked) =>
+        if failIfAllMetas then
+          err(s"invalid auto type, all metas: ${ctx.pretty1(ty)}")
+        else
+          val m = freshMeta(ty)
+          State.postponeAuto(m, ty, blocked)
+          m
+      case None =>
+        tryLocalAutos(ty, ctx.getAutos(m, dx), depth) match
+          case Some(etm) => etm
+          case None =>
+            val gautos =
+              State
+                .getAutos(m, dx)
+                .filter((m, x) => State.isAccessibleGlobal(m, x))
+            tryGlobalAutos(ty, gautos, depth) match
+              case Some(etm) => etm
+              case None =>
+                err(s"failed to solve auto of type: ${ctx.pretty1(ty)}")
 
   @tailrec
   private def tryLocalAutos(
@@ -194,6 +199,17 @@ object Elaboration:
       unify(gty, ty)
       etm
     }
+
+  private def onMetaSolved(m: MetaId, v: V): Unit =
+    val ps = State.getPostponedAutosBlockedBy(m)
+    if ps.nonEmpty then
+      debug(s"solving postponed autos for ?$m")
+      ps.foreach { (ctx, m, vty, _) =>
+        debug(s"postponed auto: ${ctx.pretty1(vty)}")
+        given Ctx = ctx
+        val tm = searchAuto(vty, 0)
+        unify(ctx.eval1(m), ctx.eval1(tm))
+      }
 
   // meta insertion
   private enum InsertMode:
@@ -2002,7 +2018,7 @@ object Elaboration:
       val autos = State.getPostponedAutos()
       if autos.isEmpty then continue = false
       else
-        autos.foreach { (ctx, m, vty) =>
+        autos.foreach { (ctx, m, vty, _) =>
           debug(s"postponed auto: ${ctx.pretty1(vty)}")
           given Ctx = ctx
           val tm = searchAuto(vty, 0, true)
@@ -2012,7 +2028,8 @@ object Elaboration:
         if attempt >= AutoSearchRetryLimit then continue = false
     val leftovers = State.getPostponedAutos()
     if leftovers.nonEmpty then
-      val str = leftovers.map((ctx, _, vty) => ctx.pretty1(vty)).mkString(", ")
+      val str =
+        leftovers.map((ctx, _, vty, _) => ctx.pretty1(vty)).mkString(", ")
       err(s"unsolved autos: $str")
     freeze()
 
@@ -2047,5 +2064,6 @@ object Elaboration:
 
   def elaborate(mod: List[Surface.Module]): Unit =
     debug(s"elaborate modules ${mod.map(_.name).mkString("[", ",", "]")}")
+    State.setMetaSolveCallback(onMetaSolved)
     mod.foreach(elaborate)
     checkUnsolvedMetas()(using Ctx.empty(PosInfo(0, 0)))

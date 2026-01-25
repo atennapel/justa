@@ -21,6 +21,10 @@ object State:
 
   private var metas: mutable.ArrayBuffer[MetaEntry] = mutable.ArrayBuffer.empty
   private var frozen: MetaId = metaId(0)
+  private var metaSolveCallback: (MetaId, Val1) => Unit = (_, _) => ()
+
+  def setMetaSolveCallback(f: (MetaId, Val1) => Unit): Unit =
+    metaSolveCallback = f
 
   private val metaStack: mutable.ArrayBuffer[mutable.ArrayBuffer[MetaEntry]] =
     mutable.ArrayBuffer.empty
@@ -31,20 +35,27 @@ object State:
     metas = metaStack.last
     metaStack.dropRightInPlace(1)
 
-  type PostponedAutoEntry = (Ctx, Tm1, VTy)
+  type PostponedAutoEntry = (Ctx, Tm1, VTy, Set[MetaId])
   private var postponedAutos: mutable.ArrayBuffer[PostponedAutoEntry] =
     mutable.ArrayBuffer.empty
   private var postponedAutosStack
       : mutable.ArrayBuffer[mutable.ArrayBuffer[PostponedAutoEntry]] =
     mutable.ArrayBuffer.empty
 
-  def postponeAuto(m: Tm1, ty: VTy)(using ctx: Ctx): Unit =
-    postponedAutos += ((ctx, m, ty))
+  def postponeAuto(m: Tm1, ty: VTy, blocked: Set[MetaId])(using
+      ctx: Ctx
+  ): Unit =
+    postponedAutos += ((ctx, m, ty, blocked))
 
   def getPostponedAutos(): List[PostponedAutoEntry] =
     val l = postponedAutos.toList
     postponedAutos.clear()
     l
+
+  def getPostponedAutosBlockedBy(m: MetaId): List[PostponedAutoEntry] =
+    val matching = postponedAutos.filter((_, _, _, bs) => bs.contains(m))
+    postponedAutos --= matching
+    matching.toList
 
   def pushPostponedAutos(): Unit = postponedAutosStack += postponedAutos.clone()
   def discardPostponedAutos(): Unit = postponedAutosStack.dropRightInPlace(1)
@@ -75,6 +86,7 @@ object State:
   def solveMeta(id: MetaId, v: Val1): Unit =
     val u = getMetaUnsolved(id)
     metas(id.expose) = MetaEntry.Solved(v, u.ty)
+    metaSolveCallback(id, v)
 
   def getMetas(): List[(MetaId, VTy, Option[Val1])] =
     metas.zipWithIndex.collect {

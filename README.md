@@ -21,13 +21,13 @@ https://github.com/AndrasKovacs/cctt
 - [x] Meta datatypes
 - [x] Meta-level recursion
 - [x] Instance search
+- [ ] Mutual recursive datatypes
 - [ ] Elaborate if-expressions for meta level
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
 - [ ] Null handling
 - [ ] Mutual recursion
-- [ ] Mutual recursive datatypes
 - [ ] Pattern matching
 - [ ] String and label types
 - [ ] Import all(-hiding), re-export all(-hiding)
