@@ -22,7 +22,6 @@ https://github.com/AndrasKovacs/cctt
 - [x] Meta-level recursion
 - [x] Instance search
 - [ ] Fix Test file
-- [ ] Fix right-assoc operators
 - [ ] Support record syntax for product-like datatypes
 - [ ] Mutual recursive datatypes
 - [ ] Elaborate if-expressions for meta level

@@ -18,5 +18,5 @@ def mapOption {A B : vtype} (f : A -> B) (x : Option A) : Option B =
 auto def FunctorOption : Functor Option = MkFunctor mapOption
 auto def FunctorList : Functor List = MkFunctor mapList
 
-def list = (Some 1) :: (None :: ((Some 3) :: Nil))
+def list = Some 1 :: None :: Some 3 :: Nil
 def list2 := map (\o => map (\n => n + 1) o) list

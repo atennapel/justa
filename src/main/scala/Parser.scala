@@ -424,7 +424,7 @@ object Parser:
             while opstack.nonEmpty && run do
               val top = opstack.last
               val ptop = prec(top._2)
-              if p < ptop || (p == ptop && !l) then
+              if p < ptop || (p == ptop && l) then
                 opstack.pop(); handleOp(top)
               else run = false
             opstack.push(opp)
