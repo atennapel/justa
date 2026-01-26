@@ -504,6 +504,14 @@ object Core:
           Some((ty, v))
         case _ => None
 
+    object PrimArgs:
+      def apply(p: Primitive, args: List[(VTy, Icit)] = Nil): Val1 =
+        Rigid(Head.Prim(p), Spine.apps(args))
+      def unapply(value: Val1): Option[(Primitive, List[(VTy, Icit)])] =
+        value match
+          case Rigid(Head.Prim(p), spine) => Some((p, spine.toList))
+          case _                          => None
+
     val Meta = Prim(Primitive.Meta)
     val CV = Prim(Primitive.CV)
     val Val = Prim(Primitive.Val)

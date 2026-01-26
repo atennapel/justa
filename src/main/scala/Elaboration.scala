@@ -97,7 +97,12 @@ object Elaboration:
     inline def allMetas = args.flatMap { a =>
       forceAll1(a._1) match
         case V.Flex(m, _) => Some(m)
-        case _            => None
+        case V.Lam(x, i, _, b) =>
+          val l = ctx.lvl
+          forceAll1(b(V.Var(l))) match
+            case V.Flex(m, _) => Some(m)
+            case _            => None
+        case _ => None
     }.toSet
     if args.isEmpty then None
     else
@@ -132,32 +137,34 @@ object Elaboration:
         if failIfAllMetas then
           err(s"invalid auto type, all metas: ${ctx.pretty1(ty)}")
         else
+          debug(s"postpone auto type, all metas: ${ctx.pretty1(ty)}")
           val m = freshMeta(ty)
           State.postponeAuto(m, ty, blocked)
           m
       case None =>
-        tryLocalAutos(ty, ctx.getAutos(m, dx), depth) match
-          case Some(etm) => etm
-          case None =>
-            val gautos =
-              State
-                .getAutos(m, dx)
-                .filter((m, x) => State.isAccessibleGlobal(m, x))
-            tryGlobalAutos(ty, gautos, depth) match
-              case Some(etm) => etm
-              case None =>
-                err(s"failed to solve auto of type: ${ctx.pretty1(ty)}")
+        val localInstances = tryLocalAutos(ty, ctx.getAutos(m, dx), depth)
+        val gautos =
+          State
+            .getAutos(m, dx)
+            .filter((m, x) => State.isAccessibleGlobal(m, x))
+        val globalInstances = tryGlobalAutos(ty, gautos, depth)
+        (localInstances ++ globalInstances) match
+          case Nil => err(s"failed to solve auto of type: ${ctx.pretty1(ty)}")
+          case tm :: Nil => tm
+          case tms =>
+            err(
+              s"failed to solve auto of type: ${ctx.pretty1(ty)}, too many options: ${tms.map(t => ctx.pretty1(t)).mkString(", ")}"
+            )
 
-  @tailrec
   private def tryLocalAutos(
       ty: VTy,
       entries: List[Ctx.AutoMapEntry],
       depth: Int
   )(using
       ctx: Ctx
-  ): Option[Tm1] =
+  ): List[Tm1] =
     entries match
-      case Nil => None
+      case Nil => Nil
       case (x, lvl, lty, ov) :: ts =>
         debug(s"try local auto $x : ${ctx.pretty1(lty)} for ${ctx.pretty1(ty)}")
         val tm = ov match
@@ -169,16 +176,15 @@ object Elaboration:
             debug(
               s"using local auto ${ctx.pretty1(etm)} for ${ctx.pretty1(ty)}"
             )
-            Some(etm)
+            etm :: tryLocalAutos(ty, ts, depth)
 
-  @tailrec
   private def tryGlobalAutos(
       ty: VTy,
       autos: List[(Name, Name)],
       depth: Int
-  )(using ctx: Ctx): Option[Tm1] =
+  )(using ctx: Ctx): List[Tm1] =
     autos match
-      case Nil => None
+      case Nil => Nil
       case (m, x) :: rest =>
         val (gv, gt) = State.getGlobalDirect(m, x) match
           case Some(GlobalEntry.Def1(_, _, _, _, v, t)) => (v, t)
@@ -188,7 +194,7 @@ object Elaboration:
           case None => tryGlobalAutos(ty, rest, depth)
           case Some(etm) =>
             debug(s"using auto ${ctx.pretty1(etm)} for ${ctx.pretty1(ty)}")
-            Some(etm)
+            etm :: tryGlobalAutos(ty, rest, depth)
 
   private def tryAuto(ty: VTy, atm: Tm1, aty: VTy, depth: Int)(using
       ctx: Ctx

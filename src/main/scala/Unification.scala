@@ -37,62 +37,142 @@ object Unification:
     case PS1(value: V)
   import PSEntry.*
 
+  private enum ApxTm:
+    case Global(m: Name, x: Name, args: List[ApxTm])
+    case TypeCon1(m: Name, dx: Name, args: List[ApxTm])
+    case TypeCon0(m: Name, dx: Name, args: List[ApxTm])
+    case Prim(p: Primitive, args: List[ApxTm])
+
+    override def toString: String = this match
+      case Global(m, x, args) =>
+        val sargs = if args.isEmpty then "" else s" ${args.mkString(" ")}"
+        s"$m.$x$sargs"
+      case TypeCon1(m, x, args) =>
+        val sargs = if args.isEmpty then "" else s" ${args.mkString(" ")}"
+        s"$m.$x$sargs"
+      case TypeCon0(m, x, args) =>
+        val sargs = if args.isEmpty then "" else s" ${args.mkString(" ")}"
+        s"$m.$x$sargs"
+      case Prim(p, args) =>
+        val sargs = if args.isEmpty then "" else s" ${args.mkString(" ")}"
+        s"$p$sargs"
+
+  private object ApxTm:
+    def apply(v: V): Option[ApxTm] =
+      forceAll1(v) match
+        /*case V.Unfold(UnfoldHead.Global(m, x, _), sp, _) =>
+          ApxTm.fromSpine(sp) match
+            case None       => None
+            case Some(args) => Some(ApxTm.Global(m, x, args))*/
+        case V.Rigid(Head.TypeCon1(m, x), sp) =>
+          ApxTm.fromSpine(sp) match
+            case None       => None
+            case Some(args) => Some(ApxTm.TypeCon1(m, x, args))
+        case V.Rigid(Head.TypeCon0(m, x), sp) =>
+          ApxTm.fromSpine(sp) match
+            case None       => None
+            case Some(args) => Some(ApxTm.TypeCon0(m, x, args))
+        case V.Rigid(Head.Prim(p), sp) =>
+          ApxTm.fromSpine(sp) match
+            case None       => None
+            case Some(args) => Some(ApxTm.Prim(p, args))
+        case _ => None
+
+    def fromSpine(sp: Spine): Option[List[ApxTm]] =
+      sp match
+        case Spine.Empty => Some(Nil)
+        case Spine.App(sp, a, _) =>
+          ApxTm.fromSpine(sp) match
+            case None => None
+            case Some(r) =>
+              ApxTm(a) match
+                case None    => None
+                case Some(v) => Some(v :: r)
+        case Spine.Proj(_, _)               => None
+        case Spine.ElimId(_, _, _, _, _, _) => None
+        case Spine.FixIx(_, _, _, _, _, _)  => None
+        case Spine.Case(_, _)               => None
+        case Spine.MetaApp1(_, _)           => None
+        case Spine.MetaApp0(_, _)           => None
+
+  private type Apx = Map[ApxTm, Lvl]
+
   private final case class PSub(
       occ: Option[MetaId],
       dom: Lvl,
       cod: Lvl,
-      sub: IntMap[PSEntry]
+      sub: IntMap[PSEntry],
+      apx: Apx
   ):
     def lift1: PSub =
       PSub(
         occ,
         dom + 1,
         cod + 1,
-        sub + (cod.expose -> PS1(V.Var(dom)))
+        sub + (cod.expose -> PS1(V.Var(dom))),
+        apx
       )
     def lift0: PSub =
       PSub(
         occ,
         dom + 1,
         cod + 1,
-        sub + (cod.expose -> PS0(V0.Var(dom)))
+        sub + (cod.expose -> PS0(V0.Var(dom))),
+        apx
       )
     inline def skip: PSub = copy(cod = cod + 1)
 
   private object PSub:
-    val empty = PSub(None, lvl0, lvl0, IntMap.empty)
+    val empty = PSub(None, lvl0, lvl0, IntMap.empty, Map.empty)
 
   // invert
-  private type Invert = (Lvl, Set[Lvl], IntMap[PSEntry], Pruning, Boolean)
+  private type Invert = (Lvl, Set[Lvl], IntMap[PSEntry], Apx, Pruning, Boolean)
 
   private def invert1(v: V, rhs: V, i: Icit, data: Invert): Invert =
     forceAll1(v) match
       case V.Var(x) =>
-        val (dom, domvars, sub, pr, isLinear) = data
+        val (dom, domvars, sub, apx, pr, isLinear) = data
         if domvars.contains(x) then
-          (dom + 1, domvars, sub - x.expose, PruneEntry.Skip :: pr, false)
+          (dom + 1, domvars, sub - x.expose, apx, PruneEntry.Skip :: pr, false)
         else
           (
             dom + 1,
             domvars + x,
             sub + (x.expose -> PS1(rhs)),
+            apx,
             PruneEntry.Bind1(i) :: pr,
             isLinear
           )
       case V.Quote(v) => invert0(v, vsplice(rhs), i, data)
-      case _          => err("spine error")
+      case v =>
+        ApxTm(v) match
+          case None => err(s"spine error")
+          case Some(atm) =>
+            val (dom, domvars, sub, apx, pr, isLinear) = data
+            if apx.contains(atm) then
+              err(s"duplicate global in meta spine: $atm")
+            else
+              (
+                dom + 1,
+                domvars,
+                sub,
+                apx + (atm -> dom),
+                PruneEntry.Bind1(i) :: pr,
+                isLinear
+              )
 
   private def invert0(v: V0, rhs: V0, i: Icit, data: Invert): Invert =
     forceAll0(v) match
       case V0.Var(x) =>
-        val (dom, domvars, sub, pr, isLinear) = data
+        val (dom, domvars, sub, apx, pr, isLinear) = data
         if domvars.contains(x) then
-          (dom + 1, domvars, sub - x.expose, PruneEntry.Skip :: pr, false)
+          (dom + 1, domvars, sub - x.expose, apx, PruneEntry.Skip :: pr, false)
         else
           (
             dom + 1,
             domvars + x,
             sub + (x.expose -> PS0(rhs)),
+            apx,
             PruneEntry.Bind0 :: pr,
             isLinear
           )
@@ -102,7 +182,8 @@ object Unification:
   private def invert(sp: Spine)(using lvl: Lvl): (PSub, Option[Pruning]) =
     def go(sp: Spine): Invert =
       sp match
-        case Spine.Empty => (lvl0, Set.empty, IntMap.empty, Nil, true)
+        case Spine.Empty =>
+          (lvl0, Set.empty, IntMap.empty, Map.empty, Nil, true)
         case Spine.App(sp, v, i) =>
           val data = go(sp)
           invert1(v, V.Var(data._1), i, data)
@@ -116,8 +197,8 @@ object Unification:
         case Spine.ElimId(_, _, _, _, _, _) => err(s"elimId in spine")
         case Spine.FixIx(_, _, _, _, _, _)  => err(s"fixIx in spine")
         case Spine.Case(_, _)               => err(s"case in spine")
-    val (dom, _, sub, pr, isLinear) = go(sp)
-    (PSub(None, dom, lvl, sub), if isLinear then None else Some(pr))
+    val (dom, _, sub, apx, pr, isLinear) = go(sp)
+    (PSub(None, dom, lvl, sub, apx), if isLinear then None else Some(pr))
 
   // pruning
   private def lams(l1: Lvl, ty: VTy, b: T1): T1 =
@@ -183,9 +264,10 @@ object Unification:
     val mty = entry.ty
     val prunedty = eval1(pruneTy(RevPruning(p), mty))(using Env.Empty)
     val m2 = State.newMeta(prunedty)
-    val solution =
-      eval1(lams(mkLvl(p.size), mty, T1.AppPruning(m2, p)))(using Env.Empty)
-    solveMetaVar(m, solution)
+    val solution = lams(mkLvl(p.size), mty, T1.AppPruning(m2, p))
+    debug(s"?$m := $solution")
+    val vsolution = eval1(solution)(using Env.Empty)
+    solveMetaVar(m, vsolution)
     m2
 
   private enum SpinePruneStatus derives CanEqual:
@@ -218,6 +300,7 @@ object Unification:
               case (Some(PS0(v)), _) => impossible()
               case (None, OKNonRenaming) => err("failed to prune")
               case _                     => (None :: sp2, NeedsPruning)
+          // case t if isConcrete(t) => (None :: sp2, NeedsPruning)
           case t =>
             status match
               case NeedsPruning => err("failed to prune")
@@ -267,9 +350,23 @@ object Unification:
       case (Some(PruneMeta0(u)), t) => T1.MetaApp0(t, u)
     }
 
+  // TODO: is this a good idea?
+  private def isConcrete(v: V): Boolean =
+    forceAll1(v) match
+      case V.TypeCon0(_, _, args) => args.forall((t, _) => isConcrete(t))
+      case V.TypeCon1(_, _, args) => args.forall((t, _) => isConcrete(t))
+      case V.Con0(_, _, _, args)  => args.forall((t, _) => isConcrete(t))
+      case V.Con1(_, _, _, args)  => args.forall((t, _) => isConcrete(t))
+      case V.PrimArgs(_, args)    => args.forall((t, _) => isConcrete(t))
+      case _                      => false
+
   private def splitSpine(sp: Spine): (Spine, Spine) =
     def go(sp: Spine): Option[(Spine, Spine)] = sp match
-      case Spine.Empty         => None
+      case Spine.Empty => None
+      case Spine.App(sp, a, i) if isConcrete(a) =>
+        go(sp)
+          .orElse(Some((sp, Spine.Empty)))
+          .map((l, r) => (l, Spine.App(r, a, i)))
       case Spine.App(sp, a, i) => go(sp).map((l, r) => (l, Spine.App(r, a, i)))
       case Spine.MetaApp0(sp, a) =>
         go(sp).map((l, r) => (l, Spine.MetaApp0(r, a)))
@@ -433,11 +530,29 @@ object Unification:
             (x, qty) :: go(Env.Ext1(env, V.Var(psub.cod)), psub.lift1, rest)
       go(c.env, psub, c.fields)
     forceMetas1(v) match
-      case V.Rigid(Head.Prim(p), sp)         => goSp(T1.Prim(p), sp)
-      case V.Rigid(Head.TypeCon1(m, x), sp)  => goSp(T1.TypeCon1(m, x), sp)
       case V.Rigid(Head.Con1(m, dx, cx), sp) => goSp(T1.Con1(m, dx, cx), sp)
-      case V.Rigid(Head.TypeCon0(m, x), sp)  => goSp(T1.TypeCon0(m, x), sp)
       case V.Rigid(Head.Con0(m, dx, cx), sp) => goSp(T1.Con0(m, dx, cx), sp)
+      case vv @ V.Rigid(Head.Prim(p), sp) =>
+        ApxTm(vv) match
+          case None => goSp(T1.Prim(p), sp)
+          case Some(atm) =>
+            psub.apx.get(atm) match
+              case None    => goSp(T1.Prim(p), sp)
+              case Some(k) => goSp(T1.Var(k.toIx(using psub.dom)), sp)
+      case vv @ V.Rigid(Head.TypeCon1(m, x), sp) =>
+        ApxTm(vv) match
+          case None => goSp(T1.TypeCon1(m, x), sp)
+          case Some(atm) =>
+            psub.apx.get(atm) match
+              case None    => goSp(T1.TypeCon1(m, x), sp)
+              case Some(k) => goSp(T1.Var(k.toIx(using psub.dom)), sp)
+      case vv @ V.Rigid(Head.TypeCon0(m, x), sp) =>
+        ApxTm(vv) match
+          case None => goSp(T1.TypeCon0(m, x), sp)
+          case Some(atm) =>
+            psub.apx.get(atm) match
+              case None    => goSp(T1.TypeCon0(m, x), sp)
+              case Some(k) => goSp(T1.Var(k.toIx(using psub.dom)), sp)
       case V.Rigid(Head.Var(x), sp) =>
         psub.sub.get(x.expose) match
           case None         => err(s"out of scope $x")
@@ -448,8 +563,13 @@ object Unification:
       case V.Flex(m, sp) =>
         val (inner, outer) = splitSpine(sp)
         goSp(pruneVFlex(m, inner), outer)
-      case V.Unfold(UnfoldHead.Global(m, x, v), sp, _) =>
-        goSp(T1.Global(m, x, v), sp)
+      case vv @ V.Unfold(UnfoldHead.Global(m, x, v), sp, _) =>
+        ApxTm(vv) match
+          case None => goSp(T1.Global(m, x, v), sp)
+          case Some(atm) =>
+            psub.apx.get(atm) match
+              case None    => goSp(T1.Global(m, x, v), sp)
+              case Some(k) => goSp(T1.Var(k.toIx(using psub.dom)), sp)
       case V.Pi(x, i, ty, b)   => T1.Pi(x, i, go1(ty), goClos(b))
       case V.Lam(x, i, ty, b)  => T1.Lam(x, i, go1(ty), goClos(b))
       case V.Fun(pty, cv, rty) => T1.Fun(go1(pty), go1(cv), go1(rty))
