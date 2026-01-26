@@ -40,16 +40,10 @@ pub def fst {A B} (p : Pair A B) : A = p.fst
 pub def snd {A B} (p : Pair A B) : B = p.snd
 
 pub data Monoid (A : vtype) : meta = MkMonoid (unit : A) (append : A -> A -> A)
+pub def unit {A} {auto m : Monoid A} : A = m.unit
+pub def append {A} {auto m : Monoid A} : A -> A -> A = m.append
 
 pub auto def MonoidUnit : Monoid Unit = MkMonoid U (\x y => U)
-
-pub def unit {A} {auto m : Monoid A} : A=
-  match m
-  | MkMonoid unit _ => unit
-
-pub def append {A} {auto m : Monoid A} : A -> A -> A =
-  match m
-  | MkMonoid _ append => append
 
 pub def appendOption {A} {auto m : Monoid A} (a b : Option A) : Option A =
   match a

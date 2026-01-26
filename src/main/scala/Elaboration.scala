@@ -1329,8 +1329,11 @@ object Elaboration:
             val rty = ctx.readback1(vrty)
             Infer0(Tm0.Proj(rty, etm.splice, ProjType(x, i)), vrty, V.Val)
           case V.RecordTy1(fs) =>
-            val (x, i, vrty) = inferProjTy1(etm, fs, p)
+            val (x, i, vrty) = inferProjRecordTy1(etm, fs, p)
             Infer1(Tm1.Proj(etm, ProjType(x, i)), vrty)
+          case V.TypeCon1(m, dx, dps) =>
+            val (x, i, vrty) = inferProjTypeCon1(etm, vty, m, dx, dps, p)
+            Infer1(Tm1.Proj(etm, ProjType(x, dps.size + i)), vrty)
           case _ => err(s"cannot project from ${ctx.pretty1(vty)}")
 
   private def inferProjTy0(vty: VTy, p: Surface.ProjType)(using
@@ -1354,9 +1357,7 @@ object Elaboration:
                           s"cannot project from ${ctx.pretty1(vty)}, not enough parameters in constructor $cx"
                         )
                       case Surface.ProjType.Indexed(i) =>
-                        val rty = eval1(params(i)._2)(using
-                          Env(dps.map(_._1))
-                        )
+                        val rty = eval1(params(i)._2)(using Env(dps.map(_._1)))
                         (None, i, rty)
                       case Surface.ProjType.Named(x) =>
                         params.zipWithIndex.find { case ((y, _), _) =>
@@ -1386,8 +1387,8 @@ object Elaboration:
         go(fs, 0)
       case _ => err(s"cannot project from ${ctx.pretty1(vty)}")
 
-  private def inferProjTy1(tm: Tm1, clos: ClosRec, p: Surface.ProjType)(using
-      ctx: Ctx
+  private def inferProjRecordTy1(tm: Tm1, clos: ClosRec, p: Surface.ProjType)(
+      using ctx: Ctx
   ): (Option[Name], Int, VTy) =
     @tailrec
     def go(
@@ -1407,41 +1408,59 @@ object Elaboration:
             go(Env.Ext1(env, proj), fs, ix + 1)
     go(clos.env, clos.fields, 0)
 
+  private def inferProjTypeCon1(
+      tm: Tm1,
+      dty: VTy,
+      m: Name,
+      dx: Name,
+      dps: List[(V, Icit)],
+      p: Surface.ProjType
+  )(using ctx: Ctx): (Option[Name], Int, VTy) =
+    State.getGlobalDirect(m, dx) match
+      case Some(GlobalEntry.Data1(_, _, _, _, _, _, _, singleCon)) =>
+        singleCon match
+          case None =>
+            err(
+              s"cannot project from ${ctx.pretty1(dty)}, type has multiple constructors"
+            )
+          case Some(cx) =>
+            State.getGlobalDirect(m, cx) match
+              case Some(GlobalEntry.Con1(_, _, _, params, _, _, _, _, _)) =>
+                val (ox, i) = p match
+                  case Surface.ProjType.Indexed(i) if i >= params.size =>
+                    err(
+                      s"cannot project from ${ctx.pretty1(dty)}, not enough parameters in constructor $cx"
+                    )
+                  case Surface.ProjType.Indexed(i) => (None, i)
+                  case Surface.ProjType.Named(x) =>
+                    params.zipWithIndex.find { case ((y, _, _), _) =>
+                      y.equals(x)
+                    } match
+                      case None =>
+                        err(
+                          s"cannot project from ${ctx.pretty1(dty)}, no parameter named $x in constructor $cx"
+                        )
+                      case Some(((_, _, _), i)) => (Some(x), i)
+                def go(
+                    env: Env,
+                    ps: List[(Bind, PiIcit, Ty)],
+                    ix: Int,
+                    ix2: Int
+                ): VTy =
+                  (ix, ix2, ps) match
+                    case (0, _, (_, _, ty) :: _) => eval1(ty)(using env)
+                    case (n, ix, (x, _, _) :: rest) =>
+                      val proj =
+                        ctx.eval1(Tm1.Proj(tm, ProjType(x.toOption, ix)))
+                      val nenv = Env.Ext1(env, proj)
+                      go(nenv, rest, n - 1, ix + 1)
+                    case _ => impossible()
+                val rty = go(Env(dps.map(_._1)), params, i, 0)
+                (ox, i, rty)
+              case _ => impossible()
+      case _ => impossible()
+
   // match elaboration
-  /*
-  private def inferMatch1ExType(
-      vscrutty: VTy,
-      sty: Option[(Bind, S)],
-      extyopt: Option[Clos1]
-  )(using ctx: Ctx): Option[Clos1] =
-    sty match
-      case None => extyopt
-      case Some((x, b)) =>
-        val nctx = ctx.bind1(x, ctx.readback1(vscrutty), vscrutty)
-        val eb = check1(b, V.Meta)(using nctx)
-        val exty = Clos1.Clos(ctx.env, eb)
-        extyopt.foreach { exty2 =>
-          val v = V.Var(ctx.lvl)
-          unify(exty2(v), exty(v))(using nctx)
-        }
-        Some(exty)
-
-  private inline def inferMatch1ExType(
-      vscrutty: VTy,
-      sty: Option[(Bind, S)],
-      exty2: Clos1
-  )(using ctx: Ctx): Clos1 =
-    inferMatch1ExType(vscrutty, sty, Some(exty2)) match
-      case None    => impossible()
-      case Some(c) => c
-
-  private inline def inferMatch1ExType(
-      vscrutty: VTy,
-      sty: Option[(Bind, S)]
-  )(using ctx: Ctx): Option[Clos1] =
-    inferMatch1ExType(vscrutty, sty, None)
-   */
-
   private def inferMatch1ExType(vscrutty: VTy, sty: Option[(Bind, S)])(using
       ctx: Ctx
   ): Option[Clos1] =

@@ -75,9 +75,10 @@ object Evaluation:
     case _ => impossible()
 
   def vproj(tm: Val1, p: ProjType): Val1 = tm match
-    case V1.RecordCon(fs) => fs(p.ix)
-    case V1.Rigid(h, sp)  => V1.Rigid(h, Spine.Proj(sp, p))
-    case V1.Flex(h, sp)   => V1.Flex(h, Spine.Proj(sp, p))
+    case V1.RecordCon(fs)       => fs(p.ix)
+    case V1.Con1(_, _, _, args) => args(p.ix)._1
+    case V1.Rigid(h, sp)        => V1.Rigid(h, Spine.Proj(sp, p))
+    case V1.Flex(h, sp)         => V1.Flex(h, Spine.Proj(sp, p))
     case V1.Unfold(h, sp, v) =>
       V1.Unfold(h, Spine.Proj(sp, p), () => vproj(v(), p))
     case _ => impossible()
