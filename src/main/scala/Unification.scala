@@ -130,55 +130,57 @@ object Unification:
     val empty = PSub(None, lvl0, lvl0, IntMap.empty, Map.empty)
 
   // invert
-  private type Invert = (Lvl, Set[Lvl], IntMap[PSEntry], Apx, Pruning, Boolean)
+  private enum InvertEntry:
+    case E0(lvl: Lvl)
+    case E1(lvl: Lvl, icit: Icit)
+    case Apx(tm: ApxTm, icit: Icit)
+
+  private type Invert = (Lvl, IntMap[PSEntry], Apx, Set[Lvl], List[InvertEntry])
 
   private def invert1(v: V, rhs: V, i: Icit, data: Invert): Invert =
     forceAll1(v) match
       case V.Var(x) =>
-        val (dom, domvars, sub, apx, pr, isLinear) = data
-        if domvars.contains(x) then
-          (dom + 1, domvars, sub - x.expose, apx, PruneEntry.Skip :: pr, false)
+        val (dom, ren, apx, nlvars, pr) = data
+        if ren.contains(x.expose) || nlvars.contains(x) then
+          (dom + 1, ren - x.expose, apx, nlvars + x, InvertEntry.E1(x, i) :: pr)
         else
           (
             dom + 1,
-            domvars + x,
-            sub + (x.expose -> PS1(rhs)),
+            ren + (x.expose -> PS1(rhs)),
             apx,
-            PruneEntry.Bind1(i) :: pr,
-            isLinear
+            nlvars,
+            InvertEntry.E1(x, i) :: pr
           )
       case V.Quote(v) => invert0(v, vsplice(rhs), i, data)
       case v =>
         ApxTm(v) match
           case None => err(s"spine error")
           case Some(atm) =>
-            val (dom, domvars, sub, apx, pr, isLinear) = data
+            val (dom, ren, apx, nlvars, pr) = data
             if apx.contains(atm) then
               err(s"duplicate global in meta spine: $atm")
             else
               (
                 dom + 1,
-                domvars,
-                sub,
+                ren,
                 apx + (atm -> dom),
-                PruneEntry.Bind1(i) :: pr,
-                isLinear
+                nlvars,
+                InvertEntry.Apx(atm, i) :: pr
               )
 
   private def invert0(v: V0, rhs: V0, i: Icit, data: Invert): Invert =
     forceAll0(v) match
       case V0.Var(x) =>
-        val (dom, domvars, sub, apx, pr, isLinear) = data
-        if domvars.contains(x) then
-          (dom + 1, domvars, sub - x.expose, apx, PruneEntry.Skip :: pr, false)
+        val (dom, ren, apx, nlvars, pr) = data
+        if ren.contains(x.expose) || nlvars.contains(x) then
+          (dom + 1, ren - x.expose, apx, nlvars + x, InvertEntry.E0(x) :: pr)
         else
           (
             dom + 1,
-            domvars + x,
-            sub + (x.expose -> PS0(rhs)),
+            ren + (x.expose -> PS0(rhs)),
             apx,
-            PruneEntry.Bind0 :: pr,
-            isLinear
+            nlvars,
+            InvertEntry.E0(x) :: pr
           )
       case V0.Splice(v) => invert1(v, vquote(rhs), i, data)
       case _            => err("spine error")
@@ -187,7 +189,7 @@ object Unification:
     def go(sp: Spine): Invert =
       sp match
         case Spine.Empty =>
-          (lvl0, Set.empty, IntMap.empty, Map.empty, Nil, true)
+          (lvl0, IntMap.empty, Map.empty, Set.empty, Nil)
         case Spine.App(sp, v, i) =>
           val data = go(sp)
           invert1(v, V.Var(data._1), i, data)
@@ -201,8 +203,21 @@ object Unification:
         case Spine.ElimId(_, _, _, _, _, _) => err(s"elimId in spine")
         case Spine.FixIx(_, _, _, _, _, _)  => err(s"fixIx in spine")
         case Spine.Case(_, _)               => err(s"case in spine")
-    val (dom, _, sub, apx, pr, isLinear) = go(sp)
-    (PSub(None, dom, lvl, sub, apx), if isLinear then None else Some(pr))
+    val (dom, sub, apx, nlvars, args) = go(sp)
+    def mask(args: List[InvertEntry]): Pruning =
+      args match
+        case Nil => Nil
+        case InvertEntry.E0(x) :: rest =>
+          if nlvars.contains(x) then PruneEntry.Skip :: mask(rest)
+          else PruneEntry.Bind0 :: mask(rest)
+        case InvertEntry.E1(x, i) :: rest =>
+          if nlvars.contains(x) then PruneEntry.Skip :: mask(rest)
+          else PruneEntry.Bind1(i) :: mask(rest)
+        case InvertEntry.Apx(_, i) :: rest => PruneEntry.Bind1(i) :: mask(rest)
+    (
+      PSub(None, dom, lvl, sub, apx),
+      if nlvars.isEmpty then None else Some(mask(args))
+    )
 
   // pruning
   private def lams(l1: Lvl, ty: VTy, b: T1): T1 =

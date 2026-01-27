@@ -703,11 +703,12 @@ object Elaboration:
 
   private def shouldNotPostpone(tm: S): Boolean =
     tm match
-      case S.Var(_, _)    => true
-      case S.Prim(_, _)   => true
-      case S.IntLit(_, _) => true
-      case S.Hole(_, _)   => true
-      case _              => false
+      case S.Var(_, _)       => true
+      case S.Prim(_, _)      => true
+      case S.IntLit(_, _)    => true
+      case S.Hole(_, _)      => true
+      case S.App(_, _, _, _) => true
+      case _                 => false
 
   private def check1(tm: S, ty: VTy)(using ctx: Ctx): Tm1 =
     debug(s"check1 $tm : ${ctx.pretty1(ty)}")

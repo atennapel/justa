@@ -47,8 +47,8 @@ pub def tail {A n} (v : Vec (SM n) A) : Vec n A =
   | VCons {_} {p} _ tl => rewrite (\n => Vec n A) (s_cong p) tl
 
 pub def map {A B n} (f : A -> B) (v : Vec n A) : Vec n B =
-  fixIx (
-    \go {n} (v : Vec n A) =>
+  fixIx {_} {\n => Vec n A} {\n _ => Vec n B} (
+    \go v =>
       match v
       | VNil {p} => rewrite (\n => Vec n B) p VNil
       | VCons {_} {p} hd tl => rewrite (\n => Vec n B) p (VCons (f hd) (go tl))
