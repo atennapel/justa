@@ -360,13 +360,22 @@ object Unification:
       case V.PrimArgs(_, args)    => args.forall((t, _) => isConcrete(t))
       case _                      => false
 
+  private def isMeta(v: V): Boolean =
+    forceAll1(v) match
+      case V.Flex(_, _) => true
+      case _            => false
+
   private def splitSpine(sp: Spine): (Spine, Spine) =
     def go(sp: Spine): Option[(Spine, Spine)] = sp match
       case Spine.Empty => None
-      case Spine.App(sp, a, i) if isConcrete(a) =>
+      /*case Spine.App(sp, a, i) if isConcrete(a) =>
         go(sp)
           .orElse(Some((sp, Spine.Empty)))
-          .map((l, r) => (l, Spine.App(r, a, i)))
+          .map((l, r) => (l, Spine.App(r, a, i)))*/
+      /*case Spine.App(sp, a, i) if isMeta(a) =>
+        go(sp)
+          .orElse(Some((sp, Spine.Empty)))
+          .map((l, r) => (l, Spine.App(r, a, i)))*/
       case Spine.App(sp, a, i) => go(sp).map((l, r) => (l, Spine.App(r, a, i)))
       case Spine.MetaApp0(sp, a) =>
         go(sp).map((l, r) => (l, Spine.MetaApp0(r, a)))
@@ -587,7 +596,7 @@ object Unification:
   private def solve(m: MetaId, sp: Spine, rhs: V)(using lvl: Lvl): Unit =
     debug(s"solve ${readback1m(V.Flex(m, sp))} := ${readback1m(rhs)}")
     val (inner, outer) = splitSpine(sp)
-    val psub = invert(sp)
+    val psub = invert(inner)
     if outer.isEmpty then solveWithPSub(m, psub, rhs)
     else
       @tailrec
