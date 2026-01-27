@@ -8,7 +8,7 @@ object Main:
   private val PathToLib = "lib"
 
   @main def run(): Unit =
-    Debug.setDebug(false)
+    Debug.setDebug(true)
     Util.time("all") {
       try
         val root = FileSystems.getDefault.getPath(PathToLib)

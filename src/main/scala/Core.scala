@@ -145,6 +145,7 @@ object Core:
     case MetaApp1(fn: Tm1, arg: Tm1)
     case MetaApp0(fn: Tm1, arg: Tm0)
     case AppPruning(id: MetaId, pruning: Pruning)
+    case PostponedCheck(id: CheckId)
 
     def wk0N(n: Int) =
       @tailrec
@@ -194,6 +195,7 @@ object Core:
       case MetaApp0(f, a)        => s"($f 0 $a)"
       case MetaApp1(f, a)        => s"($f 1 $a)"
       case AppPruning(id, p)     => s"(?$id ...(${p.size}))"
+      case PostponedCheck(id)    => s"??$id"
 
   object Tm1:
     val MetaU = Prim(Primitive.Meta)

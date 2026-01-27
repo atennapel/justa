@@ -21,7 +21,7 @@ https://github.com/AndrasKovacs/cctt
 - [x] Meta datatypes
 - [x] Meta-level recursion
 - [x] Instance search
-- [ ] Check postponing
+- [x] Check postponing
 - [ ] Mutual recursive datatypes
 - [ ] Elaborate if-expressions for meta level
 - [ ] Fix unification issues in test file

@@ -82,6 +82,7 @@ object Pretty:
       case Tm1.TypeCon0(_, _)        => pretty1(tm)
       case Tm1.Con0(_, _, _)         => pretty1(tm)
       case Tm1.Meta(_)               => pretty1(tm)
+      case Tm1.PostponedCheck(_)     => pretty1(tm)
       case Tm1.Lift(_, _)            => pretty1(tm)
       case Tm1.Quote(_)              => pretty1(tm)
       case Tm1.AppPruning(_, _)      => pretty1(tm)
@@ -209,5 +210,6 @@ object Pretty:
     case Tm1.Wk0(tm) => pretty1(tm)(using ns.tail)
     case Tm1.Wk1(tm) => pretty1(tm)(using ns.tail)
 
-    case Tm1.Meta(id)          => s"?$id"
-    case Tm1.AppPruning(id, _) => s"?*$id"
+    case Tm1.Meta(id)           => s"?$id"
+    case Tm1.AppPruning(id, _)  => s"?*$id"
+    case Tm1.PostponedCheck(id) => s"??$id"

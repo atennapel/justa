@@ -136,6 +136,15 @@ object Common:
 
   inline given CanEqual[MetaId, MetaId] = CanEqual.derived
 
+  // check ids
+  opaque type CheckId = Int
+  inline def checkId(id: Int): CheckId = id
+  extension (id: CheckId)
+    @targetName("exposeCheckId")
+    inline def expose: Int = id
+
+  inline given CanEqual[CheckId, CheckId] = CanEqual.derived
+
   // primitives
   enum Primitive derives CanEqual:
     case Meta

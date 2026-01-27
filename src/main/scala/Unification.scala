@@ -17,13 +17,17 @@ import Core.{
   Cases1,
   ClosCases0,
   ClosCases1,
-  ClosRec
+  ClosRec,
+  Locals
 }
 import Evaluation.*
 import Debug.debug
 
 import scala.collection.immutable.IntMap
 import scala.annotation.tailrec
+import State.MetaEntry
+import State.CheckEntry
+import State.addBlocking
 
 object Unification:
   class UnifyError(msg: String) extends RuntimeException(msg)
@@ -263,7 +267,7 @@ object Unification:
     val entry = State.getMetaUnsolved(m)
     val mty = entry.ty
     val prunedty = eval1(pruneTy(RevPruning(p), mty))(using Env.Empty)
-    val m2 = State.newMeta(prunedty)
+    val m2 = State.newMeta(entry.blocking, prunedty)
     val solution = lams(mkLvl(p.size), mty, T1.AppPruning(m2, p))
     debug(s"?$m := $solution")
     val vsolution = eval1(solution)(using Env.Empty)
@@ -669,6 +673,7 @@ object Unification:
     debug(s"solution ?$m := $rhs2lams")
     val sol = eval1(rhs2lams)(using Env.Empty)
     solveMetaVar(m, sol)
+    entry.blocking.foreach(retryCheck)
 
   // unification
   private def unify0(a: ClosCases0, b: ClosCases0, topa: V0, topb: V0)(using
@@ -932,3 +937,41 @@ object Unification:
       case (v1, V.Unfold(_, _, v2)) => unify1(v1, v2())
 
       case _ => err(s"cannot unify ${readback1n(a)} ~ ${readback1n(b)}")
+
+  // postponed checking
+  def unifyPlaceholder(ctx: Ctx, tm: T1, m: MetaId): Unit =
+    State.getMeta(m) match
+      case MetaEntry.Unsolved(blocking, ty) =>
+        debug(s"solve unconstrained placeholder ?$m: ${ctx.pretty1(tm)}")
+        val solution = closeTm(tm)(using ctx)
+        solveMetaVar(m, eval1(solution)(using Env.Empty))
+        blocking.foreach(retryCheck)
+      case MetaEntry.Solved(v, _) =>
+        debug(
+          s"unify solved placeholder ?$m: ${ctx.pretty1(tm)} ~ ${ctx.pretty1(v)}"
+        )
+        val a = ctx.eval1(tm)
+        val b = vappPruning(v, ctx.pruning)(using ctx.env)
+        unify1(a, b)(using ctx.lvl)
+
+  private def retryCheck(c: CheckId): Unit =
+    State.getCheck(c) match
+      case CheckEntry.Checked(tm) => ()
+      case CheckEntry.Unchecked(ctx, tm, ty, pl) =>
+        debug(s"retry ??$c")
+        forceAll1(ty) match
+          case V.Flex(m2, _) => addBlocking(c, m2)
+          case _ =>
+            val et = State.performCheck(ctx, tm, ty)
+            unifyPlaceholder(ctx, et, pl)
+            State.checkDone(c, et)
+
+  private def closeTm(tm: T1)(using ctx: Ctx): T1 =
+    def go(ls: Locals, xs: List[Bind], tm: T1): T1 = (ls, xs) match
+      case (Locals.Empty, Nil) => tm
+      case (Locals.Def(ls, a, v), Bind.DoBind(x) :: xs) =>
+        go(ls, xs, T1.Let(x, a, v, tm))
+      case (Locals.Bind0(ls, a, cv), x :: xs) => go(ls, xs, T1.MetaLam0(tm))
+      case (Locals.Bind1(ls, a), x :: xs)     => go(ls, xs, T1.MetaLam1(tm))
+      case _                                  => impossible()
+    go(ctx.locals, ctx.binds, tm)

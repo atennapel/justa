@@ -66,7 +66,7 @@ object Elaboration:
     val qa = closeTy(ctx.readback1(ty, UnfoldOption.None))
     debug(s"freshMetaId : ${ctx.pretty1(qa)}")
     val vqa = eval1(qa)(using Env.Empty)
-    val m = State.newMeta(vqa)
+    val m = State.newMeta(Set.empty, vqa)
     debug(s"freshMetaId ?$m : ${ctx.pretty1(ty)}")
     m
 
@@ -701,6 +701,14 @@ object Elaboration:
               val (etm2, vty2) = insert((etm, vty))
               coeQuote(etm2, vty2, ty, cv)
 
+  private def shouldNotPostpone(tm: S): Boolean =
+    tm match
+      case S.Var(_, _)    => true
+      case S.Prim(_, _)   => true
+      case S.IntLit(_, _) => true
+      case S.Hole(_, _)   => true
+      case _              => false
+
   private def check1(tm: S, ty: VTy)(using ctx: Ctx): Tm1 =
     debug(s"check1 $tm : ${ctx.pretty1(ty)}")
     enter(tm.pos):
@@ -734,6 +742,13 @@ object Elaboration:
           val nctx = ctx.insert1(x, qt1, autod)
           val eb = check1(tm, t2(V.Var(ctx.lvl)))(using nctx)
           Tm1.Lam(x, i, qt1, eb)
+
+        case (tm, V.Flex(m, _)) if !shouldNotPostpone(tm) =>
+          val pl = freshMetaId(ty)
+          val c = State.newCheck(tm, ty, pl)
+          State.addBlocking(c, m)
+          debug(s"postpone $tm : ${ctx.pretty1(ty)} as ??$c, placeholder ?$pl")
+          Tm1.PostponedCheck(c)
 
         case (S.Pi(_, DontBind, PiIcit.Expl, t1, t2), V.Type(cv)) =>
           unify(cv, V.Comp)
@@ -1784,6 +1799,19 @@ object Elaboration:
     goCases(cs, cons, Set.empty)
 
   // elaboration
+  private def retryAllChecks(): Unit =
+    val unchecked = State.getUnchecked()
+    if unchecked.nonEmpty then
+      debug(s"retrying all checks ($unchecked.size)")
+      unchecked.foreach { (c, ctx, tm, ty, m) =>
+        given Ctx = ctx
+        debug(s"resolve check ??$c")
+        val (etm, ety) = insert(infer1(tm))
+        val ctm = coe(etm, ety, ty)
+        State.checkDone(c, ctm)
+        Unification.unifyPlaceholder(ctx, ctm, m)
+      }
+
   private def checkUnsolvedMetas()(using ctx: Ctx): Unit =
     val ums = State.unsolvedMetas()
     if ums.nonEmpty then
@@ -2051,6 +2079,7 @@ object Elaboration:
         }
         attempt += 1
         if attempt >= AutoSearchRetryLimit then continue = false
+    retryAllChecks()
     val leftovers = State.getPostponedAutos()
     if leftovers.nonEmpty then
       val str =
@@ -2058,7 +2087,7 @@ object Elaboration:
       err(s"unsolved autos: $str")
     freeze()
 
-  private def showNamedHole(ctx: Ctx, x: Name, ty: VTy): String =
+  private inline def showNamedHole(ctx: Ctx, x: Name, ty: VTy): String =
     s"hole _$x : ${ctx.pretty1(ty)}\n${ctx.show}"
 
   private def elaborate(mod: Surface.Module): Unit =
@@ -2090,5 +2119,6 @@ object Elaboration:
   def elaborate(mod: List[Surface.Module]): Unit =
     debug(s"elaborate modules ${mod.map(_.name).mkString("[", ",", "]")}")
     State.setMetaSolveCallback(onMetaSolved)
+    State.setCheckHandler((ctx, tm, ty) => check1(tm, ty)(using ctx))
     mod.foreach(elaborate)
     checkUnsolvedMetas()(using Ctx.empty(PosInfo(0, 0)))

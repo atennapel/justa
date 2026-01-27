@@ -2,7 +2,7 @@ import Common.*
 import Common.Icit.*
 import Core.*
 import Core.{Val1 as V1, Val0 as V0, Tm1 as T1, Tm0 as T0}
-import State.MetaEntry
+import State.{CheckEntry, MetaEntry}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
@@ -39,8 +39,14 @@ object Evaluation:
       case Env.Empty                        => impossible()
 
   private def vmeta(id: MetaId): V1 = State.getMeta(id) match
-    case MetaEntry.Unsolved(_)      => V1.Flex(id, Spine.Empty)
+    case MetaEntry.Unsolved(_, _)   => V1.Flex(id, Spine.Empty)
     case MetaEntry.Solved(value, _) => value
+
+  private def vcheck(id: CheckId)(using env: Env): V1 =
+    State.getCheck(id) match
+      case CheckEntry.Checked(tm) => eval1(tm)
+      case CheckEntry.Unchecked(ctx, _, _, m) =>
+        vappPruning(vmeta(m), ctx.pruning)
 
   def vsplice(v: V1): V0 = v match
     case V1.Quote(v) => v
@@ -157,7 +163,7 @@ object Evaluation:
     case Spine.MetaApp1(sp, a) => vmetaapp1(vspine(v, sp), a)
     case Spine.MetaApp0(sp, a) => vmetaapp0(vspine(v, sp), a)
 
-  private def vappPruning(v: V1, p: Pruning)(using env: Env): V1 =
+  def vappPruning(v: V1, p: Pruning)(using env: Env): V1 =
     (env, p) match
       case (Env.Empty, Nil) => v
       case (Env.Ext1(env, _), PruneEntry.Skip :: p) =>
@@ -219,7 +225,8 @@ object Evaluation:
       case T1.MetaLam0(b)    => V1.MetaLam0(Clos1(b))
       case T1.MetaApp1(f, a) => vmetaapp1(eval1(f), eval1(a))
       case T1.MetaApp0(f, a) => vmetaapp0(eval1(f), eval0(a))
-      case T1.AppPruning(m, p) => vappPruning(vmeta(m), p)
+      case T1.AppPruning(m, p)   => vappPruning(vmeta(m), p)
+      case T1.PostponedCheck(id) => vcheck(id)
 
       case T1.Prim(Primitive.ElimId) =>
         V1.lamI(
@@ -302,15 +309,15 @@ object Evaluation:
   def force1(v: V1): V1 = v match
     case top @ V1.Flex(id, sp) =>
       State.getMeta(id) match
-        case MetaEntry.Unsolved(_)  => top
-        case MetaEntry.Solved(v, _) => vspine(v, sp)
+        case MetaEntry.Unsolved(_, _) => top
+        case MetaEntry.Solved(v, _)   => vspine(v, sp)
     case v => v
 
   def forceAll1(v: V1): V1 = v match
     case top @ V1.Flex(id, sp) =>
       State.getMeta(id) match
-        case MetaEntry.Unsolved(_)  => top
-        case MetaEntry.Solved(v, _) => forceAll1(vspine(v, sp))
+        case MetaEntry.Unsolved(_, _) => top
+        case MetaEntry.Solved(v, _)   => forceAll1(vspine(v, sp))
     case V1.Unfold(_, _, v) => forceAll1(v())
     case v                  => v
 
@@ -325,8 +332,8 @@ object Evaluation:
   def forceMetas1(v: V1): V1 = v match
     case top @ V1.Flex(id, sp) =>
       State.getMeta(id) match
-        case MetaEntry.Unsolved(_)  => top
-        case MetaEntry.Solved(v, _) => forceMetas1(vspine(v, sp))
+        case MetaEntry.Unsolved(_, _) => top
+        case MetaEntry.Solved(v, _)   => forceMetas1(vspine(v, sp))
     case v => v
 
   @tailrec
@@ -348,8 +355,8 @@ object Evaluation:
   def forceUnstage1(v: V1): V1 = v match
     case top @ V1.Flex(id, sp) =>
       State.getMeta(id) match
-        case MetaEntry.Unsolved(_)  => top
-        case MetaEntry.Solved(v, _) => forceUnstage1(vspine(v, sp))
+        case MetaEntry.Unsolved(_, _) => top
+        case MetaEntry.Solved(v, _)   => forceUnstage1(vspine(v, sp))
     case V1.Unfold(_, _, v) => forceUnstage1(v())
     case v                  => v
 
@@ -628,8 +635,8 @@ object Evaluation:
         case V1.MetaLam0(b)       => goClos1(b)
         case V1.Flex(m, sp) =>
           State.getMeta(m) match
-            case MetaEntry.Unsolved(_)  => goSp(sp)
-            case MetaEntry.Solved(v, _) => go1(vspine(v, sp))
+            case MetaEntry.Unsolved(_, _) => goSp(sp)
+            case MetaEntry.Solved(v, _)   => go1(vspine(v, sp))
     def go0(v: V0)(using lvl: Lvl): Unit =
       v match
         case V0.Global(m, x)        => set += ((m, x))

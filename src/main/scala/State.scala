@@ -14,9 +14,55 @@ object State:
 
   def getHoles(): List[HoleEntry] = holes.toList
 
+  // checks
+  enum CheckEntry:
+    case Unchecked(ctx: Ctx, tm: Surface.Tm, ty: VTy, placeholder: MetaId)
+    case Checked(tm: Tm1)
+
+  private val checks: mutable.ArrayBuffer[CheckEntry] =
+    mutable.ArrayBuffer.empty
+
+  private var checkHandler: Option[(Ctx, Surface.Tm, VTy) => Tm1] = None
+
+  def setCheckHandler(f: (Ctx, Surface.Tm, VTy) => Tm1): Unit =
+    checkHandler = Some(f)
+  def performCheck(ctx: Ctx, tm: Surface.Tm, ty: VTy): Tm1 =
+    checkHandler match
+      case None    => impossible()
+      case Some(f) => f(ctx, tm, ty)
+
+  def newCheck(
+      tm: Surface.Tm,
+      ty: VTy,
+      placeholder: MetaId
+  )(using ctx: Ctx): CheckId =
+    val id = checkId(checks.size)
+    checks += CheckEntry.Unchecked(ctx, tm, ty, placeholder)
+    id
+
+  def getCheck(id: CheckId): CheckEntry = checks(id.expose)
+
+  def addBlocking(blocked: CheckId, blockedBy: MetaId): Unit =
+    modifyMeta(blockedBy) {
+      case MetaEntry.Solved(_, _) => impossible()
+      case MetaEntry.Unsolved(blocking, ty) =>
+        MetaEntry.Unsolved(blocking + blocked, ty)
+    }
+
+  def checkDone(id: CheckId, tm: Tm1): Unit =
+    checks(id.expose) = CheckEntry.Checked(tm)
+
+  def getUnchecked(): List[(CheckId, Ctx, Surface.Tm, VTy, MetaId)] =
+    checks.zipWithIndex.flatMap { (ce, i) =>
+      ce match
+        case CheckEntry.Checked(_) => None
+        case CheckEntry.Unchecked(ctx, tm, ty, m) =>
+          Some((checkId(i), ctx, tm, ty, m))
+    }.toList
+
   // metas
   enum MetaEntry:
-    case Unsolved(ty: VTy)
+    case Unsolved(blocking: Set[CheckId], ty: VTy)
     case Solved(value: Val1, ty: VTy)
 
   private var metas: mutable.ArrayBuffer[MetaEntry] = mutable.ArrayBuffer.empty
@@ -63,21 +109,21 @@ object State:
     postponedAutos = postponedAutosStack.last
     postponedAutosStack.dropRightInPlace(1)
 
-  def newMeta(ty: VTy): MetaId =
+  def newMeta(blocking: Set[CheckId], ty: VTy): MetaId =
     val id = metaId(metas.size)
-    metas += MetaEntry.Unsolved(ty)
+    metas += MetaEntry.Unsolved(blocking, ty)
     id
 
   def getMeta(id: MetaId): MetaEntry = metas(id.expose)
 
   def getMetaUnsolved(id: MetaId): MetaEntry.Unsolved = getMeta(id) match
-    case u @ MetaEntry.Unsolved(_) => u
-    case MetaEntry.Solved(_, _)    => impossible()
+    case u @ MetaEntry.Unsolved(_, _) => u
+    case MetaEntry.Solved(_, _)       => impossible()
 
   def unsolvedMetaType(id: MetaId): VTy = getMetaUnsolved(id).ty
 
   def getMetaSolved(id: MetaId): MetaEntry.Solved = getMeta(id) match
-    case MetaEntry.Unsolved(_)      => impossible()
+    case MetaEntry.Unsolved(_, _)   => impossible()
     case s @ MetaEntry.Solved(_, _) => s
 
   def modifyMeta(id: MetaId)(fn: MetaEntry => MetaEntry): Unit =
@@ -90,17 +136,17 @@ object State:
 
   def getMetas(): List[(MetaId, VTy, Option[Val1])] =
     metas.zipWithIndex.collect {
-      case (MetaEntry.Solved(v, ty), ix) => (metaId(ix), ty, Some(v))
-      case (MetaEntry.Unsolved(ty), ix)  => (metaId(ix), ty, None)
+      case (MetaEntry.Solved(v, ty), ix)   => (metaId(ix), ty, Some(v))
+      case (MetaEntry.Unsolved(_, ty), ix) => (metaId(ix), ty, None)
     }.toList
 
   def unsolvedMetas(): List[(MetaId, VTy)] =
-    metas.zipWithIndex.collect { case (MetaEntry.Unsolved(ty), ix) =>
+    metas.zipWithIndex.collect { case (MetaEntry.Unsolved(_, ty), ix) =>
       (metaId(ix), ty)
     }.toList
 
   def isMetaUnsolved(id: MetaId): Boolean = getMeta(id) match
-    case MetaEntry.Unsolved(ty)      => true
+    case MetaEntry.Unsolved(_, ty)   => true
     case MetaEntry.Solved(value, ty) => false
 
   def freezeMetas(): Unit =
