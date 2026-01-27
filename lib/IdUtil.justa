@@ -9,7 +9,7 @@ pub def (!~) {A} (x y : A) = x ~ y -> VoidM
 pub def idJ {A} (P : {a b : A} -> a ~ b -> meta) (h : {a} -> P {a} refl) {a b : A} (p : a ~ b) : P p =
   elimId (\{c} q => P {a} {c} q) h p
 
-pub def rewrite {A} (P : A -> meta) {a b : A} (p : a ~ b) (x : P a) : P b =
+pub def rewrite {A} (P : A -> meta) {a b : A} (p : (~) {A} a b) (x : P a) : P b =
   idJ (\{a} {b} _ => P a -> P b) (\q => q) p x
 
 pub def cast {A B : meta} (p : A ~ B) (x : A) : B =
@@ -22,13 +22,13 @@ pub def trans {A} {a b c : A} (p : b ~ c) (q : a ~ b) : a ~ c =
   rewrite ((~) a) p q
 
 pub def cong {A B} {a b : A} (f : A -> B) (p : a ~ b) : f a ~ f b =
-  rewrite {A} (\x => f a ~ f x) {a} {b} p refl
+  rewrite {A} (\x => (~) {B} (f a) (f x)) {a} {b} p (refl {B} {f a})
 
-pub def idRefl {A} {a : A} (p : a ~ a) : p ~ refl =
-  elimId (\{c} q => Id q (refl {A} {c})) refl p
+-- pub def idRefl {A} {a : A} (p : (~) {A} a a) : (~) {(~) {A} a a} p (refl {A} {a}) =
+--  elimId {A} {a} (\{c} q => Id q (refl {A} {c})) refl {a} p
 
-pub def idK {A} {a : A} (P : a ~ a -> meta) (p : a ~ a) (h : P refl) : P p =
-  rewrite P (sym (idRefl p)) h
+-- pub def idK {A} {a : A} (P : a ~ a -> meta) (p : a ~ a) (h : P refl) : P p =
+--  rewrite P (sym (idRefl p)) h
 
-pub def uip {A} {a b : A} (p1 p2 : a ~ b) : p1 ~ p2 =
-  (elimId (\{c} p => (q : a ~ c) -> q ~ p) idRefl p2) p1
+-- pub def uip {A} {a b : A} (p1 p2 : a ~ b) : p1 ~ p2 =
+--  (elimId (\{c} p => (q : a ~ c) -> q ~ p) idRefl p2) p1

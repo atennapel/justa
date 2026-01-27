@@ -707,7 +707,7 @@ object Elaboration:
       case S.Prim(_, _)      => true
       case S.IntLit(_, _)    => true
       case S.Hole(_, _)      => true
-      case S.App(_, _, _, _) => true
+      // case S.App(_, _, _, _) => true
       case _                 => false
 
   private def check1(tm: S, ty: VTy)(using ctx: Ctx): Tm1 =

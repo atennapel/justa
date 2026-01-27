@@ -6,7 +6,7 @@ import IdUtil ((~), (!~), rewrite, cong)
 pub def Singleton {A} (x : A) : meta = [value : A, proof : value ~ x]
 pub def MkSingleton {A} (x : A) : Singleton x = [x, refl]
 
-pub def not_not_id {b} : notM (notM b) ~ b =
+pub def not_not_id {b : BoolM} : notM (notM b) ~ b =
   match b : b => notM (notM b) ~ b
   | TrueM => refl
   | FalseM => refl
