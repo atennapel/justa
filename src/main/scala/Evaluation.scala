@@ -170,9 +170,9 @@ object Evaluation:
         vappPruning(v, p)(using env)
       case (Env.Ext0(env, _), PruneEntry.Skip :: p) =>
         vappPruning(v, p)(using env)
-      case (Env.Ext1(env, u), PruneEntry.Bind1(i) :: p) =>
+      case (Env.Ext1(env, u), PruneEntry.Keep1 :: p) =>
         vmetaapp1(vappPruning(v, p)(using env), u)
-      case (Env.Ext0(env, u), PruneEntry.Bind0 :: p) =>
+      case (Env.Ext0(env, u), PruneEntry.Keep0 :: p) =>
         vmetaapp0(vappPruning(v, p)(using env), u)
       case _ => impossible()
 
@@ -390,50 +390,22 @@ object Evaluation:
           case Cases1.Empty => Cases1.Empty
       T1.Case(readbackSpine(h, sp), go(cs.env, cs.cases))
     case Spine.ElimId(sp, a, x, pp, hh, y) =>
-      val p = readbackSpine(h, sp)
-      T1.App(
-        T1.App(
-          T1.App(
-            T1.App(
-              T1.App(
-                T1.App(T1.Prim(Primitive.ElimId), readback1(a), Impl),
-                readback1(x),
-                Impl
-              ),
-              readback1(pp),
-              Expl
-            ),
-            readback1(hh),
-            Expl
-          ),
-          readback1(y),
-          Impl
-        ),
-        p,
-        Expl
+      Tm1.ElimId(
+        readback1(a),
+        readback1(x),
+        readback1(pp),
+        readback1(hh),
+        readback1(y),
+        readbackSpine(h, sp)
       )
     case Spine.FixIx(sp, ii, a, b, f, i) =>
-      val x = readbackSpine(h, sp)
-      T1.App(
-        T1.App(
-          T1.App(
-            T1.App(
-              T1.App(
-                T1.App(T1.Prim(Primitive.FixIx), readback1(ii), Impl),
-                readback1(a),
-                Impl
-              ),
-              readback1(b),
-              Impl
-            ),
-            readback1(f),
-            Expl
-          ),
-          readback1(i),
-          Impl
-        ),
-        x,
-        Expl
+      Tm1.FixIx(
+        readback1(ii),
+        readback1(a),
+        readback1(b),
+        readback1(f),
+        readback1(i),
+        readbackSpine(h, sp)
       )
 
   def readback1(v: V1)(using lvl: Lvl, unfoldOption: UnfoldOption): T1 =

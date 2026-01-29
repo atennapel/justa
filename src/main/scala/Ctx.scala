@@ -1,5 +1,4 @@
 import Common.*
-import Common.Icit.*
 import Core.*
 import Evaluation.UnfoldOption
 import Ctx.{AutoMap, AutoMapEntry, NameMap}
@@ -62,7 +61,7 @@ final case class Ctx(
       lvl + 1,
       Env.Ext1(env, Val1.Var(lvl)),
       Locals.Bind1(locals, ty),
-      PruneEntry.Bind1(Expl) :: pruning,
+      PruneEntry.Keep1 :: pruning,
       x :: binds,
       addName(x, Name1(lvl, vty)),
       addAuto(auto, x, vty),
@@ -74,7 +73,7 @@ final case class Ctx(
       lvl + 1,
       Env.Ext1(env, Val1.Var(lvl)),
       Locals.Bind1(locals, ty),
-      PruneEntry.Bind1(Expl) :: pruning,
+      PruneEntry.Keep1 :: pruning,
       x :: binds,
       names,
       addAuto(auto, x, eval1(ty)),
@@ -117,7 +116,7 @@ final case class Ctx(
       lvl + 1,
       Env.Ext0(env, Val0.Var(lvl)),
       Locals.Bind0(locals, ty, cv),
-      PruneEntry.Bind0 :: pruning,
+      PruneEntry.Keep0 :: pruning,
       x :: binds,
       addName(x, Name0(lvl, vty, vcv)),
       autos,
@@ -129,7 +128,7 @@ final case class Ctx(
       lvl + 1,
       Env.Ext0(env, Val0.Var(lvl)),
       Locals.Bind0(locals, ty, cv),
-      PruneEntry.Bind0 :: pruning,
+      PruneEntry.Keep0 :: pruning,
       x :: binds,
       names,
       autos,

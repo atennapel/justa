@@ -116,8 +116,8 @@ object Common:
   // pruning
   enum PruneEntry derives CanEqual:
     case Skip
-    case Bind0
-    case Bind1(icit: Icit)
+    case Keep0
+    case Keep1
   type Pruning = List[PruneEntry]
 
   opaque type RevPruning = Pruning

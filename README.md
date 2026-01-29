@@ -24,7 +24,6 @@ https://github.com/AndrasKovacs/cctt
 - [x] Check postponing
 - [ ] Mutual recursive datatypes
 - [ ] Elaborate if-expressions for meta level
-- [ ] Fix unification issues in test file
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
@@ -43,3 +42,4 @@ https://github.com/AndrasKovacs/cctt
 - [ ] Sugar for lists and other data structures
 - [ ] Sugar for fixIx and fix
 - [ ] Match on primitive types (Int, Bool)
+- [ ] Fix unification issues for higher-kinded typeclasses (e.g. Functor)

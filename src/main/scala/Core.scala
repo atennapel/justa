@@ -209,6 +209,48 @@ object Core:
     val RecordTy0Empty = RecordTy0(Nil)
     val RecordConEmpty = RecordCon(Nil)
 
+    def ElimId(a: Tm1, x: Tm1, pp: Tm1, hh: Tm1, y: Tm1, p: Tm1): Tm1 =
+      Tm1.App(
+        Tm1.App(
+          Tm1.App(
+            Tm1.App(
+              Tm1.App(Tm1.App(Tm1.Prim(Primitive.ElimId), a, Impl), x, Impl),
+              pp,
+              Expl
+            ),
+            hh,
+            Expl
+          ),
+          y,
+          Impl
+        ),
+        p,
+        Expl
+      )
+
+    def FixIx(ii: Tm1, a: Tm1, b: Tm1, f: Tm1, i: Tm1, x: Tm1): Tm1 =
+      Tm1.App(
+        Tm1.App(
+          Tm1.App(
+            Tm1.App(
+              Tm1.App(
+                Tm1.App(Tm1.Prim(Primitive.FixIx), ii, Impl),
+                a,
+                Impl
+              ),
+              b,
+              Impl
+            ),
+            f,
+            Expl
+          ),
+          i,
+          Impl
+        ),
+        x,
+        Expl
+      )
+
   enum Locals derives CanEqual:
     case Empty
     case Def(locs: Locals, ty: Ty, value: Tm1)

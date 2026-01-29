@@ -17,4 +17,4 @@ auto def FunctorList : Functor List = MkFunctor mapList
 def list1 = 1 :: 2 :: 3 :: Nil
 def list2 = Some 1 :: None :: Some 3 :: Nil
 def listtest1 := map (\n => n + 1) list1
--- def listtest2 := map (\o => map (\n => n + 1) o) list2
+def listtest2 := map {List} (\o => map {Option} (\n => n + 1) o) list2
