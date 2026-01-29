@@ -556,6 +556,20 @@ object Core:
           case Rigid(Head.Prim(p), spine) => Some((p, spine.toList))
           case _                          => None
 
+    object CPair:
+      def apply(fst: Val1, snd: Val1): Val1 =
+        Rigid(
+          Head.Prim(Primitive.CPair),
+          Spine.App(Spine.App(Spine.Empty, fst, Expl), snd, Expl)
+        )
+      def unapply(value: Val1): Option[(Val1, Val1)] = value match
+        case Rigid(
+              Head.Prim(Primitive.CPair),
+              Spine.App(Spine.App(Spine.Empty, fst, Expl), snd, Expl)
+            ) =>
+          Some((fst, snd))
+        case _ => None
+
     val Meta = Prim(Primitive.Meta)
     val CV = Prim(Primitive.CV)
     val Val = Prim(Primitive.Val)
@@ -565,6 +579,8 @@ object Core:
 
     val TypeV = Type(Val)
     val TypeC = Type(Comp)
+
+    val CUnit = Prim(Primitive.CUnit)
 
     inline def RecordTy1Empty(using env: Env) = RecordTy1(ClosRec(Nil))
     val RecordTy0Empty = RecordTy0(Nil)

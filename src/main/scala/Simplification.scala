@@ -21,9 +21,9 @@ object Simplification:
 
   private def simplifyDef(d: Def): Def =
     debug(s"simplifyDef ${d.name}")
-    val (ps, nargs, nscope) = eta(d.ty)(using Set.empty)
-    val expanded = go(d.value, nargs)(using nscope, Map.empty)
-    val simp = correctUsages(simplify(lams(ps, expanded)))
+    println(d.value)
+    val expanded = eta2(d.ty, d.value)(using Set.empty)
+    val simp = correctUsages(simplify(expanded))
     Def(d.pub, d.name, d.ty, simp)
 
   @tailrec
@@ -32,18 +32,53 @@ object Simplification:
     val next = go(correctUsages(t), Nil)(using Set.empty, Map.empty)
     if next == t then t else simplify(next)
 
+  private enum Elim derives CanEqual:
+    case Arg(tm: Tm)
+    case CFst
+    case CSnd
+
+    def isArg: Boolean =
+      this match
+        case Arg(_) => true
+        case CFst   => false
+        case CSnd   => false
+
+    def getArg: Tm =
+      this match
+        case Arg(a) => a
+        case _      => impossible()
+
+  private object Elim:
+    def apply(head: Tm, arg: Elim): Tm =
+      arg match
+        case Arg(tm) => Tm.App(head, tm)
+        case CFst    => Tm.CFst(head)
+        case CSnd    => Tm.CSnd(head)
+
+  private def reduce(ty: CTy, args: List[Elim]): CTy =
+    (ty, args) match
+      case (ty, Nil)                            => ty
+      case (CTy.CPair(a, _), Elim.CFst :: args) => reduce(a, args)
+      case (CTy.CPair(_, b), Elim.CSnd :: args) => reduce(b, args)
+      case (CTy.Fun(_, b), Elim.Arg(_) :: args) => reduce(b, args)
+      case _                                    => impossible()
+
   // TODO: add all eliminators in args
-  private def go(t: Tm, args: List[Tm])(using scope: Scope, subst: Subst): Tm =
+  private def go(t: Tm, args: List[Elim])(using
+      scope: Scope,
+      subst: Subst
+  ): Tm =
     t match
-      case Tm.Global(_, _, _) => args.foldLeft(t)(Tm.App.apply)
+      case Tm.Global(_, _, _) => args.foldLeft(t)(Elim.apply)
       case Tm.Prim(p) =>
-        if args.size == 2 then
-          foldConstants2(p, args(0), args(1)) match
+        if args.size == 2 && args.forall(_.isArg) then
+          foldConstants2(p, args(0).getArg, args(1).getArg) match
             case Some(tm) => tm
-            case None     => args.foldLeft(t)(Tm.App.apply)
-        else args.foldLeft(t)(Tm.App.apply)
+            case None     => args.foldLeft(t)(Elim.apply)
+        else args.foldLeft(t)(Elim.apply)
       case Tm.BoolLit(_) => t
       case Tm.IntLit(_)  => t
+      case Tm.CUnit      => t
 
       case Tm.ReturnIO(ty, v) => Tm.ReturnIO(ty, go(v, Nil))
 
@@ -55,7 +90,7 @@ object Simplification:
       case Tm.Local(x, ty) =>
         subst.get(x) match
           case Some(tm) if tm != t => go(tm, args)
-          case _                   => args.foldLeft(t)(Tm.App.apply)
+          case _                   => args.foldLeft(t)(Elim.apply)
 
       case Tm.Select(ty, Tm.If(_, c, t, f), i) =>
         go(Tm.If(CTy(ty), c, Tm.Select(ty, f, i), Tm.Select(ty, t, i)), args)
@@ -70,12 +105,22 @@ object Simplification:
       case Tm.If(_, Tm.BoolLit(b), t, f) =>
         if b then go(t, args) else go(f, args)
       case Tm.If(ty, c, t, f) =>
-        Tm.If(ty.drop(args.size), go(c, Nil), go(t, args), go(f, args))
+        Tm.If(reduce(ty, args), go(c, Nil), go(t, args), go(f, args))
 
-      case Tm.App(f, a) => go(f, go(a, Nil) :: args)
+      case Tm.App(f, a) => go(f, Elim.Arg(go(a, Nil)) :: args)
+
+      case Tm.CFst(t) => go(t, Elim.CFst :: args)
+      case Tm.CSnd(t) => go(t, Elim.CSnd :: args)
+
+      case Tm.CPair(a, b) if args.nonEmpty =>
+        args.head match
+          case Elim.Arg(_) => impossible()
+          case Elim.CFst   => go(a, args.tail)
+          case Elim.CSnd   => go(b, args.tail)
+      case Tm.CPair(a, b) => Tm.CPair(go(a, Nil), go(b, Nil))
 
       case Tm.Lam(x, u, ty, b) if args.nonEmpty =>
-        go(Tm.Let(x, u, CTy(ty), args.head, b), args.tail)
+        go(Tm.Let(x, u, CTy(ty), args.head.getArg, b), args.tail)
       case Tm.Lam(x, _, ty, b0) =>
         if scope.contains(x) then
           val y = scope.size
@@ -111,10 +156,8 @@ object Simplification:
         go(b, args)(using scope, subst + (x -> v))
       case Tm.Let(x, _, ty, v0, b0) =>
         val v =
-          if isEtaExpanded(ty, v0) then go(v0, Nil)
-          else
-            val (ps, nargs, nscope) = eta(ty)
-            lams(ps, go(v0, nargs)(using nscope))
+          if isEtaExpanded2(ty, v0) then go(v0, Nil)
+          else eta2(ty, v0)
         val (y, b) = if scope.contains(x) then
           val y = scope.size
           (y, go(b0, args)(using scope + y, subst + (x -> Tm.Local(y, ty))))
@@ -128,11 +171,8 @@ object Simplification:
           (y, scope + y, subst + (x -> Tm.Local(y, ty)))
         else (x, scope + x, subst - x)
         val v =
-          if isEtaExpanded(ty, v0) then go(v0, Nil)(using nscope, nsubst)
-          else
-            val (ps, nargs, nscope2) = eta(ty)(using nscope)
-            val body = go(v0, nargs)(using nscope2, nsubst)
-            lams(ps, body)
+          if isEtaExpanded2(ty, v0) then go(v0, Nil)(using nscope, nsubst)
+          else eta2(ty, v0)
         val b = go(b0, args)(using nscope, nsubst)
         Tm.LetRec(x, -1, ty, v, b)
 
@@ -213,17 +253,56 @@ object Simplification:
             case Cases.Empty        => Cases.Empty
         Tm.Case(rty, dty, go(s, Nil), goCases(cs))
 
+  /*
   private def eta(ty: CTy)(using
       scope: Scope
   ): (List[(LocalName, VTy)], List[Tm], Scope) =
     val base = scope.size
     val params = ty.params.zipWithIndex.map((t, n) => (base + n, t))
     val args = params.map { case (x, ty) => Tm.Local(x, CTy(ty)) }
-    (params, args, scope ++ params.map(_._1))
+    (params, args, scope ++ params.map(_._1))*/
+
+  /*
+  tm : () ~> tm
+  tm : A ~> tm
+  tm : IO A ~> tm
+  tm : A -> B ~> \x => (tm x : B)
+  tm : A * B ~> (cfst tm : A, csnd tm : B)
+   */
+  private def eta2(ty: CTy, tm: Tm)(using scope: Scope): Tm =
+    ty match
+      case CTy.CUnit  => go(tm, Nil)(using scope, Map.empty)
+      case CTy.Val(_) => go(tm, Nil)(using scope, Map.empty)
+      case CTy.IO(ty) => go(tm, Nil)(using scope, Map.empty)
+      case CTy.CPair(fst, snd) =>
+        val rfst = eta2(fst, Tm.CFst(tm))(using scope)
+        val rsnd = eta2(snd, Tm.CSnd(tm))(using scope)
+        Tm.CPair(rfst, rsnd)
+      case CTy.Fun(pty, rty) =>
+        val x = scope.size
+        val rtm =
+          eta2(rty, Tm.App(tm, Tm.Local(x, CTy.Val(pty))))(using scope + x)
+        Tm.Lam(x, -1, pty, rtm)
+
+  private def isEtaExpanded2(ty: CTy, v: Tm): Boolean =
+    ty match
+      case CTy.CUnit  => true
+      case CTy.Val(_) => true
+      case CTy.IO(_)  => true
+      case CTy.CPair(a, b) =>
+        v match
+          case Tm.CPair(fst, snd) =>
+            isEtaExpanded2(a, fst) && isEtaExpanded2(b, snd)
+          case _ => false
+      case CTy.Fun(_, rty) =>
+        v match
+          case Tm.Lam(_, _, _, b) => isEtaExpanded2(rty, b)
+          case _                  => false
 
   private def lams(ps: List[(LocalName, VTy)], b: Tm): Tm =
     ps.foldRight(b) { case ((x, ty), b) => Tm.Lam(x, -1, ty, b) }
 
+  /*
   private def isEtaExpanded(ty: CTy, v: Tm): Boolean =
     @tailrec
     def go(ps: List[VTy], v: Tm): Boolean =
@@ -231,7 +310,7 @@ object Simplification:
         case (Nil, _)                        => true
         case (_ :: rest, Tm.Lam(_, _, _, b)) => go(rest, b)
         case _                               => false
-    go(ty.params, v)
+    go(ty.params, v)*/
 
   private def isSmall(t: Tm): Boolean = t match
     case Tm.Local(_, _)                  => true
@@ -239,6 +318,7 @@ object Simplification:
     case Tm.Prim(_)                      => true
     case Tm.BoolLit(_)                   => true
     case Tm.IntLit(_)                    => true
+    case Tm.CUnit                        => true
     case Tm.Con(_, _, _, _, _, Nil)      => true
     case Tm.Record(_, Nil)               => true
     case Tm.ReturnIO(_, v) if isSmall(v) => true
@@ -285,6 +365,19 @@ object Simplification:
       case Tm.Prim(_)         => (t, Map.empty)
       case Tm.BoolLit(_)      => (t, Map.empty)
       case Tm.IntLit(_)       => (t, Map.empty)
+      case Tm.CUnit           => (t, Map.empty)
+
+      case Tm.CPair(a, b) =>
+        val (ca, ua) = correctUsagesRec(a)
+        val (cb, ub) = correctUsagesRec(b)
+        (Tm.CPair(ca, cb), mergeUsages(ua, ub))
+
+      case Tm.CFst(tm) =>
+        val (ctm, utm) = correctUsagesRec(tm)
+        (Tm.CFst(ctm), utm)
+      case Tm.CSnd(tm) =>
+        val (ctm, utm) = correctUsagesRec(tm)
+        (Tm.CSnd(ctm), utm)
 
       case Tm.Local(x, _) => (t, Map(x -> 1))
 

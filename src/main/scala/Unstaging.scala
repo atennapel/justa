@@ -186,6 +186,13 @@ object Unstaging:
                 val x = supply.next()
                 val b = IR.Tm.App(ek, IR.Tm.Local(x, CTy(ety)))
                 IR.Tm.BindIO(x, -1, ety, ev, b)
+              case (Tm1.Prim(Primitive.MkCUnit), Nil) => IR.Tm.CUnit
+              case (Tm1.Prim(Primitive.MkCPair), List(_, _, a, b)) =>
+                IR.Tm.CPair(stgo(a._1), stgo(b._1))
+              case (Tm1.Prim(Primitive.CFst), List(_, _, p)) =>
+                IR.Tm.CFst(stgo(p._1))
+              case (Tm1.Prim(Primitive.CSnd), List(_, _, p)) =>
+                IR.Tm.CSnd(stgo(p._1))
               case _ => impossible()
   // types
   private def goCTy(ty: Tm1, env: Env = Env.Empty): CTy =
@@ -195,9 +202,11 @@ object Unstaging:
 
   private def goCTy(ty: V): CTy =
     forceAll1(ty) match
-      case V.Fun(pty, _, rty) => CTy(goVTy(pty), goCTy(rty))
-      case V.IO(ty)           => CTy(Nil, true, goVTy(ty))
-      case _                  => CTy(goVTy(ty))
+      case V.Fun(pty, _, rty) => CTy.Fun(goVTy(pty), goCTy(rty))
+      case V.IO(ty)           => CTy.IO(goVTy(ty))
+      case V.CUnit            => CTy.CUnit
+      case V.CPair(fst, snd)  => CTy.CPair(goCTy(fst), goCTy(snd))
+      case _                  => CTy.Val(goVTy(ty))
 
   private def goVTy(ty: V, menv: State.MonoEnv = Map.empty): VTy =
     forceAll1(ty) match

@@ -173,6 +173,13 @@ object Common:
 
     case FixIx
 
+    case CUnit
+    case MkCUnit
+    case CPair
+    case MkCPair
+    case CFst
+    case CSnd
+
     override def toString: String = this match
       case Meta     => "meta"
       case Type     => "type"
@@ -194,6 +201,12 @@ object Common:
       case Refl     => "refl"
       case ElimId   => "elimId"
       case FixIx    => "fixIx"
+      case CUnit    => "CUnit"
+      case MkCUnit  => "MkCUnit"
+      case CPair    => "CPair"
+      case MkCPair  => "MkCPair"
+      case CFst     => "cfst"
+      case CSnd     => "csnd"
 
   enum RuntimePrimitive derives CanEqual:
     case Lt

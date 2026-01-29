@@ -1,0 +1,13 @@
+module MutualRec
+
+pub def (<) a b = lt a b
+pub def (-) a b = sub a b
+
+def even : Int -> Bool :=
+  let rec go : CPair (Int -> Bool) (CPair (Int -> Bool) CUnit) :=
+    MkCPair
+      (\n => if n < 1 then True else cfst (csnd go) (n - 1))
+      (MkCPair
+        (\n => if n < 1 then False else cfst go (n - 1))
+        MkCUnit);
+  cfst go

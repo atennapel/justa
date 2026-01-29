@@ -1133,6 +1133,45 @@ object Elaboration:
                   )
               )
           )
+      ),
+    Primitive.CUnit -> V.TypeC,
+    Primitive.MkCUnit -> V.liftC(V.CUnit),
+    Primitive.CPair -> V.fun1(V.TypeC, V.fun1(V.TypeC, V.TypeC)),
+    // {A : type comp} -> {B : type comp} -> ^A -> ^B -> ^(CPair A B)
+    Primitive.MkCPair ->
+      V.piI(
+        "A",
+        V.TypeC,
+        a =>
+          V.piI(
+            "B",
+            V.TypeC,
+            b => V.fun1(V.liftC(a), V.fun1(V.liftC(b), V.liftC(V.CPair(a, b))))
+          )
+      ),
+    // {A : type comp} -> {B : type comp} -> ^(CPair A B) -> ^A
+    Primitive.CFst ->
+      V.piI(
+        "A",
+        V.TypeC,
+        a =>
+          V.piI(
+            "B",
+            V.TypeC,
+            b => V.fun1(V.liftC(V.CPair(a, b)), V.liftC(a))
+          )
+      ),
+    // {A : type comp} -> {B : type comp} -> ^(CPair A B) -> ^B
+    Primitive.CSnd ->
+      V.piI(
+        "A",
+        V.TypeC,
+        a =>
+          V.piI(
+            "B",
+            V.TypeC,
+            b => V.fun1(V.liftC(V.CPair(a, b)), V.liftC(b))
+          )
       )
   )
 

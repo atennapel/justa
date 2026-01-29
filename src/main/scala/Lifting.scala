@@ -1,9 +1,9 @@
 import Common.*
 import IR.*
-import State.*
+//import State.*
 import Debug.debug
 
-import scala.annotation.tailrec
+//import scala.annotation.tailrec
 import scala.collection.mutable
 
 // lift out local functions, create join points, rename with unique names
@@ -16,7 +16,7 @@ object Lifting:
     JVM.Module(mod.name, liftDefs(mod.name, mod.defs))
 
   private def liftDefs(mod: Name, ds: Defs): JVM.Defs =
-    currentModule = mod
+    // currentModule = mod
     JVM.Defs(ds.toList.flatMap(d => liftDef(mod, d)))
 
   private final class Emit(
@@ -41,10 +41,13 @@ object Lifting:
     case RenVar(name: LocalName)
     case JoinPoint(name: LocalName)
     case LiftedFun(mod: Name, name: Name, extraArgs: List[(LocalName, CTy)])
-  import RenEntry.*
+  // import RenEntry.*
 
   private def liftDef(mod: Name, d: Def): List[JVM.Def] =
     debug(s"liftDef $mod.${d.name}")
+    println(d)
+    ???
+    /*
     newDefs.clear()
     val Def(pub, name, ty, v) = d
     given emit: Emit = new Emit(d.name)
@@ -52,6 +55,7 @@ object Lifting:
     given Ren = renParams(ty)
     given (Name, Name) = (mod, name)
     val value = go(removeLams(ty, v), true, Some(lamTypes(v)))
+
     val retty = goVTy(ty.ret)
     val acc = if pub then JVM.Access.Pub else JVM.Access.Priv
     val cdef =
@@ -60,6 +64,7 @@ object Lifting:
         val ps = ty.params.zipWithIndex.map((ty, ix) => (ix, goVTy(ty)))
         JVM.Def.Function(acc, name, ps, retty, value)
     newDefs.toList ++ emit.toList :+ cdef
+
 
   private inline def renParams(ty: CTy, ren: Ren = Map.empty)(using
       supply: Supply
@@ -503,3 +508,4 @@ object Lifting:
         s"anonrec_${fs.map((_, t) => paramStr(t)).mkString("_")}"
     if ps.isEmpty then name
     else Name(s"${name}_${ps.map(paramStr).mkString("_")}")
+     */

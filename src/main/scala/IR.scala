@@ -14,6 +14,7 @@ object IR:
       case Data(m, x, args) => s"($m.$x ${args.mkString(" ")})"
       case Record(fs) => fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
 
+  /*
   final case class CTy(params: List[VTy], io: Boolean, ret: VTy):
     def head: VTy = params.head
     def tail: CTy = CTy(params.tail, io, ret)
@@ -29,6 +30,24 @@ object IR:
     def apply(param: VTy, ret: VTy): CTy = CTy(List(param), false, ret)
     def apply(param: VTy, ret: CTy): CTy =
       CTy(param :: ret.params, ret.io, ret.ret)
+   */
+
+  enum CTy derives CanEqual:
+    case CUnit
+    case CPair(fst: CTy, snd: CTy)
+    case Fun(pty: VTy, rty: CTy)
+    case IO(ty: VTy)
+    case Val(ty: VTy)
+
+    override def toString: String = this match
+      case CUnit           => "()"
+      case CPair(fst, snd) => s"($fst * $snd)"
+      case Fun(pty, rty)   => s"($pty -> $rty)"
+      case IO(ty)          => s"(IO $ty)"
+      case Val(ty)         => s"$ty"
+
+  object CTy:
+    def apply(ty: VTy): CTy = CTy.Val(ty)
 
   final case class Module(name: Name, defs: Defs):
     override def toString: String = s"module $name\n$defs"
@@ -85,6 +104,11 @@ object IR:
     case ReturnIO(ty: VTy, value: Tm)
     case BindIO(name: LocalName, usage: Int, ty: VTy, value: Tm, body: Tm)
 
+    case CUnit
+    case CPair(fst: Tm, snd: Tm)
+    case CFst(tm: Tm)
+    case CSnd(tm: Tm)
+
     override def toString: String = this match
       case Local(ix, _)               => s"'$ix"
       case Global(m, x, _)            => s"$m.$x"
@@ -104,6 +128,10 @@ object IR:
       case Select(_, s, i)            => s"$s.$i"
       case ReturnIO(ty, v)            => s"(returnIO $v)"
       case BindIO(x, _, ty, v, b)     => s"(bindIO '$x : $ty = $v; $b)"
+      case CUnit                      => "()"
+      case CPair(a, b)                => s"($a, $b)"
+      case CFst(t)                    => s"(cfst $t)"
+      case CSnd(t)                    => s"(csnd $t)"
 
     def flattenApps: (Tm, List[Tm]) = this match
       case App(f, a) =>
