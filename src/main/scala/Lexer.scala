@@ -95,6 +95,7 @@ object Lexer:
     case MODULE
     case IMPORT
     case DEF
+    case DECLARE
     case DATA
     case PUB
     case PRIV
@@ -133,6 +134,7 @@ object Lexer:
         case MODULE   => "module"
         case IMPORT   => "import"
         case DEF      => "def"
+        case DECLARE  => "declare"
         case DATA     => "data"
         case PUB      => "pub"
         case PRIV     => "priv"
@@ -194,6 +196,7 @@ object Lexer:
         case "module"   => MODULE
         case "import"   => IMPORT
         case "def"      => DEF
+        case "declare"  => DECLARE
         case "data"     => DATA
         case "pub"      => PUB
         case "priv"     => PRIV

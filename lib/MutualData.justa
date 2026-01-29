@@ -1,0 +1,7 @@
+module MutualData
+
+declare data Pong : type val
+data Ping := MkPing Pong
+data Pong := End | MkPong Ping
+
+def pingpong := MkPing (MkPong (MkPing End))

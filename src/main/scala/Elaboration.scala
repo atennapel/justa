@@ -1160,6 +1160,8 @@ object Elaboration:
         Infer1(tm, ty)
       case Right((_, _, GlobalEntry.Con1(_, _, _, _, _, _, tm, _, ty))) =>
         Infer1(tm, ty)
+      case Right((_, _, GlobalEntry.DeclaredData(_, tm, ty))) =>
+        Infer1(tm, ty)
 
   private def infer(tm: S)(using ctx: Ctx): Infer =
     debug(s"infer $tm")
@@ -1820,6 +1822,14 @@ object Elaboration:
         ums.map((id, ty) => s"?$id : ${ctx.pretty1(ty)}").mkString("\n")
       err(s"there are unsolved metas:\n$str")
 
+  private def checkDeclaredDataTypes()(using ctx: Ctx): Unit =
+    State.declaredDataTypes() match
+      case Nil => ()
+      case ds =>
+        err(
+          s"there are declared datatypes without a definition: ${ds.mkString(", ")}"
+        )
+
   private def freeze()(using ctx: Ctx): Unit =
     // checkUnsolvedMetas()
     State.freezeMetas()
@@ -1896,6 +1906,27 @@ object Elaboration:
             else err(s"ambigious universe for datatype")
         if isMeta then elaborateData1(pub, x, ps, cs)
         else elaborateData0(pub, x, ps, cs)
+      case d @ Surface.Def.DeclareData(_, x, ty) =>
+        if State.currentModuleHasName(x) || State.hasImport(x) then
+          err(s"duplicate definition $x")
+        val ety = check1(ty, V.Meta)
+        val vty = ctx.eval1(ety)
+        val isMeta = checkDeclaredType(x, vty)
+        val tm =
+          if isMeta then Tm1.TypeCon1(State.currentModule, x)
+          else Tm1.TypeCon0(State.currentModule, x)
+        State.addGlobal(GlobalEntry.DeclaredData(x, tm, vty))
+
+  // returns true if meta, false if type
+  private def checkDeclaredType(dx: Name, ty: VTy)(using ctx: Ctx): Boolean =
+    forceAll1(ty) match
+      case V.Pi(x, i, a, b) =>
+        val nctx = ctx.bind1(x, ctx.readback1(a), a)
+        checkDeclaredType(dx, b(V.Var(ctx.lvl)))(using nctx)
+      case V.Meta  => true
+      case V.TypeV => false
+      case _ =>
+        err(s"invalid universe for declared datatype $dx: ${ctx.pretty1(ty)}")
 
   private def elaborateData1(
       pub: Boolean,
@@ -1903,8 +1934,12 @@ object Elaboration:
       ps: List[(Name, Icit, S)],
       cs: List[Surface.Constructor]
   )(using ctx: Ctx): Unit =
-    if State.currentModuleHasName(x) || State.hasImport(x) then
-      err(s"duplicate definition $x")
+    val declaredTy = State.getDeclaredDataType(x)
+    declaredTy match
+      case None if State.currentModuleHasName(x) || State.hasImport(x) =>
+        err(s"duplicate definition $x")
+      case Some(_) => State.removeDeclaredDataType(x)
+      case _       => ()
     def goParams(
         ctx: Ctx,
         ps: List[(Name, Icit, S)]
@@ -1929,6 +1964,7 @@ object Elaboration:
       Tm1.Pi(px.toBind, PiIcit(i), ty, rt)
     }
     val vty = ctx.eval1(fulltype)
+    declaredTy.foreach(vty2 => unify(vty2, vty))
     if pub then checkAccessibility(vty)
     State.addGlobal(
       GlobalEntry.Data1(
@@ -1993,8 +2029,12 @@ object Elaboration:
       ps0: List[(Name, Icit, S)],
       cs: List[Surface.Constructor]
   )(using ctx: Ctx): Unit =
-    if State.currentModuleHasName(x) || State.hasImport(x) then
-      err(s"duplicate definition $x")
+    val declaredTy = State.getDeclaredDataType(x)
+    declaredTy match
+      case None if State.currentModuleHasName(x) || State.hasImport(x) =>
+        err(s"duplicate definition $x")
+      case Some(_) => State.removeDeclaredDataType(x)
+      case _       => ()
     val ps = ps0.map { (x, i, ty) =>
       if (i == Impl) err("runtime datatypes cannot have implicit parameters")
       val ety = check1(ty, V.Meta)
@@ -2007,6 +2047,7 @@ object Elaboration:
     val singleCon = if cs.size == 1 then Some(cs.head.name) else None
     val ty = Tm1.TypeCon0(State.currentModule, x)
     val vty = ps.foldRight(V.TypeV)((_, rt) => V.fun1(V.TypeV, rt))
+    declaredTy.foreach(vty2 => unify(vty2, vty))
     if pub then checkAccessibility(vty)
     State.addGlobal(
       GlobalEntry.Data0(
@@ -2116,10 +2157,10 @@ object Elaboration:
         holes.map((ctx, x, ty) => showNamedHole(ctx, x, ty)).mkString("\n\n")
       err(s"there are ${holes.size} holes:\n\n$hstr")(using Ctx.empty(mod.pos))
     checkUnsolvedMetas()(using Ctx.empty(mod.pos))
+    checkDeclaredDataTypes()(using Ctx.empty(mod.pos))
 
   def elaborate(mod: List[Surface.Module]): Unit =
     debug(s"elaborate modules ${mod.map(_.name).mkString("[", ",", "]")}")
     State.setMetaSolveCallback(onMetaSolved)
     State.setCheckHandler((ctx, tm, ty) => check1(tm, ty)(using ctx))
     mod.foreach(elaborate)
-    checkUnsolvedMetas()(using Ctx.empty(PosInfo(0, 0)))

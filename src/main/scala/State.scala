@@ -216,6 +216,7 @@ object State:
         ty: Ty,
         vty: VTy
     )
+    case DeclaredData(x: Name, tm: Tm1, ty: Val1)
 
     def name: Name = this match
       case Def0(_, x, _, _, _, _, _, _)    => x
@@ -224,6 +225,7 @@ object State:
       case Con0(_, x, _, _, _, _, _, _, _) => x
       case Data1(_, x, _, _, _, _, _, _)   => x
       case Con1(_, x, _, _, _, _, _, _, _) => x
+      case DeclaredData(x, _, _)           => x
 
     def isPublic: Boolean = this match
       case Def0(p, _, _, _, _, _, _, _)    => p
@@ -232,6 +234,7 @@ object State:
       case Con0(p, _, _, _, _, _, _, _, _) => p
       case Data1(p, _, _, _, _, _, _, _)   => p
       case Con1(p, _, _, _, _, _, _, _, _) => p
+      case DeclaredData(_, _, _)           => false
 
   // modules
   private final case class ModuleCtx(
@@ -304,6 +307,31 @@ object State:
       .isDefined || getReexport(mod, x).isDefined)
   def currentModuleHasName(x: Name): Boolean =
     moduleHasName(currentModule, x)
+
+  def getDeclaredDataType(x: Name): Option[VTy] =
+    if !moduleExists(currentModule) then None
+    else
+      globals(currentModule).findLast(e => e.name == x) match
+        case Some(GlobalEntry.DeclaredData(_, _, ty)) => Some(ty)
+        case _                                        => None
+
+  def removeDeclaredDataType(x: Name): Unit =
+    if !moduleExists(currentModule) then ()
+    else
+      globals(currentModule).filterInPlace {
+        case GlobalEntry.DeclaredData(y, _, _) if x == y => false
+        case _                                           => true
+      }
+
+  def declaredDataTypes(): List[Name] =
+    if !moduleExists(currentModule) then Nil
+    else
+      globals(currentModule).toList
+        .filter {
+          case GlobalEntry.DeclaredData(_, _, _) => true
+          case _                                 => false
+        }
+        .map(_.name)
 
   def getGlobalDirect(mod: Name, x: Name): Option[GlobalEntry] =
     globals.get(mod) match

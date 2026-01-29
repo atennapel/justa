@@ -22,7 +22,7 @@ https://github.com/AndrasKovacs/cctt
 - [x] Meta-level recursion
 - [x] Instance search
 - [x] Check postponing
-- [ ] Mutual recursive datatypes
+- [x] Mutual recursive datatypes
 - [ ] Elaborate if-expressions for meta level
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations

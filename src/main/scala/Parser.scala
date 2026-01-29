@@ -752,16 +752,30 @@ object Parser:
 
     private def tryDef(): Def | Null =
       val p = pos
-      val pub = tryKeyword(PUB)
-      val auto = tryKeyword(AUTO)
-      if tryKeyword(DEF) then
-        val (meta, x, ty, body) = defn()
-        if meta then Def.Def1(p, pub, auto, x, Option(ty), body)
-        else
-          if auto then err(s"runtime def cannot be auto")
-          Def.Def0(p, pub, x, Option(ty), body)
-      else if tryKeyword(DATA) then data(p, pub)
-      else null
+      if tryKeyword(DECLARE) then
+        keyword(DATA)
+        val dx = nameOrOp()
+        val p2 = pos
+        val ps = list(tryDataParam()).toList.flatten
+        symbol(COLON)
+        val ty = expr()
+        val dty = ps.foldRight(ty) { case ((x, i, a), b) =>
+          Tm.Pi(p2, x.toBind, PiIcit(i), a, b)
+        }
+        Def.DeclareData(p, dx, dty)
+      else
+        val pub = tryKeyword(PUB)
+        val auto = tryKeyword(AUTO)
+        if tryKeyword(DEF) then
+          val (meta, x, ty, body) = defn()
+          if meta then Def.Def1(p, pub, auto, x, Option(ty), body)
+          else
+            if auto then err(s"runtime def cannot be auto")
+            Def.Def0(p, pub, x, Option(ty), body)
+        else if tryKeyword(DATA) then
+          if auto then err(s"data cannot be auto")
+          data(p, pub)
+        else null
 
     private def defs(): Defs = Defs(list(tryDef()).toList)
 

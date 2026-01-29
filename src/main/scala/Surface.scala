@@ -57,6 +57,11 @@ object Surface:
         univ: Option[Ty],
         cons: List[Constructor]
     )
+    case DeclareData(
+        _pos: PosInfo,
+        name: Name,
+        ty: Ty
+    )
 
     override def toString: String = this match
       case Def0(_, p, x, t, v) =>
@@ -68,11 +73,13 @@ object Surface:
         val ustr = u.fold("")(t => s" : $t")
         val df = meta.fold("|")(m => if m then "=" else ":=")
         s"${if p then "pub " else ""}data $x ${ps.map((x, i, ty) => i.wrap(s"$x : $ty")).mkString(" ")}$ustr $df $css"
+      case DeclareData(_, x, t) => s"declare data $x : $t"
 
     def pos: PosInfo = this match
       case Def0(p, _, _, _, _)       => p
       case Def1(p, _, _, _, _, _)    => p
       case Data(p, _, _, _, _, _, _) => p
+      case DeclareData(p, _, _)      => p
 
   enum ImplMode derives CanEqual:
     case Unif
