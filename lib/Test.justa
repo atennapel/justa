@@ -18,3 +18,11 @@ def list1 = 1 :: 2 :: 3 :: Nil
 def list2 = Some 1 :: None :: Some 3 :: Nil
 def listtest1 := map (\n => n + 1) list1
 def listtest2 := map {List} (\o => map {Option} (\n => n + 1) o) list2
+
+def lifttesttail (b : Bool) : Int :=
+  let f := \x => x;
+  if b then f 1 else f 2
+
+def lifttest (b : Bool) : [Int, Int] :=
+  let f := \x => if b then x else x;
+  [f 1, f 2]

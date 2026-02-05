@@ -99,15 +99,7 @@ object JVM:
     case If(cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
     case Join(
-        name: LocalName,
-        params: List[(LocalName, Ty)],
-        value: Tm,
-        body: Tm
-    )
-    case JoinRec(
-        name: LocalName,
-        params: List[(LocalName, Ty)],
-        value: Tm,
+        blocks: List[(LocalName, List[(LocalName, Ty)], Tm)],
         body: Tm
     )
     case Jump(name: LocalName, args: List[Tm])
@@ -126,14 +118,13 @@ object JVM:
       case IntLit(v)             => s"$v"
       case Let(x, ty, v, b)      => s"(let '$x : $ty = $v; $b)"
       case If(c, t, f)           => s"(if $c then $t else $f)"
-      case Join(x, Nil, v, b) =>
-        s"(join '$x = $v; $b"
-      case Join(x, ps, v, b) =>
-        s"(join '$x ${ps.map((x, t) => s"('$x : $t)").mkString(" ")} = $v; $b"
-      case JoinRec(x, Nil, v, b) =>
-        s"(join rec '$x = $v; $b"
-      case JoinRec(x, ps, v, b) =>
-        s"(join rec '$x ${ps.map((x, t) => s"('$x : $t)").mkString(" ")} = $v; $b"
+      case Join(bs, b) =>
+        val s = bs
+          .map((x, ps, v) =>
+            s"let '$x ${ps.map((x, t) => s"('$x : $t)").mkString(" ")} = $v"
+          )
+          .mkString("; ")
+        s"(join $s; $b)"
       case Jump(x, Nil)          => s"(jump '$x)"
       case Jump(x, args)         => s"(jump '$x${args.mkString("(", ",", ")")})"
       case Con(m, _, cx, _, Nil) => s"$m.$cx"

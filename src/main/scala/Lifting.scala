@@ -24,6 +24,7 @@ object Lifting:
 
   private type LiftedGlobals =
     mutable.Map[Name, (CTy, Tm, List[(LocalName, CTy)])]
+  private type LiftedLocals = mutable.Map[LocalName, (CTy, Tm)]
 
   private final class Supply(var id: LocalName = 0):
     def next(): LocalName =
@@ -52,6 +53,7 @@ object Lifting:
       emit: Emit,
       ren: Ren
   ):
+    inline def fresh(): LocalName = supply.next()
     inline def addFresh(x: LocalName): (Ctx, LocalName) =
       val y = supply.next()
       (Ctx(mod, defname, supply, emit, ren + (x -> RenVar(y))), y)
@@ -69,6 +71,7 @@ object Lifting:
   private enum Shape:
     case Rec(fs: List[(Option[Name], Shape)])
     case Global(mod: Name, x: Name, ty: CTy, extraArgs: List[(LocalName, CTy)])
+    case Local(x: LocalName)
 
   private def liftDef(mod: Name, d: Def)(using
       globals: Globals
@@ -145,6 +148,21 @@ object Lifting:
         res += (defname -> (ty, tm, freeps))
         Shape.Global(mod, defname, ty, freeps)
 
+  private def liftCTyLocal(
+      ty: CTy,
+      tm: Tm,
+      res: LiftedLocals
+  )(using ctx: Ctx): Shape =
+    (ty, tm) match
+      case (CTy.Rec(ts), Tm.CRecord(fs)) =>
+        Shape.Rec(fs.zip(ts).map { case (tm, (x, ty)) =>
+          (x, liftCTyLocal(ty, tm, res))
+        })
+      case _ =>
+        val x = ctx.fresh()
+        res += (x -> (ty, tm))
+        Shape.Local(x)
+
   // lifting
   private def go(tm: Tm, tail: Boolean)(using
       ctx: Ctx,
@@ -192,8 +210,17 @@ object Lifting:
         val (hd, tl) = tm.flattenCompElims
         goCompElims(hd, tl, tail)
 
-      // TODO: handle join points
-      // case Tm.Let(x, _, ty, v, b) if tail && isUsedInTailOnly(x, true, b) => ???
+      case Tm.Let(x, _, ty, v, b) if tail && isUsedInTailOnly(x, true, b) =>
+        val lifted: LiftedLocals = mutable.Map.empty
+        val rec = liftCTyLocal(ty, v, lifted)
+        val blocks = lifted.toList.map { case (y, (ty, tm)) =>
+          val (lps, v) = removeLams(tm)
+          val (innerctx, ps) = renameParams(lps.map((x, t) => (x, goVTy(t))))
+          val etm = go(v, true)(using innerctx)
+          (y, ps, etm)
+        }
+        val body = go(b, tail)(using ctx.addLiftedRec(x, rec))
+        JVM.Tm.Join(blocks, body)
 
       case Tm.Let(x, _, ty, v, b) =>
         matchVTy(ty) match
@@ -204,12 +231,40 @@ object Lifting:
             val freeps = free(v)
             val lifted: LiftedGlobals = mutable.Map.empty
             val rec = liftCTy(ctx.mod, ctx.defname, None, ty, v, lifted)
-            ???
+            lifted.foreach { case (y, (ty, tm, freeps)) =>
+              val (_, vrty, io) = defTy(ty)
+              val retty = goVTy(vrty)
+              val startctx =
+                Ctx(ctx.mod, y, Supply(), ctx.emit, Map.empty)
+              val (lps, body) = removeLams(tm)
+              val (innerctx, ps) = renameParams(
+                freeps.map((x, t) => (x, goCTy(t))) ++
+                  lps.map((x, t) => (x, goVTy(t)))
+              )(using startctx)
+              val etm = go(body, true)(using innerctx)
+              val cdef =
+                if ps.isEmpty && !io then
+                  JVM.Def.Value(JVM.Access.Synth, y, retty, etm)
+                else JVM.Def.Function(JVM.Access.Synth, y, ps, retty, etm)
+              ctx.addDef(cdef)
+            }
+            go(b, tail)(using ctx.addLiftedRec(x, rec))
 
-      // case Tm.LetRec(x, _, ty, v, b)
-      //    if tail && isUsedInTailOnly(x, true, v) &&
-      //      isUsedInTailOnly(x, true, b) => ???
+      case Tm.LetRec(x, _, ty, v, b)
+          if tail && isUsedInTailOnly(x, true, v) &&
+            isUsedInTailOnly(x, true, b) =>
+        val lifted: LiftedLocals = mutable.Map.empty
+        val rec = liftCTyLocal(ty, v, lifted)
+        val blocks = lifted.toList.map { case (y, (ty, tm)) =>
+          val (lps, v) = removeLams(tm)
+          val (innerctx, ps) = renameParams(lps.map((x, t) => (x, goVTy(t))))
+          val etm = go(v, true)(using innerctx.addLiftedRec(x, rec))
+          (y, ps, etm)
+        }
+        val body = go(b, tail)(using ctx.addLiftedRec(x, rec))
+        JVM.Tm.Join(blocks, body)
 
+      // TODO: loop simplification
       // case Tm.LetRec(x, _, ty, v, b) if shouldNotBeLifted(toplevel, x, b) => ???
 
       case Tm.LetRec(x, _, ty, v, b) =>
@@ -288,6 +343,8 @@ object Lifting:
               case Shape.Global(m, x, _, args) =>
                 val extraArgs = args.map((x, ty) => go(Tm.Local(x, ty), false))
                 JVM.Tm.GlobalApp(m, x, extraArgs ++ a.map(a => go(a, false)))
+              case Shape.Local(x) =>
+                JVM.Tm.Jump(x, a.map(a => go(a, false)))
               case _ => impossible()
       case _ => impossible()
 
@@ -389,6 +446,77 @@ object Lifting:
                 go(r)
               )
         merge(free(s), go(cs))
+
+  private def shouldNotBeLifted(
+      toplevel: Option[List[(Int, CTy)]],
+      x: LocalName,
+      body: Tm
+  ): Boolean =
+    toplevel match
+      case Some(ps) =>
+        body match
+          case Tm.Local(y, _) => x == y
+          case Tm.App(_, _, _) =>
+            val (f, args) = body.flattenApps
+            f match
+              case Tm.Local(y, _) if x == y && args.size == ps.size =>
+                ps.zip(args).forall {
+                  case ((x, _), Tm.Local(y, _)) => x == y
+                  case _                        => false
+                }
+              case _ => false
+          case _ => false
+      case _ => false
+
+  private def isUsedInTailOnly(x: LocalName, tail: Boolean, t: Tm): Boolean =
+    t match
+      case Tm.Global(_, _, _) => true
+      case Tm.Prim(_)         => true
+      case Tm.BoolLit(_)      => true
+      case Tm.IntLit(_)       => true
+
+      case Tm.Lam(_, _, _, b) => isUsedInTailOnly(x, tail, b)
+
+      case Tm.ReturnIO(_, v) => isUsedInTailOnly(x, tail, v)
+
+      case Tm.Let(_, _, _, v, b) =>
+        isUsedInTailOnly(x, false, v) && isUsedInTailOnly(x, tail, b)
+      case Tm.LetRec(_, _, ty, v, b) =>
+        isUsedInTailOnly(x, false, v) && isUsedInTailOnly(x, tail, b)
+      case Tm.BindIO(_, _, ty, v, b) =>
+        isUsedInTailOnly(x, false, v) && isUsedInTailOnly(x, tail, b)
+
+      case Tm.If(_, c, t, f) =>
+        isUsedInTailOnly(x, false, c) &&
+        isUsedInTailOnly(x, tail, t) &&
+        isUsedInTailOnly(x, tail, f)
+      case Tm.Con(_, _, _, _, _, args) =>
+        args.forall((a, t) => isUsedInTailOnly(x, false, a))
+      case Tm.Record(_, args) =>
+        args.forall(isUsedInTailOnly(x, false, _))
+
+      case Tm.Select(_, _, s, _) => isUsedInTailOnly(x, false, s)
+
+      case Tm.Local(y, ty) => if x == y then tail else true
+
+      case Tm.App(_, _, _) =>
+        val (fn, args) = t.flattenApps
+        val safeInArgs = args.forall(isUsedInTailOnly(x, false, _))
+        fn match
+          case Tm.Local(y, ty) if x == y => tail && safeInArgs
+          case fn => safeInArgs && isUsedInTailOnly(x, tail, fn)
+
+      case Tm.Case(_, _, s, cs) =>
+        @tailrec
+        def go(cs: Cases): Boolean =
+          cs match
+            case Cases.Empty           => true
+            case Cases.Otherwise(b)    => isUsedInTailOnly(x, tail, b)
+            case Cases.Ext(_, _, b, r) => isUsedInTailOnly(x, tail, b) && go(r)
+        isUsedInTailOnly(x, false, s) && go(cs)
+
+      case Tm.CRecord(fs)   => fs.forall(isUsedInTailOnly(x, tail, _))
+      case Tm.CSelect(s, _) => isUsedInTailOnly(x, tail, s)
 
   // types
   private inline def goCTy(t: CTy): JVM.Ty =
