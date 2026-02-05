@@ -807,10 +807,17 @@ object Parser:
           symbol(R_PAREN)
           res
 
+    private def moduleName(): Name =
+      val hd = name()
+      val tl = mutable.ArrayBuffer.empty[String]
+      while trySymbol(PERIOD) do tl += name().expose
+      if tl.isEmpty then hd
+      else Name(s"$hd.${tl.mkString(".")}")
+
     def module(mod: String): Module =
       val p = pos
       keyword(MODULE)
-      val x = name()
+      val x = moduleName()
       if x.expose != mod then
         err(
           s"module name does not match file name or path, expected $mod but got $x"
@@ -821,7 +828,7 @@ object Parser:
           .empty[(PosInfo, PosInfo, Boolean, Name, Name, Option[Name])]
       val moduleAliases = mutable.Map.empty[Name, Name]
       while tryKeyword(IMPORT) do
-        val m = name()
+        val m = moduleName()
         val xr = if trySymbol(DOUBLE_ARROW) then name() else m
         moduleAliases += m -> xr
         deps += m

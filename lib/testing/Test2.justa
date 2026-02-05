@@ -1,0 +1,3 @@
+module testing.Test2
+
+import testing.Test (test)

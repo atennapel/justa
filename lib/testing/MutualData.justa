@@ -1,4 +1,4 @@
-module MutualData
+module testing.MutualData
 
 declare data Pong : type val
 data Ping := MkPing Pong

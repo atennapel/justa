@@ -1,4 +1,4 @@
-module Test
+module testing.Test
 
 import Prelude (vtype, (+), Option, None, Some)
 import List (List, Nil, (::), map => mapList)
@@ -27,4 +27,4 @@ def lifttest (b : Bool) : [Int, Int] :=
   let f := \x => if b then x else x;
   [f 1, f 2]
 
-def test := mapList (+ 1)
+pub def test := mapList (+ 1)

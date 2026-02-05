@@ -1,4 +1,4 @@
-module MutualRec
+module testing.MutualRec
 
 pub def (<) a b = lt a b
 pub def (-) a b = sub a b

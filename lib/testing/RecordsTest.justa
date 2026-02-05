@@ -1,4 +1,4 @@
-module RecordsTest
+module testing.RecordsTest
 
 import Prelude (vtype)
 
