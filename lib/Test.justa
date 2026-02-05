@@ -26,3 +26,5 @@ def lifttesttail (b : Bool) : Int :=
 def lifttest (b : Bool) : [Int, Int] :=
   let f := \x => if b then x else x;
   [f 1, f 2]
+
+def test := mapList (+ 1)

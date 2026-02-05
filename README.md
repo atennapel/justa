@@ -33,6 +33,8 @@ https://github.com/AndrasKovacs/cctt
 - [x] Re-exporting
 - [x] Instance search
 - [x] Check postponing
+- [ ] Top-level recursion
+- [ ] Top-level mutual recursion
 - [ ] Pattern matching
 - [ ] String and label types
 - [ ] Import all(-hiding), re-export all(-hiding)

@@ -54,9 +54,11 @@ object Lifting:
       ren: Ren
   ):
     inline def fresh(): LocalName = supply.next()
+    inline def addRen(x: LocalName, y: LocalName): Ctx =
+      Ctx(mod, defname, supply, emit, ren + (x -> RenVar(y)))
     inline def addFresh(x: LocalName): (Ctx, LocalName) =
       val y = supply.next()
-      (Ctx(mod, defname, supply, emit, ren + (x -> RenVar(y))), y)
+      (addRen(x, y), y)
     inline def addLiftedFun(
         x: LocalName,
         r: Name,
@@ -100,10 +102,12 @@ object Lifting:
     val emit = Emit()
     val startctx = Ctx(mod, x, Supply(), emit, Map.empty)
     val (ctx, ps, body) = removeLamsCtx(tm)(using startctx)
-    val etm = go(body, true)(using ctx)
+    val etm = go(body, true, Some(ps))(using ctx)
     val cdef =
       if ps.isEmpty && !io then JVM.Def.Value(acc, x, retty, etm)
-      else JVM.Def.Function(acc, x, ps, retty, etm)
+      else
+        val nps = ps.map((_, x, t) => (x, t))
+        JVM.Def.Function(acc, x, nps, retty, etm)
     emit.get ++ List(cdef)
 
   private def defTy(ty: CTy): (List[VTy], VTy, Boolean) =
@@ -164,7 +168,11 @@ object Lifting:
         Shape.Local(x)
 
   // lifting
-  private def go(tm: Tm, tail: Boolean)(using
+  private def go(
+      tm: Tm,
+      tail: Boolean,
+      toplevel: Option[List[(LocalName, LocalName, JVM.Ty)]] = None
+  )(using
       ctx: Ctx,
       globals: Globals
   ): JVM.Tm =
@@ -230,7 +238,15 @@ object Lifting:
           case None =>
             val freeps = free(v)
             val lifted: LiftedGlobals = mutable.Map.empty
-            val rec = liftCTy(ctx.mod, ctx.defname, None, ty, v, lifted)
+            val rec =
+              liftCTy(
+                ctx.mod,
+                Name(s"${ctx.defname}$$let"),
+                None,
+                ty,
+                v,
+                lifted
+              )
             lifted.foreach { case (y, (ty, tm, freeps)) =>
               val (_, vrty, io) = defTy(ty)
               val retty = goVTy(vrty)
@@ -264,12 +280,24 @@ object Lifting:
         val body = go(b, tail)(using ctx.addLiftedRec(x, rec))
         JVM.Tm.Join(blocks, body)
 
-      // TODO: loop simplification
-      // case Tm.LetRec(x, _, ty, v, b) if shouldNotBeLifted(toplevel, x, b) => ???
+      case Tm.LetRec(x, _, ty, v, b) if shouldNotBeLifted(toplevel, x, b) =>
+        val (ps, newbody) = removeLams(v)
+        val nctx = ps.zip(toplevel.get).foldLeft(ctx) {
+          case (ctx, ((x, _), (_, y, _))) => ctx.addRen(x, y)
+        }
+        go(newbody, tail)(using nctx.addLiftedFun(x, ctx.defname, Nil))
 
       case Tm.LetRec(x, _, ty, v, b) =>
         val lifted: LiftedGlobals = mutable.Map.empty
-        val rec = liftCTy(ctx.mod, ctx.defname, Some(x), ty, v, lifted)
+        val rec =
+          liftCTy(
+            ctx.mod,
+            Name(s"${ctx.defname}$$letrec"),
+            Some(x),
+            ty,
+            v,
+            lifted
+          )
         lifted.foreach { case (y, (ty, tm, freeps)) =>
           val (_, vrty, io) = defTy(ty)
           val retty = goVTy(vrty)
@@ -365,12 +393,12 @@ object Lifting:
   // util
   private def removeLamsCtx(tm: Tm)(using
       ctx: Ctx
-  ): (Ctx, List[(LocalName, JVM.Ty)], Tm) =
+  ): (Ctx, List[(LocalName, LocalName, JVM.Ty)], Tm) =
     tm match
       case Tm.Lam(x, _, ty, b) =>
         val (nctx, y) = ctx.addFresh(x)
         val (rctx, ps, body) = removeLamsCtx(b)(using nctx)
-        (rctx, (y, goVTy(ty)) :: ps, body)
+        (rctx, (x, y, goVTy(ty)) :: ps, body)
       case tm => (ctx, Nil, tm)
 
   private def removeLams(tm: Tm): (List[(LocalName, VTy)], Tm) =
@@ -448,7 +476,7 @@ object Lifting:
         merge(free(s), go(cs))
 
   private def shouldNotBeLifted(
-      toplevel: Option[List[(Int, CTy)]],
+      toplevel: Option[List[(LocalName, LocalName, JVM.Ty)]],
       x: LocalName,
       body: Tm
   ): Boolean =
@@ -461,8 +489,8 @@ object Lifting:
             f match
               case Tm.Local(y, _) if x == y && args.size == ps.size =>
                 ps.zip(args).forall {
-                  case ((x, _), Tm.Local(y, _)) => x == y
-                  case _                        => false
+                  case ((x, _, _), Tm.Local(y, _)) => x == y
+                  case _                           => false
                 }
               case _ => false
           case _ => false
