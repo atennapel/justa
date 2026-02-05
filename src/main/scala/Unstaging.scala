@@ -10,7 +10,7 @@ object Unstaging:
   def unstageState(): List[Module] =
     State
       .allGlobals()
-      .map { (m, sds) =>
+      .flatMap { (m, sds) =>
         val ds = sds.flatMap {
           case GlobalEntry.Def0(pub, x, tm, _, _, _, vty, _) =>
             val nty = goCTy(vty)
@@ -34,7 +34,8 @@ object Unstaging:
           case _ =>
             None
         }
-        Module(m, Defs(ds))
+        if ds.isEmpty then None
+        else Some(Module(m, Defs(ds)))
       }
       .toList
 
@@ -48,64 +49,72 @@ object Unstaging:
       cur
 
   private def unstage(tm: Tm0): Tm =
-    go(Evaluation.unstage(tm))(using Nil, Env.Empty, Nil, new Supply(0))
+    go(Evaluation.unstage(tm))(using Nil, Env.Empty, Nil, new Supply(0))._1
 
   // unstaging
   private def go(
       tm: Tm0
-  )(using tenv: TEnv, venv: Env, ren: Ren, supply: Supply): Tm =
+  )(using tenv: TEnv, venv: Env, ren: Ren, supply: Supply): (Tm, CTy) =
     inline def extVEnv: Env = Env.Ext0(venv, V0.Var(mkLvl(venv.size)))
     tm match
-      case Tm0.IntLit(v) => Tm.IntLit(v)
+      case Tm0.IntLit(v) => (Tm.IntLit(v), CTy(VTy.Int))
       case Tm0.Global(m, x) =>
         State.getGlobalDirect(m, x) match
           case Some(GlobalEntry.Def0(_, _, _, _, _, _, vty, _)) =>
-            Tm.Global(m, x, goCTy(vty))
+            val cty = goCTy(vty)
+            (Tm.Global(m, x, cty), cty)
           case _ => impossible()
 
-      case Tm0.Var(ix) => Tm.Local(ren(ix.expose), tenv(ix.expose))
+      case Tm0.Var(ix) =>
+        val ty = tenv(ix.expose)
+        (Tm.Local(ren(ix.expose), ty), ty)
 
       case Tm0.Let(x, ty, v, b) =>
         val y = supply.next()
         val ct = goCTy(ty)
-        Tm.Let(y, -1, ct, go(v), go(b)(using ct :: tenv, extVEnv, y :: ren))
+        val (eb, et) = go(b)(using ct :: tenv, extVEnv, y :: ren)
+        (Tm.Let(y, -1, ct, go(v)._1, eb), et)
       case Tm0.LetRec(x, ty, v, b) =>
         val y = supply.next()
         val ct = goCTy(ty)
         val nextTEnv = ct :: tenv
         val nextVEnv = extVEnv
         val nextRen = y :: ren
-        Tm.LetRec(
-          y,
-          -1,
-          ct,
-          go(v)(using nextTEnv, nextVEnv, nextRen),
-          go(b)(using nextTEnv, nextVEnv, nextRen)
+        val (eb, et) = go(b)(using nextTEnv, nextVEnv, nextRen)
+        (
+          Tm.LetRec(y, -1, ct, go(v)(using nextTEnv, nextVEnv, nextRen)._1, eb),
+          et
         )
 
       case Tm0.Lam(x, ty, b) =>
         val y = supply.next()
         val vt = goTy(ty)
-        Tm.Lam(
-          y,
-          -1,
-          goTy(ty),
-          go(b)(using CTy(vt) :: tenv, extVEnv, y :: ren)
-        )
+        val (eb, et) = go(b)(using CTy(vt) :: tenv, extVEnv, y :: ren)
+        (Tm.Lam(y, -1, vt, eb), CTy.Fun(vt, et))
 
-      case Tm0.App(fn, arg) => Tm.App(go(fn), go(arg))
+      case Tm0.App(fn, arg) =>
+        val (f, tf) = go(fn)
+        val (a, ta) = go(arg)
+        (Tm.App(f, a, ta.vty), tf.retty)
 
-      case Tm0.If(rty, c, t, f) => Tm.If(goCTy(rty), go(c), go(t), go(f))
+      case Tm0.If(rty, c, t, f) =>
+        val cty = goCTy(rty)
+        (Tm.If(cty, go(c)._1, go(t)._1, go(f)._1), cty)
 
-      case Tm0.Proj(rty, s, p) => Tm.Select(goTy(rty), go(s), p.ix)
+      case Tm0.Proj(rty, s, p) =>
+        val vty = goTy(rty)
+        val (es, et) = go(s)
+        (Tm.Select(vty, et.vty, es, p.ix), CTy(vty))
 
-      case Tm0.RecordCon(ty, fs) => Tm.Record(goTy(ty), fs.map(go))
+      case Tm0.RecordCon(ty, fs) =>
+        val vty = goTy(ty)
+        (Tm.Record(vty, fs.map(f => go(f)._1)), CTy(vty))
 
       case Tm0.Case(rty, dty, s, cs) =>
         def goCases(cs: Core.Cases0): Cases =
           cs match
             case Core.Cases0.Empty        => Cases.Empty
-            case Core.Cases0.Otherwise(b) => Cases.Otherwise(go(b))
+            case Core.Cases0.Otherwise(b) => Cases.Otherwise(go(b)._1)
             case Core.Cases0.Ext(x, ps, b, r) =>
               @tailrec
               def addParamsRec(
@@ -136,21 +145,38 @@ object Unstaging:
               ): (List[(LocalName, VTy, Int)], TEnv, Env, Ren) =
                 addParamsRec(ps, Nil, tenv, env, ren)
               val (newps, innertenv, innerenv, innerren) = addParams(ps)
-              val body = go(b)(using innertenv, innerenv, innerren)
+              val body = go(b)(using innertenv, innerenv, innerren)._1
               Cases.Ext(x, newps, body, goCases(r))
-        Tm.Case(goCTy(rty), goTy(dty), go(s), goCases(cs))
+        val et = goCTy(rty)
+        (Tm.Case(et, goTy(dty), go(s)._1, goCases(cs)), et)
 
       case Tm0.Wk1(tm) => go(tm)(using tenv, venv.wk1)
       case Tm0.Wk0(tm) => go(tm)(using tenv.tail, venv.wk0, ren.tail)
 
       case Tm0.Splice(tm) =>
         tm match
-          case Tm1.Prim(Primitive.True)    => Tm.True
-          case Tm1.Prim(Primitive.False)   => Tm.False
-          case Tm1.Prim(p @ Primitive.Lt)  => Tm.Prim(RuntimePrimitive.Lt)
-          case Tm1.Prim(p @ Primitive.Add) => Tm.Prim(RuntimePrimitive.Add)
-          case Tm1.Prim(p @ Primitive.Sub) => Tm.Prim(RuntimePrimitive.Sub)
-          case Tm1.Prim(p @ Primitive.Mul) => Tm.Prim(RuntimePrimitive.Mul)
+          case Tm1.Prim(Primitive.True)  => (Tm.True, CTy(VTy.Bool))
+          case Tm1.Prim(Primitive.False) => (Tm.False, CTy(VTy.Bool))
+          case Tm1.Prim(p @ Primitive.Lt) =>
+            (
+              Tm.Prim(RuntimePrimitive.Lt),
+              CTy.Fun(VTy.Int, CTy.Fun(VTy.Int, CTy.Val(VTy.Bool)))
+            )
+          case Tm1.Prim(p @ Primitive.Add) =>
+            (
+              Tm.Prim(RuntimePrimitive.Add),
+              CTy.Fun(VTy.Int, CTy.Fun(VTy.Int, CTy.Val(VTy.Int)))
+            )
+          case Tm1.Prim(p @ Primitive.Sub) =>
+            (
+              Tm.Prim(RuntimePrimitive.Sub),
+              CTy.Fun(VTy.Int, CTy.Fun(VTy.Int, CTy.Val(VTy.Int)))
+            )
+          case Tm1.Prim(p @ Primitive.Mul) =>
+            (
+              Tm.Prim(RuntimePrimitive.Mul),
+              CTy.Fun(VTy.Int, CTy.Fun(VTy.Int, CTy.Val(VTy.Int)))
+            )
           case _ =>
             @tailrec
             def apps(
@@ -174,25 +200,47 @@ object Unstaging:
                 val ps = takeImpl(args).map(eval1)
                 val dty = VTy.Data(m, dx, ps.map(t => goVTy(t)))
                 val as = args.drop(ps.size).map((t, _) => stgo(t))
-                IR.Tm.Con(m, dx, cx, State.conIndex(m, dx, cx), dty, as)
+                (
+                  IR.Tm.Con(
+                    m,
+                    dx,
+                    cx,
+                    State.conIndex(m, dx, cx),
+                    dty,
+                    as.map((t, ty) => (t, ty.vty))
+                  ),
+                  CTy(dty)
+                )
               case (Tm1.Prim(Primitive.ReturnIO), List(ty, v)) =>
                 val ety = goTy(ty._1)
                 val ev = stgo(v._1)
-                IR.Tm.ReturnIO(ety, ev)
+                (IR.Tm.ReturnIO(ety, ev._1), CTy.IO(ety))
               case (Tm1.Prim(Primitive.BindIO), List(ty, _, v, k)) =>
                 val ety = goTy(ty._1)
                 val ev = stgo(v._1)
                 val ek = stgo(k._1)
                 val x = supply.next()
-                val b = IR.Tm.App(ek, IR.Tm.Local(x, CTy(ety)))
-                IR.Tm.BindIO(x, -1, ety, ev, b)
-              case (Tm1.Prim(Primitive.MkCUnit), Nil) => IR.Tm.CUnit
+                val b = IR.Tm.App(ek._1, IR.Tm.Local(x, CTy(ety)), ety)
+                (IR.Tm.BindIO(x, -1, ety, ev._1, b), ek._2.retty)
+              case (Tm1.Prim(Primitive.MkCUnit), Nil) =>
+                (IR.Tm.CRecord(Nil), CTy.Rec(Nil))
               case (Tm1.Prim(Primitive.MkCPair), List(_, _, a, b)) =>
-                IR.Tm.CPair(stgo(a._1), stgo(b._1))
-              case (Tm1.Prim(Primitive.CFst), List(_, _, p)) =>
-                IR.Tm.CFst(stgo(p._1))
-              case (Tm1.Prim(Primitive.CSnd), List(_, _, p)) =>
-                IR.Tm.CSnd(stgo(p._1))
+                val (ca, ta) = stgo(a._1)
+                val (cb, tb) = stgo(b._1)
+                (
+                  IR.Tm.CRecord(List(ca, cb)),
+                  CTy.Rec(List((None, ta), (None, tb)))
+                )
+              case (Tm1.Prim(Primitive.CFst), List(t1, t2, p)) =>
+                val et1 = goCTy(t1._1)
+                val et2 = goCTy(t2._1)
+                val ty = IR.CTy.Rec(List((None, et1), (None, et2)))
+                (IR.Tm.CSelect(stgo(p._1)._1, 0), et1)
+              case (Tm1.Prim(Primitive.CSnd), List(t1, t2, p)) =>
+                val et1 = goCTy(t1._1)
+                val et2 = goCTy(t2._1)
+                val ty = IR.CTy.Rec(List((None, et1), (None, et2)))
+                (IR.Tm.CSelect(stgo(p._1)._1, 1), et2)
               case _ => impossible()
   // types
   private def goCTy(ty: Tm1, env: Env = Env.Empty): CTy =
@@ -204,9 +252,10 @@ object Unstaging:
     forceAll1(ty) match
       case V.Fun(pty, _, rty) => CTy.Fun(goVTy(pty), goCTy(rty))
       case V.IO(ty)           => CTy.IO(goVTy(ty))
-      case V.CUnit            => CTy.CUnit
-      case V.CPair(fst, snd)  => CTy.CPair(goCTy(fst), goCTy(snd))
-      case _                  => CTy.Val(goVTy(ty))
+      case V.CUnit            => CTy.Rec(Nil)
+      case V.CPair(fst, snd) =>
+        CTy.Rec(List((None, goCTy(fst)), (None, goCTy(snd))))
+      case _ => CTy.Val(goVTy(ty))
 
   private def goVTy(ty: V, menv: State.MonoEnv = Map.empty): VTy =
     forceAll1(ty) match

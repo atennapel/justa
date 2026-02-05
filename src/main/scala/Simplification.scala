@@ -1,9 +1,8 @@
-import Common.{Name, RuntimePrimitive}
+import Common.{impossible, Name, RuntimePrimitive}
 import IR.*
 import Debug.debug
 
 import scala.annotation.tailrec
-import Common.impossible
 
 // eta-expand, remove dead lets, inlining, constant folding, remove closures
 object Simplification:
@@ -21,296 +20,314 @@ object Simplification:
 
   private def simplifyDef(d: Def): Def =
     debug(s"simplifyDef ${d.name}")
-    println(d.value)
-    val expanded = eta2(d.ty, d.value)(using Set.empty)
-    val simp = correctUsages(simplify(expanded))
+    val simp = correctUsages(simplify(d.ty, d.value))
     Def(d.pub, d.name, d.ty, simp)
 
   @tailrec
-  private def simplify(t: Tm): Tm =
+  private def simplify(ty: CTy, t: Tm): Tm =
     debug(s"simplify $t")
-    val next = go(correctUsages(t), Nil)(using Set.empty, Map.empty)
-    if next == t then t else simplify(next)
+    val next = go(ty, correctUsages(t), Nil)(using Ctx.empty)
+    if next == t then t else simplify(ty, next)
 
   private enum Elim derives CanEqual:
-    case Arg(tm: Tm)
-    case CFst
-    case CSnd
+    case Arg(tm: Tm, ty: VTy)
+    case CSelect(ix: Int)
 
     def isArg: Boolean =
       this match
-        case Arg(_) => true
-        case CFst   => false
-        case CSnd   => false
+        case Arg(_, _) => true
+        case _         => false
 
     def getArg: Tm =
       this match
-        case Arg(a) => a
-        case _      => impossible()
+        case Arg(a, _) => a
+        case _         => impossible()
 
   private object Elim:
     def apply(head: Tm, arg: Elim): Tm =
       arg match
-        case Arg(tm) => Tm.App(head, tm)
-        case CFst    => Tm.CFst(head)
-        case CSnd    => Tm.CSnd(head)
+        case Arg(tm, ty) => Tm.App(head, tm, ty)
+        case CSelect(i)  => Tm.CSelect(head, i)
 
   private def reduce(ty: CTy, args: List[Elim]): CTy =
     (ty, args) match
-      case (ty, Nil)                            => ty
-      case (CTy.CPair(a, _), Elim.CFst :: args) => reduce(a, args)
-      case (CTy.CPair(_, b), Elim.CSnd :: args) => reduce(b, args)
-      case (CTy.Fun(_, b), Elim.Arg(_) :: args) => reduce(b, args)
-      case _                                    => impossible()
+      case (ty, Nil)                               => ty
+      case (CTy.Rec(fs), Elim.CSelect(i) :: args)  => reduce(fs(i)._2, args)
+      case (CTy.Fun(_, b), Elim.Arg(_, _) :: args) => reduce(b, args)
+      case _                                       => impossible()
 
-  // TODO: add all eliminators in args
-  private def go(t: Tm, args: List[Elim])(using
+  private inline def apply(tm: Tm, args: List[Elim]): Tm =
+    args.foldLeft(tm)(Elim.apply)
+
+  private final case class Ctx(
       scope: Scope,
-      subst: Subst
-  ): Tm =
-    t match
-      case Tm.Global(_, _, _) => args.foldLeft(t)(Elim.apply)
-      case Tm.Prim(p) =>
-        if args.size == 2 && args.forall(_.isArg) then
-          foldConstants2(p, args(0).getArg, args(1).getArg) match
-            case Some(tm) => tm
-            case None     => args.foldLeft(t)(Elim.apply)
-        else args.foldLeft(t)(Elim.apply)
-      case Tm.BoolLit(_) => t
-      case Tm.IntLit(_)  => t
-      case Tm.CUnit      => t
+      subst: Subst,
+      nextFresh: LocalName
+  ):
+    inline def contains(x: LocalName): Boolean = scope.contains(x)
 
-      case Tm.ReturnIO(ty, v) => Tm.ReturnIO(ty, go(v, Nil))
-
-      case Tm.Con(m, dx, cx, ix, dty, args) =>
-        Tm.Con(m, dx, cx, ix, dty, args.map(a => go(a, Nil)))
-
-      case Tm.Record(ty, args) => Tm.Record(ty, args.map(a => go(a, Nil)))
-
-      case Tm.Local(x, ty) =>
-        subst.get(x) match
-          case Some(tm) if tm != t => go(tm, args)
-          case _                   => args.foldLeft(t)(Elim.apply)
-
-      case Tm.Select(ty, Tm.If(_, c, t, f), i) =>
-        go(Tm.If(CTy(ty), c, Tm.Select(ty, f, i), Tm.Select(ty, t, i)), args)
-      case Tm.Select(ty, Tm.Let(x, u, ty2, v, b), i) =>
-        go(Tm.Let(x, u, ty2, v, Tm.Select(ty, b, i)), args)
-      case Tm.Select(ty, Tm.LetRec(x, u, ty2, v, b), i) =>
-        go(Tm.LetRec(x, u, ty2, v, Tm.Select(ty, b, i)), args)
-      case Tm.Select(_, Tm.Con(_, _, _, _, _, cargs), i) => go(cargs(i), args)
-      case Tm.Select(_, Tm.Record(_, cargs), i)          => go(cargs(i), args)
-      case Tm.Select(ty, s, i) => Tm.Select(ty, go(s, Nil), i)
-
-      case Tm.If(_, Tm.BoolLit(b), t, f) =>
-        if b then go(t, args) else go(f, args)
-      case Tm.If(ty, c, t, f) =>
-        Tm.If(reduce(ty, args), go(c, Nil), go(t, args), go(f, args))
-
-      case Tm.App(f, a) => go(f, Elim.Arg(go(a, Nil)) :: args)
-
-      case Tm.CFst(t) => go(t, Elim.CFst :: args)
-      case Tm.CSnd(t) => go(t, Elim.CSnd :: args)
-
-      case Tm.CPair(a, b) if args.nonEmpty =>
-        args.head match
-          case Elim.Arg(_) => impossible()
-          case Elim.CFst   => go(a, args.tail)
-          case Elim.CSnd   => go(b, args.tail)
-      case Tm.CPair(a, b) => Tm.CPair(go(a, Nil), go(b, Nil))
-
-      case Tm.Lam(x, u, ty, b) if args.nonEmpty =>
-        go(Tm.Let(x, u, CTy(ty), args.head.getArg, b), args.tail)
-      case Tm.Lam(x, _, ty, b0) =>
-        if scope.contains(x) then
-          val y = scope.size
-          val b =
-            go(b0, Nil)(using scope + y, subst + (x -> Tm.Local(y, CTy(ty))))
-          Tm.Lam(y, -1, ty, b)
-        else
-          val b = go(b0, Nil)(using scope + x, subst - x)
-          Tm.Lam(x, -1, ty, b)
-
-      // TODO: some of these might not be a good idea
-      case Tm.Let(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
-        go(Tm.Let(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2)), args)
-      case Tm.LetRec(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
-        go(Tm.LetRec(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2)), args)
-      case Tm.Let(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
-        go(Tm.LetRec(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2)), args)
-      case Tm.LetRec(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
-        go(Tm.Let(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2)), args)
-      case Tm.BindIO(x, _, ty2, Tm.BindIO(y, _, ty1, v, b1), b2) =>
-        go(Tm.BindIO(y, -1, ty1, v, Tm.BindIO(x, -1, ty2, b1, b2)), args)
-      case Tm.BindIO(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
-        go(Tm.Let(y, -1, ty1, v, Tm.BindIO(x, -1, ty2, b1, b2)), args)
-      case Tm.BindIO(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
-        go(Tm.LetRec(y, -1, ty1, v, Tm.BindIO(x, -1, ty2, b1, b2)), args)
-      case Tm.Let(x, _, ty2, Tm.BindIO(y, _, ty1, v, b1), b2) =>
-        go(Tm.BindIO(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2)), args)
-      case Tm.LetRec(x, _, ty2, Tm.BindIO(y, _, ty1, v, b1), b2) =>
-        go(Tm.BindIO(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2)), args)
-
-      case Tm.Let(_, u, _, _, b) if u == 0 => go(b, args)
-      case Tm.Let(x, u, _, v, b) if u == 1 || isSmall(v) =>
-        go(b, args)(using scope, subst + (x -> v))
-      case Tm.Let(x, _, ty, v0, b0) =>
-        val v =
-          if isEtaExpanded2(ty, v0) then go(v0, Nil)
-          else eta2(ty, v0)
-        val (y, b) = if scope.contains(x) then
-          val y = scope.size
-          (y, go(b0, args)(using scope + y, subst + (x -> Tm.Local(y, ty))))
-        else (x, go(b0, args)(using scope + x, subst - x))
-        Tm.Let(x, -1, ty, v, b)
-
-      case Tm.LetRec(_, u, _, _, b) if u == 0 => go(b, args)
-      case Tm.LetRec(x, _, ty, v0, b0) =>
-        val (y, nscope, nsubst) = if scope.contains(x) then
-          val y = scope.size
-          (y, scope + y, subst + (x -> Tm.Local(y, ty)))
-        else (x, scope + x, subst - x)
-        val v =
-          if isEtaExpanded2(ty, v0) then go(v0, Nil)(using nscope, nsubst)
-          else eta2(ty, v0)
-        val b = go(b0, args)(using nscope, nsubst)
-        Tm.LetRec(x, -1, ty, v, b)
-
-      case Tm.BindIO(x, u, ty, Tm.ReturnIO(_, v), b) =>
-        go(Tm.Let(x, u, CTy(ty), v, b), args)
-      case Tm.BindIO(x, _, _, v, Tm.ReturnIO(_, Tm.Local(y, _))) if x == y => v
-      case Tm.BindIO(x, _, ty, v0, b0) =>
-        val v = go(v0, Nil)
-        val (y, b) = if scope.contains(x) then
-          val y = scope.size
-          (
-            y,
-            go(b0, args)(using scope + y, subst + (x -> Tm.Local(y, CTy(ty))))
-          )
-        else (x, go(b0, args)(using scope + x, subst - x))
-        Tm.BindIO(y, -1, ty, v, b)
-
-      case Tm.Case(rty, dty, Tm.Let(x, u, vty, v, b), cs) =>
-        go(Tm.Let(x, u, vty, v, Tm.Case(rty, dty, b, cs)), args)
-      case Tm.Case(rty, dty, Tm.LetRec(x, u, vty, v, b), cs) =>
-        go(Tm.LetRec(x, u, vty, v, Tm.Case(rty, dty, b, cs)), args)
-      case Tm.Case(_, _, Tm.Con(_, _, cx, _, _, cargs), cs) =>
-        @tailrec
-        def lookup(
-            cx: Name,
-            cs: Cases
-        ): Either[Tm, (List[(LocalName, VTy, Int)], Tm)] =
-          cs match
-            case Cases.Empty                           => impossible()
-            case Cases.Otherwise(b)                    => Left(b)
-            case Cases.Ext(cx2, ps, b, r) if cx == cx2 => Right((ps, b))
-            case Cases.Ext(_, _, _, r)                 => lookup(cx, r)
-        lookup(cx, cs) match
-          case Left(b) => go(b, args)
-          case Right((ps, b)) =>
-            val lets = ps.zipWithIndex.foldRight(b) {
-              case (((x, ty, u), i), b) =>
-                Tm.Let(x, u, CTy(ty), cargs(i), b)
-            }
-            go(lets, args)
-      case Tm.Case(rty, dty, s, cs) =>
-        @tailrec
-        def goParamsRec(
-            ps: List[(LocalName, VTy, Int)],
-            newps: List[(LocalName, VTy, Int)],
-            scope: Scope,
-            subst: Subst
-        ): (List[(LocalName, VTy, Int)], Scope, Subst) =
-          ps match
-            case Nil => (newps, scope, subst)
-            case (x, ty, _) :: rest =>
-              if scope.contains(x) then
-                val y = scope.size
-                goParamsRec(
-                  rest,
-                  newps :+ (y, ty, -1),
-                  scope + y,
-                  subst + (x -> Tm.Local(y, CTy(ty)))
-                )
-              else
-                goParamsRec(
-                  rest,
-                  newps :+ (x, ty, -1),
-                  scope + x,
-                  subst - x
-                )
-        inline def goParams(
-            ps: List[(LocalName, VTy, Int)]
-        )(using scope: Scope, subst: Subst) =
-          goParamsRec(ps, Nil, scope, subst)
-        def goCases(cs: Cases): Cases =
-          cs match
-            case Cases.Ext(x, ps, b, r) =>
-              val (nps, innerscope, innersubst) = goParams(ps)
-              val nb = go(b, args)(using innerscope, innersubst)
-              Cases.Ext(x, nps, nb, goCases(r))
-            case Cases.Otherwise(b) => Cases.Otherwise(go(b, args))
-            case Cases.Empty        => Cases.Empty
-        Tm.Case(rty, dty, go(s, Nil), goCases(cs))
-
-  /*
-  private def eta(ty: CTy)(using
-      scope: Scope
-  ): (List[(LocalName, VTy)], List[Tm], Scope) =
-    val base = scope.size
-    val params = ty.params.zipWithIndex.map((t, n) => (base + n, t))
-    val args = params.map { case (x, ty) => Tm.Local(x, CTy(ty)) }
-    (params, args, scope ++ params.map(_._1))*/
-
-  /*
-  tm : () ~> tm
-  tm : A ~> tm
-  tm : IO A ~> tm
-  tm : A -> B ~> \x => (tm x : B)
-  tm : A * B ~> (cfst tm : A, csnd tm : B)
-   */
-  private def eta2(ty: CTy, tm: Tm)(using scope: Scope): Tm =
-    ty match
-      case CTy.CUnit  => go(tm, Nil)(using scope, Map.empty)
-      case CTy.Val(_) => go(tm, Nil)(using scope, Map.empty)
-      case CTy.IO(ty) => go(tm, Nil)(using scope, Map.empty)
-      case CTy.CPair(fst, snd) =>
-        val rfst = eta2(fst, Tm.CFst(tm))(using scope)
-        val rsnd = eta2(snd, Tm.CSnd(tm))(using scope)
-        Tm.CPair(rfst, rsnd)
-      case CTy.Fun(pty, rty) =>
-        val x = scope.size
-        val rtm =
-          eta2(rty, Tm.App(tm, Tm.Local(x, CTy.Val(pty))))(using scope + x)
-        Tm.Lam(x, -1, pty, rtm)
-
-  private def isEtaExpanded2(ty: CTy, v: Tm): Boolean =
-    ty match
-      case CTy.CUnit  => true
-      case CTy.Val(_) => true
-      case CTy.IO(_)  => true
-      case CTy.CPair(a, b) =>
-        v match
-          case Tm.CPair(fst, snd) =>
-            isEtaExpanded2(a, fst) && isEtaExpanded2(b, snd)
-          case _ => false
-      case CTy.Fun(_, rty) =>
-        v match
-          case Tm.Lam(_, _, _, b) => isEtaExpanded2(rty, b)
-          case _                  => false
-
-  private def lams(ps: List[(LocalName, VTy)], b: Tm): Tm =
-    ps.foldRight(b) { case ((x, ty), b) => Tm.Lam(x, -1, ty, b) }
-
-  /*
-  private def isEtaExpanded(ty: CTy, v: Tm): Boolean =
     @tailrec
-    def go(ps: List[VTy], v: Tm): Boolean =
-      (ps, v) match
-        case (Nil, _)                        => true
-        case (_ :: rest, Tm.Lam(_, _, _, b)) => go(rest, b)
-        case _                               => false
-    go(ty.params, v)*/
+    private def fresh(x: LocalName = nextFresh): LocalName =
+      if contains(x) then fresh(x + 1) else x
+
+    inline def get(x: LocalName): Option[Tm] = subst.get(x)
+    inline def assign(x: LocalName, v: Tm): Ctx =
+      Ctx(scope, subst + (x -> v), nextFresh)
+
+    inline def used(x: LocalName, ty: CTy): (Ctx, LocalName) =
+      val y = fresh()
+      (Ctx(scope + y, subst + (x -> Tm.Local(y, ty)), y + 1), y)
+    inline def used(x: LocalName, ty: VTy): (Ctx, LocalName) =
+      used(x, CTy(ty))
+    inline def notused(x: LocalName): Ctx =
+      Ctx(scope + x, subst - x, nextFresh + 1)
+
+    inline def enter(x: LocalName, ty: CTy): (LocalName, Ctx) =
+      if contains(x) then
+        val (nctx, y) = used(x, ty)
+        (y, nctx)
+      else (x, notused(x))
+
+    inline def enter(
+        x: LocalName,
+        ty: CTy,
+        inline body: Ctx ?=> Tm
+    ): (LocalName, Tm) =
+      val (y, nctx) = enter(x, ty)
+      val b = body(using nctx)
+      (y, b)
+    inline def enter(
+        x: LocalName,
+        ty: VTy,
+        inline body: Ctx ?=> Tm
+    ): (LocalName, Tm) = enter(x, CTy(ty), ctx ?=> body)
+    inline def insert(ty: CTy, inline body: Ctx ?=> Tm => Tm): (LocalName, Tm) =
+      val x = fresh()
+      val b = body(using notused(x))(Tm.Local(x, ty))
+      (x, b)
+    inline def insert(ty: VTy, inline body: Ctx ?=> Tm => Tm): (LocalName, Tm) =
+      insert(CTy(ty), ctx ?=> body)
+  private object Ctx:
+    val empty: Ctx = Ctx(Set.empty, Map.empty, 0)
+
+  private def go(ty: CTy, tm: Tm, args: List[Elim])(using ctx: Ctx): Tm =
+    (ty, tm) match
+      // eta-expansion
+      case (CTy.Fun(_, rty), Tm.Lam(x, _, ty, b0)) if args.isEmpty =>
+        val (y, b) = ctx.enter(x, ty, ctx ?=> go(rty, b0, Nil))
+        Tm.Lam(y, -1, ty, b)
+      case (CTy.Fun(pty, rty), tm) =>
+        val (x, b) =
+          ctx.insert(
+            pty,
+            ctx ?=> (vr: Tm) => go(rty, tm, args :+ Elim.Arg(vr, pty))
+          )
+        Tm.Lam(x, -1, pty, b)
+
+      case (CTy.Rec(fs), Tm.CRecord(vs)) if args.isEmpty =>
+        val vs2 = fs.zip(vs).map { case ((_, ty), tm) => go(ty, tm, Nil) }
+        Tm.CRecord(vs2)
+      case (CTy.Rec(fs), tm) =>
+        val vs = fs.zipWithIndex.map { case ((_, ty), i) =>
+          go(ty, tm, args :+ Elim.CSelect(i))
+        }
+        Tm.CRecord(vs)
+
+      // other simplifications
+      case (_, tm) =>
+        tm match
+          case Tm.BoolLit(v) => tm
+          case Tm.IntLit(v)  => tm
+
+          case Tm.Global(_, _, _) => apply(tm, args)
+
+          case Tm.ReturnIO(vty, v) => Tm.ReturnIO(vty, go(CTy(vty), v, Nil))
+          case Tm.Con(m, dx, cx, ix, dty, args) =>
+            Tm.Con(
+              m,
+              dx,
+              cx,
+              ix,
+              dty,
+              args.map((a, vt) => (go(CTy(vt), a, Nil), vt))
+            )
+          case Tm.Record(ty, args) =>
+            ty match
+              case VTy.Record(ts) =>
+                val eargs =
+                  ts.zip(args).map { case ((_, vty), a) =>
+                    go(CTy(vty), a, Nil)
+                  }
+                Tm.Record(ty, eargs)
+              case _ => impossible()
+
+          case Tm.Prim(p) =>
+            if args.size == 2 && args.forall(_.isArg) then
+              foldConstants2(p, args(0).getArg, args(1).getArg) match
+                case Some(tm) => tm
+                case None     => apply(tm, args)
+            else apply(tm, args)
+
+          case Tm.Local(x, _) =>
+            ctx.get(x) match
+              case Some(tm) => apply(tm, args)
+              case None     => apply(tm, args)
+
+          case Tm.App(f, a, aty) =>
+            go(ty, f, Elim.Arg(go(CTy(aty), a, Nil), aty) :: args)
+
+          case Tm.CSelect(s, i) => go(ty, s, Elim.CSelect(i) :: args)
+
+          case Tm.Lam(x, u, vty, b) if args.nonEmpty =>
+            go(ty, Tm.Let(x, u, CTy(vty), args.head.getArg, b), args.tail)
+          case Tm.Lam(_, _, _, _) => impossible()
+
+          case Tm.CRecord(fs) if args.nonEmpty =>
+            args.head match
+              case Elim.CSelect(i) => go(ty, fs(i), args.tail)
+              case _               => impossible()
+          case Tm.CRecord(fs) => impossible()
+
+          case Tm.If(_, Tm.BoolLit(b), t, f) =>
+            if b then go(ty, t, args) else go(ty, f, args)
+          case Tm.If(ty, c, t, f) =>
+            val rty = reduce(ty, args)
+            Tm.If(
+              reduce(ty, args),
+              go(CTy(VTy.Bool), c, Nil),
+              go(rty, t, args),
+              go(rty, f, args)
+            )
+
+          case Tm.Select(rty, sty, Tm.If(_, c, t, f), i) =>
+            go(
+              ty,
+              Tm.If(
+                CTy(rty),
+                c,
+                Tm.Select(rty, sty, f, i),
+                Tm.Select(rty, sty, t, i)
+              ),
+              args
+            )
+          case Tm.Select(rty, sty, Tm.Let(x, u, ty2, v, b), i) =>
+            go(ty, Tm.Let(x, u, ty2, v, Tm.Select(rty, sty, b, i)), args)
+          case Tm.Select(rty, sty, Tm.LetRec(x, u, ty2, v, b), i) =>
+            go(ty, Tm.LetRec(x, u, ty2, v, Tm.Select(rty, sty, b, i)), args)
+          case Tm.Select(_, _, Tm.Con(_, _, _, _, _, cargs), i) =>
+            go(ty, cargs(i)._1, args)
+          case Tm.Select(_, _, Tm.Record(_, cargs), i) => go(ty, cargs(i), args)
+          case Tm.Select(ty, sty, s, i) =>
+            Tm.Select(ty, sty, go(CTy(sty), s, Nil), i)
+
+          // TODO: some of these might not be a good idea
+          case Tm.Let(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
+            go(ty, Tm.Let(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2)), args)
+          case Tm.LetRec(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
+            go(
+              ty,
+              Tm.LetRec(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2)),
+              args
+            )
+          case Tm.Let(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
+            go(ty, Tm.LetRec(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2)), args)
+          case Tm.LetRec(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
+            go(ty, Tm.Let(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2)), args)
+          case Tm.BindIO(x, _, ty2, Tm.BindIO(y, _, ty1, v, b1), b2) =>
+            go(
+              ty,
+              Tm.BindIO(y, -1, ty1, v, Tm.BindIO(x, -1, ty2, b1, b2)),
+              args
+            )
+          case Tm.BindIO(x, _, ty2, Tm.Let(y, _, ty1, v, b1), b2) =>
+            go(ty, Tm.Let(y, -1, ty1, v, Tm.BindIO(x, -1, ty2, b1, b2)), args)
+          case Tm.BindIO(x, _, ty2, Tm.LetRec(y, _, ty1, v, b1), b2) =>
+            go(
+              ty,
+              Tm.LetRec(y, -1, ty1, v, Tm.BindIO(x, -1, ty2, b1, b2)),
+              args
+            )
+          case Tm.Let(x, _, ty2, Tm.BindIO(y, _, ty1, v, b1), b2) =>
+            go(ty, Tm.BindIO(y, -1, ty1, v, Tm.Let(x, -1, ty2, b1, b2)), args)
+          case Tm.LetRec(x, _, ty2, Tm.BindIO(y, _, ty1, v, b1), b2) =>
+            go(
+              ty,
+              Tm.BindIO(y, -1, ty1, v, Tm.LetRec(x, -1, ty2, b1, b2)),
+              args
+            )
+
+          case Tm.Let(_, u, _, _, b) if u == 0 => go(ty, b, args)
+          case Tm.Let(x, u, vty, v0, b) if u == 1 || isSmall(v0) =>
+            // val v = go(vty, v0, Nil)
+            go(ty, b, args)(using ctx.assign(x, v0))
+          case Tm.Let(x, _, vty, v0, b0) =>
+            val v = go(vty, v0, Nil)
+            val (y, b) = ctx.enter(x, vty, ctx ?=> go(ty, b0, args))
+            Tm.Let(y, -1, vty, v, b)
+
+          case Tm.LetRec(_, u, _, _, b) if u == 0 => go(ty, b, args)
+          case Tm.LetRec(x, _, vty, v0, b0) =>
+            val (y, v) = ctx.enter(x, vty, ctx ?=> go(vty, v0, Nil))
+            val (_, b) = ctx.enter(x, vty, ctx ?=> go(ty, b0, args))
+            Tm.LetRec(y, -1, vty, v, b)
+
+          case Tm.BindIO(x, u, ty2, Tm.ReturnIO(_, v), b) =>
+            go(ty, Tm.Let(x, u, CTy(ty2), v, b), args)
+          case Tm.BindIO(x, _, ty2, v, Tm.ReturnIO(_, Tm.Local(y, _)))
+              if x == y =>
+            go(ty, v, Nil)
+          case Tm.BindIO(x, _, vty, v0, b0) =>
+            val v = go(CTy(vty), v0, Nil)
+            val (y, b) = ctx.enter(x, ty, ctx ?=> go(ty, b0, args))
+            Tm.BindIO(y, -1, vty, v, b)
+
+          case Tm.Case(rty, dty, Tm.Let(x, u, vty, v, b), cs) =>
+            go(ty, Tm.Let(x, u, vty, v, Tm.Case(rty, dty, b, cs)), args)
+          case Tm.Case(rty, dty, Tm.LetRec(x, u, vty, v, b), cs) =>
+            go(ty, Tm.LetRec(x, u, vty, v, Tm.Case(rty, dty, b, cs)), args)
+          case Tm.Case(_, _, Tm.Con(_, _, cx, _, _, cargs), cs) =>
+            @tailrec
+            def lookup(
+                cx: Name,
+                cs: Cases
+            ): Either[Tm, (List[(LocalName, VTy, Int)], Tm)] =
+              cs match
+                case Cases.Empty                           => impossible()
+                case Cases.Otherwise(b)                    => Left(b)
+                case Cases.Ext(cx2, ps, b, r) if cx == cx2 => Right((ps, b))
+                case Cases.Ext(_, _, _, r)                 => lookup(cx, r)
+            lookup(cx, cs) match
+              case Left(b) => go(ty, b, args)
+              case Right((ps, b)) =>
+                val lets = ps.zipWithIndex.foldRight(b) {
+                  case (((x, ty, u), i), b) =>
+                    Tm.Let(x, u, CTy(ty), cargs(i)._1, b)
+                }
+                go(ty, lets, args)
+          case Tm.Case(rty, dty, s, cs) =>
+            @tailrec
+            def goParamsRec(
+                ps: List[(LocalName, VTy, Int)],
+                newps: List[(LocalName, VTy, Int)],
+                ctx: Ctx
+            ): (List[(LocalName, VTy, Int)], Ctx) =
+              ps match
+                case Nil => (newps, ctx)
+                case (x, ty, _) :: rest =>
+                  val (y, nctx) = ctx.enter(x, CTy(ty))
+                  goParamsRec(rest, newps :+ (y, ty, -1), nctx)
+            inline def goParams(
+                ps: List[(LocalName, VTy, Int)]
+            )(using ctx: Ctx) = goParamsRec(ps, Nil, ctx)
+            def goCases(cs: Cases): Cases =
+              cs match
+                case Cases.Ext(x, ps, b, r) =>
+                  val (nps, nctx) = goParams(ps)
+                  val nb = go(ty, b, args)(using nctx)
+                  Cases.Ext(x, nps, nb, goCases(r))
+                case Cases.Otherwise(b) => Cases.Otherwise(go(ty, b, args))
+                case Cases.Empty        => Cases.Empty
+            Tm.Case(rty, dty, go(CTy(dty), s, Nil), goCases(cs))
 
   private def isSmall(t: Tm): Boolean = t match
     case Tm.Local(_, _)                  => true
@@ -318,7 +335,7 @@ object Simplification:
     case Tm.Prim(_)                      => true
     case Tm.BoolLit(_)                   => true
     case Tm.IntLit(_)                    => true
-    case Tm.CUnit                        => true
+    case Tm.CRecord(Nil)                 => true
     case Tm.Con(_, _, _, _, _, Nil)      => true
     case Tm.Record(_, Nil)               => true
     case Tm.ReturnIO(_, v) if isSmall(v) => true
@@ -365,19 +382,14 @@ object Simplification:
       case Tm.Prim(_)         => (t, Map.empty)
       case Tm.BoolLit(_)      => (t, Map.empty)
       case Tm.IntLit(_)       => (t, Map.empty)
-      case Tm.CUnit           => (t, Map.empty)
 
-      case Tm.CPair(a, b) =>
-        val (ca, ua) = correctUsagesRec(a)
-        val (cb, ub) = correctUsagesRec(b)
-        (Tm.CPair(ca, cb), mergeUsages(ua, ub))
+      case Tm.CRecord(fs) =>
+        val (cfs, usages) = fold(fs)
+        (Tm.CRecord(cfs), usages)
 
-      case Tm.CFst(tm) =>
-        val (ctm, utm) = correctUsagesRec(tm)
-        (Tm.CFst(ctm), utm)
-      case Tm.CSnd(tm) =>
-        val (ctm, utm) = correctUsagesRec(tm)
-        (Tm.CSnd(ctm), utm)
+      case Tm.CSelect(s, i) =>
+        val (es, us) = correctUsagesRec(s)
+        (Tm.CSelect(es, i), us)
 
       case Tm.Local(x, _) => (t, Map(x -> 1))
 
@@ -389,26 +401,26 @@ object Simplification:
         val (b, u) = correctUsagesRec(b0)
         (Tm.Lam(x, u.getOrElse(x, 0), ty, b), u - x)
 
-      case Tm.App(f0, a0) =>
+      case Tm.App(f0, a0, vt) =>
         val (f, uf) = correctUsagesRec(f0)
         val (a, ua) = correctUsagesRec(a0)
-        (Tm.App(f, a), mergeUsages(uf, ua))
+        (Tm.App(f, a, vt), mergeUsages(uf, ua))
       case Tm.If(ty, c0, t0, f0) =>
         val (c, uc) = correctUsagesRec(c0)
         val (t, ut) = correctUsagesRec(t0)
         val (f, uf) = correctUsagesRec(f0)
         (Tm.If(ty, c, t, f), mergeUsages(uc, mergeUsages(ut, uf)))
       case Tm.Con(m, dx, cx, ix, dty, args) =>
-        val (cargs, usages) = fold(args)
-        (Tm.Con(m, dx, cx, ix, dty, cargs), usages)
+        val (cargs, usages) = fold(args.map(_._1))
+        (Tm.Con(m, dx, cx, ix, dty, cargs.zip(args.map(_._2))), usages)
 
       case Tm.Record(ty, args) =>
         val (cargs, usages) = fold(args)
         (Tm.Record(ty, cargs), usages)
 
-      case Tm.Select(ty, s, i) =>
+      case Tm.Select(ty, sty, s, i) =>
         val (cs, us) = correctUsagesRec(s)
-        (Tm.Select(ty, cs, i), us)
+        (Tm.Select(ty, sty, cs, i), us)
 
       case Tm.Case(rt, dt, s, cs) =>
         def go(cs: Cases): (Cases, Usages) =

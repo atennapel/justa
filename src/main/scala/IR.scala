@@ -14,37 +14,27 @@ object IR:
       case Data(m, x, args) => s"($m.$x ${args.mkString(" ")})"
       case Record(fs) => fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
 
-  /*
-  final case class CTy(params: List[VTy], io: Boolean, ret: VTy):
-    def head: VTy = params.head
-    def tail: CTy = CTy(params.tail, io, ret)
-    def drop(n: Int): CTy = CTy(params.drop(n), io, ret)
-    override def toString: String =
-      params match
-        case Nil if !io => s"$ret"
-        case Nil        => s"IO $ret"
-        case _ =>
-          s"${params.mkString("(", ",", ")")} ->${if io then " IO" else ""} $ret"
-  object CTy:
-    def apply(ret: VTy): CTy = CTy(Nil, false, ret)
-    def apply(param: VTy, ret: VTy): CTy = CTy(List(param), false, ret)
-    def apply(param: VTy, ret: CTy): CTy =
-      CTy(param :: ret.params, ret.io, ret.ret)
-   */
-
   enum CTy derives CanEqual:
-    case CUnit
-    case CPair(fst: CTy, snd: CTy)
     case Fun(pty: VTy, rty: CTy)
     case IO(ty: VTy)
+    case Rec(fields: List[(Option[Name], CTy)])
     case Val(ty: VTy)
 
+    def vty: VTy = this match
+      case Val(ty) => ty
+      case _       => impossible()
+
+    def retty: CTy = this match
+      case Fun(_, rty) => rty
+      case _           => impossible()
+
     override def toString: String = this match
-      case CUnit           => "()"
-      case CPair(fst, snd) => s"($fst * $snd)"
-      case Fun(pty, rty)   => s"($pty -> $rty)"
-      case IO(ty)          => s"(IO $ty)"
-      case Val(ty)         => s"$ty"
+      case Fun(pty, rty) => s"($pty -> $rty)"
+      case IO(ty)        => s"(IO $ty)"
+      case Rec(fs) =>
+        fs.map((x, t) => x.map(x => s"$x : $t").getOrElse(s"$t"))
+          .mkString("[", ", ", "]")
+      case Val(ty) => s"$ty"
 
   object CTy:
     def apply(ty: VTy): CTy = CTy.Val(ty)
@@ -92,51 +82,64 @@ object IR:
     case LetRec(name: LocalName, usage: Int, ty: CTy, value: Tm, body: Tm)
 
     case Lam(name: LocalName, usage: Int, ty: VTy, body: Tm)
-    case App(fn: Tm, arg: Tm)
+    case App(fn: Tm, arg: Tm, argty: VTy)
 
     case If(rty: CTy, cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
-    case Con(mod: Name, dx: Name, cx: Name, ix: Int, ty: VTy, args: List[Tm])
+    case Con(
+        mod: Name,
+        dx: Name,
+        cx: Name,
+        ix: Int,
+        ty: VTy,
+        args: List[(Tm, VTy)]
+    )
     case Case(rty: CTy, dty: VTy, scrut: Tm, cases: Cases)
     case Record(dty: VTy, args: List[Tm])
-    case Select(rty: VTy, scrut: Tm, i: Int)
+    case Select(rty: VTy, scrutty: VTy, scrut: Tm, i: Int)
 
     case ReturnIO(ty: VTy, value: Tm)
     case BindIO(name: LocalName, usage: Int, ty: VTy, value: Tm, body: Tm)
 
-    case CUnit
-    case CPair(fst: Tm, snd: Tm)
-    case CFst(tm: Tm)
-    case CSnd(tm: Tm)
+    case CRecord(fields: List[Tm])
+    case CSelect(scrut: Tm, i: Int)
 
     override def toString: String = this match
-      case Local(ix, _)               => s"'$ix"
-      case Global(m, x, _)            => s"$m.$x"
-      case Prim(p)                    => s"$p"
-      case BoolLit(v)                 => s"$v"
-      case IntLit(v)                  => s"$v"
-      case Let(x, _, ty, v, b)        => s"(let '$x : $ty = $v; $b)"
-      case LetRec(x, _, ty, v, b)     => s"(let rec '$x : $ty = $v; $b)"
-      case Lam(x, _, ty, b)           => s"(\\('$x : $ty) => $b)"
-      case App(fn, arg)               => s"($fn $arg)"
-      case If(_, c, t, f)             => s"(if $c then $t else $f)"
-      case Con(m, _, cx, _, _, Nil)   => s"$m.$cx"
-      case Con(m, _, cx, _, _, args)  => s"($m.$cx ${args.mkString(" ")})"
+      case Local(ix, _)             => s"'$ix"
+      case Global(m, x, _)          => s"$m.$x"
+      case Prim(p)                  => s"$p"
+      case BoolLit(v)               => s"$v"
+      case IntLit(v)                => s"$v"
+      case Let(x, _, ty, v, b)      => s"(let '$x : $ty = $v; $b)"
+      case LetRec(x, _, ty, v, b)   => s"(let rec '$x : $ty = $v; $b)"
+      case Lam(x, _, ty, b)         => s"(\\('$x : $ty) => $b)"
+      case App(fn, arg, _)          => s"($fn $arg)"
+      case If(_, c, t, f)           => s"(if $c then $t else $f)"
+      case Con(m, _, cx, _, _, Nil) => s"$m.$cx"
+      case Con(m, _, cx, _, _, args) =>
+        s"($m.$cx ${args.map((a, _) => a).mkString(" ")})"
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
       case Record(_, args)            => args.mkString("[", ", ", "]")
-      case Select(_, s, i)            => s"$s.$i"
+      case Select(_, _, s, i)         => s"$s.$i"
       case ReturnIO(ty, v)            => s"(returnIO $v)"
       case BindIO(x, _, ty, v, b)     => s"(bindIO '$x : $ty = $v; $b)"
-      case CUnit                      => "()"
-      case CPair(a, b)                => s"($a, $b)"
-      case CFst(t)                    => s"(cfst $t)"
-      case CSnd(t)                    => s"(csnd $t)"
+      case CRecord(fs)                => fs.mkString("[", ", ", "]")
+      case CSelect(s, i)              => s"$s.$i"
 
     def flattenApps: (Tm, List[Tm]) = this match
-      case App(f, a) =>
+      case App(f, a, _) =>
         val (hd, args) = f.flattenApps
         (hd, args :+ a)
+      case t => (t, Nil)
+
+    def flattenCompElims: (Tm, List[Either[Int, Tm]]) = this match
+      case App(f, a, _) =>
+        val (hd, args) = f.flattenCompElims
+        (hd, args :+ Right(a))
+      case CSelect(s, i) =>
+        val (hd, args) = s.flattenCompElims
+        (hd, args :+ Left(i))
       case t => (t, Nil)
 
   object Tm:

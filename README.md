@@ -22,6 +22,7 @@ https://github.com/AndrasKovacs/cctt
 - [x] Meta-level recursion
 - [x] Mutual recursive datatypes
 - [ ] Mutual recursion
+- [ ] Remove unused and de-duplicate synthetic definitions
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
