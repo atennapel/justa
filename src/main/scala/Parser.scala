@@ -292,12 +292,6 @@ object Parser:
             case REFL     => return Primitive.Refl
             case ELIMID   => return Primitive.ElimId
             case FIXIX    => return Primitive.FixIx
-            case CUNIT    => return Primitive.CUnit
-            case MKCUNIT  => return Primitive.MkCUnit
-            case CPAIR    => return Primitive.CPair
-            case MKCPAIR  => return Primitive.MkCPair
-            case CFST     => return Primitive.CFst
-            case CSND     => return Primitive.CSnd
             case _        => return null
         i += 1
       }

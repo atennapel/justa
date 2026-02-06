@@ -301,13 +301,13 @@ object Elaboration:
       )
     )
 
-  private def liftRec(ts: AssocBind[VTy])(using ctx: Ctx): ClosRec =
+  private def liftRec(cv: VTy, ts: AssocBind[VTy])(using ctx: Ctx): ClosRec =
     def go(lvl: Lvl, ts: AssocBind[VTy]): AssocBind[Ty] =
       ts match
         case Nil => Nil
         case (x, ty) :: tl =>
-          val ety =
-            Tm1.Lift(Tm1.Val, readback1(ty)(using lvl, UnfoldOption.None))
+          val ecv = readback1(cv)(using lvl, UnfoldOption.None)
+          val ety = Tm1.Lift(ecv, readback1(ty)(using lvl, UnfoldOption.None))
           (x, ety) :: go(lvl + 1, tl)
     ClosRec(ctx.env, go(ctx.lvl, ts))
 
@@ -419,12 +419,12 @@ object Elaboration:
         case (_, V.Lift(_, V.Fun(t1, cv, t2))) =>
           Some(spliceFun(DontBind, t1, coe(t, a1, liftFun(t1, t2, cv))))
 
-        case (V.Lift(_, ty @ V.RecordTy0(fs)), a) =>
+        case (V.Lift(_, ty @ V.RecordTy0(cv, fs)), a) =>
           val qty = ctx.readback1(ty)
-          Some(coe(quoteRec(qty, t, fs), V.RecordTy1(liftRec(fs)), a))
-        case (a, V.Lift(_, ty @ V.RecordTy0(fs))) =>
+          Some(coe(quoteRec(qty, t, fs), V.RecordTy1(liftRec(cv, fs)), a))
+        case (a, V.Lift(_, ty @ V.RecordTy0(cv, fs))) =>
           val qty = ctx.readback1(ty)
-          Some(spliceRec(qty, coe(t, a, V.RecordTy1(liftRec(fs))), fs))
+          Some(spliceRec(qty, coe(t, a, V.RecordTy1(liftRec(cv, fs))), fs))
 
         case (pi @ V.Pi(x, PiIcit.Expl, a, b), V.Lift(cv, a2)) =>
           unify(cv, V.Comp)
@@ -446,15 +446,15 @@ object Elaboration:
           go(t, V.Lift(V.Comp, fun), pi)
 
         case (V.RecordTy1(ClosRec(env, as)), V.Lift(cv2, a2)) =>
-          unify(cv2, V.Val)
           val as2 = refineRec0(as)
-          unify(a2, V.RecordTy0(as2))
-          go(t, V.RecordTy1(ClosRec(env, as)), V.Lift(V.Val, V.RecordTy0(as2)))
+          val recty = V.RecordTy0(cv2, as2)
+          unify(a2, recty)
+          go(t, V.RecordTy1(ClosRec(env, as)), V.Lift(cv2, recty))
         case (V.Lift(cv, a), V.RecordTy1(ClosRec(env, as))) =>
-          unify(cv, V.Val)
           val as2 = refineRec0(as)
-          unify(a, V.RecordTy0(as2))
-          go(t, V.Lift(V.Val, V.RecordTy0(as2)), V.RecordTy1(ClosRec(env, as)))
+          val recty = V.RecordTy0(cv, as2)
+          unify(a, recty)
+          go(t, V.Lift(V.Val, recty), V.RecordTy1(ClosRec(env, as)))
 
         case (_, _) => unify(a1, a2); None
 
@@ -652,22 +652,21 @@ object Elaboration:
                         s"cannot check unit against ${ctx.pretty1(ty)}, datatype does not have a 0-parameter constructor"
                       )
                 case _ => impossible()
-            case V.RecordTy0Empty => Tm0.RecordConEmpty
+            case V.RecordTy0(cv, Nil) => Tm0.RecordConEmpty(ctx.readback1(cv))
             case _ => err(s"cannot check unit against ${ctx.pretty1(ty)}")
 
         case S.EmptyRecord(_) =>
-          unify(cv, V.Val)
-          unify(ty, V.RecordTy0Empty)
-          Tm0.RecordConEmpty
+          unify(ty, V.RecordTy0Empty(cv))
+          Tm0.RecordConEmpty(ctx.readback1(cv))
 
         case S.Tuple(_, fs) =>
           forceAll1(ty) match
-            case V.RecordTy0(ts) =>
+            case V.RecordTy0(cv, ts) =>
               def go(fs: List[S], ts: AssocBind[VTy]): List[Tm0] =
                 (fs, ts) match
                   case (Nil, Nil) => Nil
                   case (tm :: fs, (y, vty) :: ts) =>
-                    check0(tm, vty, V.Val) :: go(fs, ts)
+                    check0(tm, vty, cv) :: go(fs, ts)
                   case _ =>
                     err(
                       s"record field mismatch, checking against type: ${ctx.pretty1(ty)}"
@@ -677,13 +676,13 @@ object Elaboration:
 
         case S.RecordCon0(_, fs0) =>
           forceAll1(ty) match
-            case V.RecordTy0(ts) =>
+            case V.RecordTy0(cv, ts) =>
               val fs = orderFields(ty, fs0, ts)
               def go(fs: Assoc[S], ts: AssocBind[VTy]): List[Tm0] =
                 (fs, ts) match
                   case (Nil, Nil) => Nil
                   case ((x, tm) :: fs, (y, vty) :: ts) if x == y.toName =>
-                    check0(tm, vty, V.Val) :: go(fs, ts)
+                    check0(tm, vty, cv) :: go(fs, ts)
                   case _ =>
                     err(
                       s"record field mismatch, checking against type: ${ctx.pretty1(ty)}"
@@ -843,7 +842,7 @@ object Elaboration:
             case _ => impossible()
 
         case (S.EmptyRecord(_), V.Type(cv)) =>
-          unify(cv, V.Val); Tm1.RecordTy0Empty
+          Tm1.RecordTy0Empty(ctx.readback1(cv))
         case (S.EmptyRecord(_), V.Meta) => Tm1.RecordTy1Empty
 
         case (S.EmptyRecord(_), V.RecordTy1(ts)) =>
@@ -851,17 +850,16 @@ object Elaboration:
         case (S.Tuple(_, fs), V.RecordTy1(ts)) =>
           Tm1.RecordCon(checkTuple1(ty, fs, ts))
 
-        case (S.RecordTy(_, fs), V.Type(vcv)) =>
+        case (S.RecordTy(_, fs), vrty @ V.Type(vcv)) =>
           val xs = fs.map(_._1)
           if xs.toSet.size != xs.size then err(s"duplicate name in record type")
-          unify(vcv, V.Val)
           def go(fs: AssocBind[S]): AssocBind[Ty] =
             fs match
               case Nil => Nil
               case (x, ty) :: rest =>
-                val ety = check1(ty, V.TypeV)
+                val ety = check1(ty, vrty)
                 (x, ety) :: go(rest)
-          Tm1.RecordTy0(go(fs))
+          Tm1.RecordTy0(ctx.readback1(vcv), go(fs))
 
         case (S.RecordTy(_, fs), V.Meta) =>
           val xs = fs.map(_._1)
@@ -875,9 +873,11 @@ object Elaboration:
                 (x, ety) :: go(ctx.bind1(x, ety, vty), rest)
           Tm1.RecordTy1(go(ctx, fs))
 
-        case (S.Tuple(_, fs), V.Type(vcv)) =>
-          unify(vcv, V.Val)
-          Tm1.RecordTy0(fs.map(ty => (DontBind, check1(ty, V.TypeV))))
+        case (S.Tuple(_, fs), vrty @ V.Type(vcv)) =>
+          Tm1.RecordTy0(
+            ctx.readback1(vcv),
+            fs.map(ty => (DontBind, check1(ty, vrty)))
+          )
 
         case (S.Tuple(_, fs), V.Meta) =>
           def go(fs: List[S])(using ctx: Ctx): AssocBind[Ty] =
@@ -956,7 +956,10 @@ object Elaboration:
 
         case S.Hole(_, _) => err("cannot infer hole")
 
-        case S.EmptyRecord(_) => (Tm0.RecordConEmpty, V.RecordTy0Empty, V.Val)
+        case S.EmptyRecord(_) =>
+          val cv = freshCV()
+          val vcv = ctx.eval1(cv)
+          (Tm0.RecordConEmpty(cv), V.RecordTy0Empty(vcv), vcv)
 
         case tm =>
           insert(infer(tm)) match
@@ -1132,45 +1135,6 @@ object Elaboration:
                     )
                   )
               )
-          )
-      ),
-    Primitive.CUnit -> V.TypeC,
-    Primitive.MkCUnit -> V.liftC(V.CUnit),
-    Primitive.CPair -> V.fun1(V.TypeC, V.fun1(V.TypeC, V.TypeC)),
-    // {A : type comp} -> {B : type comp} -> ^A -> ^B -> ^(CPair A B)
-    Primitive.MkCPair ->
-      V.piI(
-        "A",
-        V.TypeC,
-        a =>
-          V.piI(
-            "B",
-            V.TypeC,
-            b => V.fun1(V.liftC(a), V.fun1(V.liftC(b), V.liftC(V.CPair(a, b))))
-          )
-      ),
-    // {A : type comp} -> {B : type comp} -> ^(CPair A B) -> ^A
-    Primitive.CFst ->
-      V.piI(
-        "A",
-        V.TypeC,
-        a =>
-          V.piI(
-            "B",
-            V.TypeC,
-            b => V.fun1(V.liftC(V.CPair(a, b)), V.liftC(a))
-          )
-      ),
-    // {A : type comp} -> {B : type comp} -> ^(CPair A B) -> ^B
-    Primitive.CSnd ->
-      V.piI(
-        "A",
-        V.TypeC,
-        a =>
-          V.piI(
-            "B",
-            V.TypeC,
-            b => V.fun1(V.liftC(V.CPair(a, b)), V.liftC(b))
           )
       )
   )
@@ -1364,18 +1328,20 @@ object Elaboration:
         case S.RecordCon0(_, fields) =>
           val xs = fields.map(_._1)
           if xs.toSet.size != xs.size then err(s"duplicate name in record")
+          val cv = freshCV()
+          val vcv = ctx.eval1(cv)
           def go(fs: Assoc[S]): (List[Tm0], AssocBind[VTy]) =
             fs match
               case Nil => (Nil, Nil)
               case (x, tm) :: rest =>
-                val (etm, vty, vcv) = infer0(tm)
-                unify(vcv, V.Val)
+                val (etm, vty, vcv2) = infer0(tm)
+                unify(vcv2, vcv)
                 val (efields, tfields) = go(rest)
                 (etm :: efields, (x.toBind, vty) :: tfields)
           val (efields, tfields) = go(fields)
-          val vty = V.RecordTy0(tfields)
+          val vty = V.RecordTy0(vcv, tfields)
           val ty = ctx.readback1(vty)
-          Infer0(Tm0.RecordCon(ty, efields), vty, V.TypeV)
+          Infer0(Tm0.RecordCon(ty, efields), vty, vcv)
 
   // projection elaboration
   private def inferProj(tm: S, p: Surface.ProjType)(using ctx: Ctx): Infer =
@@ -1436,7 +1402,7 @@ object Elaboration:
                             (Some(x), i, rty)
                   case _ => impossible()
           case _ => impossible()
-      case V.RecordTy0(fs) =>
+      case V.RecordTy0(_, fs) =>
         @tailrec
         def go(fs: AssocBind[VTy], ix: Int): (Option[Name], Int, VTy) =
           fs match

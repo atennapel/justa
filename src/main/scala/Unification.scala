@@ -498,12 +498,13 @@ object Unification:
       case V.Lift(cv, ty)      => Tm1.Lift(go1(cv), go1(ty))
       case V.Quote(tm)         => go0(tm).quote
       case V.RecordTy1(fs)     => Tm1.RecordTy1(goRec(fs))
-      case V.RecordTy0(fs)     => Tm1.RecordTy0(fs.map((x, t) => (x, go1(t))))
-      case V.RecordCon(fs)     => Tm1.RecordCon(fs.map(t => go1(t)))
-      case V.MetaPi1(t, b)     => Tm1.MetaPi1(go1(t), goClos(b))
-      case V.MetaPi0(t, b)     => Tm1.MetaPi0(go1(t), goClos0(b))
-      case V.MetaLam1(b)       => Tm1.MetaLam1(goClos(b))
-      case V.MetaLam0(b)       => Tm1.MetaLam0(goClos0(b))
+      case V.RecordTy0(cv, fs) =>
+        Tm1.RecordTy0(go1(cv), fs.map((x, t) => (x, go1(t))))
+      case V.RecordCon(fs) => Tm1.RecordCon(fs.map(t => go1(t)))
+      case V.MetaPi1(t, b) => Tm1.MetaPi1(go1(t), goClos(b))
+      case V.MetaPi0(t, b) => Tm1.MetaPi0(go1(t), goClos0(b))
+      case V.MetaLam1(b)   => Tm1.MetaLam1(goClos(b))
+      case V.MetaLam0(b)   => Tm1.MetaLam0(goClos0(b))
 
   // solving
   private def solveMetaVar(m: MetaId, solution: V): Unit =
@@ -733,7 +734,9 @@ object Unification:
       case (V.Fun(t1, cv1, r1), V.Fun(t2, cv2, r2)) =>
         unify1(t1, t2); unify1(cv1, cv2); unify1(r1, r2)
       case (V.RecordTy1(f1), V.RecordTy1(f2)) => goRec(f1, f2)
-      case (V.RecordTy0(f1), V.RecordTy0(f2)) if f1.map(_._1) == f2.map(_._1) =>
+      case (V.RecordTy0(cv1, f1), V.RecordTy0(cv2, f2))
+          if f1.map(_._1) == f2.map(_._1) =>
+        unify1(cv1, cv2)
         f1.zip(f2).foreach { case ((_, t1), (_, t2)) => unify1(t1, t2) }
 
       case (V.Lam(_, _, _, b1), V.Lam(_, _, _, b2)) => goClos(b1, b2)

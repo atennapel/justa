@@ -85,7 +85,7 @@ object Core:
       case RecordCon(_, fs)            => fs.mkString("[", ", ", "]")
 
   object Tm0:
-    val RecordConEmpty = RecordCon(Tm1.RecordTy0Empty, Nil)
+    def RecordConEmpty(cv: Ty) = RecordCon(Tm1.RecordTy0Empty(cv), Nil)
 
   enum Cases1 derives CanEqual:
     case Ext(x: Name, ps: List[(Bind, Icit, Ty)], body: Tm1, rest: Cases1)
@@ -128,7 +128,7 @@ object Core:
     case Quote(tm: Tm0)
 
     case RecordTy1(fields: AssocBind[Ty])
-    case RecordTy0(fields: AssocBind[Ty])
+    case RecordTy0(cv: Ty, fields: AssocBind[Ty])
     case RecordCon(fields: List[Tm1])
     case Proj(tm: Tm1, proj: ProjType)
 
@@ -179,7 +179,7 @@ object Core:
       case Quote(tm)          => s"`$tm"
       case RecordTy1(fs) =>
         fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
-      case RecordTy0(fs) =>
+      case RecordTy0(_, fs) =>
         fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
       case RecordCon(fs)         => fs.mkString("[", ", ", "]")
       case Proj(tm, p)           => s"$tm.$p"
@@ -206,7 +206,7 @@ object Core:
     val TypeC = App(Prim(Primitive.Type), Comp, Expl)
 
     val RecordTy1Empty = RecordTy1(Nil)
-    val RecordTy0Empty = RecordTy0(Nil)
+    def RecordTy0Empty(cv: Ty) = RecordTy0(cv, Nil)
     val RecordConEmpty = RecordCon(Nil)
 
     def ElimId(a: Tm1, x: Tm1, pp: Tm1, hh: Tm1, y: Tm1, p: Tm1): Tm1 =
@@ -405,7 +405,7 @@ object Core:
     case Quote(tm: Val0)
 
     case RecordTy1(fields: ClosRec)
-    case RecordTy0(fields: AssocBind[VTy])
+    case RecordTy0(cv: VTy, fields: AssocBind[VTy])
     case RecordCon(fields: List[Val1])
 
     case MetaPi1(ty: VTy, body: Clos1)
@@ -556,20 +556,6 @@ object Core:
           case Rigid(Head.Prim(p), spine) => Some((p, spine.toList))
           case _                          => None
 
-    object CPair:
-      def apply(fst: Val1, snd: Val1): Val1 =
-        Rigid(
-          Head.Prim(Primitive.CPair),
-          Spine.App(Spine.App(Spine.Empty, fst, Expl), snd, Expl)
-        )
-      def unapply(value: Val1): Option[(Val1, Val1)] = value match
-        case Rigid(
-              Head.Prim(Primitive.CPair),
-              Spine.App(Spine.App(Spine.Empty, fst, Expl), snd, Expl)
-            ) =>
-          Some((fst, snd))
-        case _ => None
-
     val Meta = Prim(Primitive.Meta)
     val CV = Prim(Primitive.CV)
     val Val = Prim(Primitive.Val)
@@ -580,10 +566,8 @@ object Core:
     val TypeV = Type(Val)
     val TypeC = Type(Comp)
 
-    val CUnit = Prim(Primitive.CUnit)
-
     inline def RecordTy1Empty(using env: Env) = RecordTy1(ClosRec(Nil))
-    val RecordTy0Empty = RecordTy0(Nil)
+    def RecordTy0Empty(cv: VTy) = RecordTy0(cv, Nil)
     val RecordConEmpty = RecordCon(Nil)
 
     // helpers

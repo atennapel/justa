@@ -90,7 +90,7 @@ object Pretty:
       case Tm1.MetaApp1(_, _) if app => pretty1(tm)
       case Tm1.MetaApp0(_, _) if app => pretty1(tm)
       case Tm1.RecordTy1(_)          => pretty1(tm)
-      case Tm1.RecordTy0(_)          => pretty1(tm)
+      case Tm1.RecordTy0(_, _)       => pretty1(tm)
       case Tm1.RecordCon(_)          => pretty1(tm)
       case Tm1.Proj(_, _)            => pretty1(tm)
       case Tm1.Wk0(tm)               => prettyParen1(tm, app)(using ns.tail)
@@ -188,7 +188,7 @@ object Pretty:
     case Tm1.Quote(t)   => s"`${prettyParen0(t)}"
 
     case Tm1.RecordTy1(fs) => goRec(ns, fs).mkString("[", ", ", "]")
-    case Tm1.RecordTy0(fs) =>
+    case Tm1.RecordTy0(_, fs) =>
       fs.map((x, t) => s"$x : ${pretty1(t)}").mkString("[", ", ", "]")
     case Tm1.RecordCon(fs) => fs.map(pretty1).mkString("[", ", ", "]")
     case Tm1.Proj(tm, p)   => s"${prettyParen1(tm)}.$p"

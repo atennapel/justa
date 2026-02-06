@@ -128,12 +128,6 @@ object Lexer:
     case REFL
     case ELIMID
     case FIXIX
-    case CUNIT
-    case MKCUNIT
-    case CPAIR
-    case MKCPAIR
-    case CFST
-    case CSND
 
     def pretty: String =
       this match
@@ -172,12 +166,6 @@ object Lexer:
         case REFL     => "refl"
         case ELIMID   => "elimId"
         case FIXIX    => "fixIx"
-        case CUNIT    => "CUnit"
-        case MKCUNIT  => "MkCUnit"
-        case CPAIR    => "CPair"
-        case MKCPAIR  => "MkCPair"
-        case CFST     => "cfst"
-        case CSND     => "csnd"
 
   object Keyword:
     val Primitives: Array[Keyword] = Array(
@@ -200,13 +188,7 @@ object Lexer:
       ID,
       REFL,
       ELIMID,
-      FIXIX,
-      CUNIT,
-      MKCUNIT,
-      CPAIR,
-      MKCPAIR,
-      CFST,
-      CSND
+      FIXIX
     )
 
     def parse(keyword: String): Keyword | Null =
@@ -246,12 +228,6 @@ object Lexer:
         case "refl"     => REFL
         case "elimId"   => ELIMID
         case "fixIx"    => FIXIX
-        case "CUnit"    => CUNIT
-        case "MkCUnit"  => MKCUNIT
-        case "CPair"    => CPAIR
-        case "MkCPair"  => MKCPAIR
-        case "cfst"     => CFST
-        case "csnd"     => CSND
         case _          => null
 
   enum Token:

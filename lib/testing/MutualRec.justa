@@ -3,16 +3,15 @@ module testing.MutualRec
 pub def (<) a b = lt a b
 pub def (-) a b = sub a b
 
-def evenodd : CPair (Int -> Bool) (CPair (Int -> Bool) CUnit) :=
-  let rec go : CPair (Int -> Bool) (CPair (Int -> Bool) CUnit) :=
-    MkCPair
-      (\n => if n < 1 then True else cfst (csnd go) (n - 1))
-      (MkCPair
-        (\n => if n < 1 then False else cfst go (n - 1))
-        MkCUnit);
+def evenodd : [even : Int -> Bool, odd : Int -> Bool] :=
+  let rec go : [even : Int -> Bool, odd : Int -> Bool] :=
+    [
+      \n => if n < 1 then True else go.odd (n - 1),
+      \n => if n < 1 then False else go.even (n - 1)
+    ];
   go
 
-def even = cfst evenodd
-def odd = cfst (csnd evenodd)
+def even = evenodd.even
+def odd = evenodd.odd
 
 def test := even 42

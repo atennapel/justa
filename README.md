@@ -22,18 +22,18 @@ https://github.com/AndrasKovacs/cctt
 - [x] Meta-level recursion
 - [x] Mutual recursive datatypes
 - [x] Mutual recursion
-- [ ] Computational records in elaboration
 - [ ] JVM bytecode generation
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
 - [ ] Null handling
-- [ ] Generate private anonymous records if possible
 
 ## Extras:
 - [x] Re-exporting
 - [x] Instance search
 - [x] Check postponing
+- [x] Computational records in elaboration
 - [x] Remove unused and de-duplicate synthetic definitions
+- [ ] Generate private anonymous records if possible
 - [ ] Handle recursion when de-duplicating
 - [ ] Improve de-duplication and unused def removal
 - [ ] Top-level recursion

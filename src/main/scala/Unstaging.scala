@@ -102,13 +102,21 @@ object Unstaging:
         (Tm.If(cty, go(c)._1, go(t)._1, go(f)._1), cty)
 
       case Tm0.Proj(rty, s, p) =>
-        val vty = goTy(rty)
         val (es, et) = go(s)
-        (Tm.Select(vty, et.vty, es, p.ix), CTy(vty))
+        et match
+          case CTy.Rec(_) =>
+            val cty = goCTy(rty)
+            (Tm.CSelect(es, p.ix), cty)
+          case CTy.Val(_) =>
+            val vty = goTy(rty)
+            (Tm.Select(vty, et.vty, es, p.ix), CTy(vty))
+          case _ => impossible()
 
       case Tm0.RecordCon(ty, fs) =>
-        val vty = goTy(ty)
-        (Tm.Record(vty, fs.map(f => go(f)._1)), CTy(vty))
+        goCTy(ty) match
+          case ct @ CTy.Rec(_) => (Tm.CRecord(fs.map(f => go(f)._1)), ct)
+          case CTy.Val(vty) => (Tm.Record(vty, fs.map(f => go(f)._1)), CTy(vty))
+          case _            => impossible()
 
       case Tm0.Case(rty, dty, s, cs) =>
         def goCases(cs: Core.Cases0): Cases =
@@ -222,25 +230,6 @@ object Unstaging:
                 val x = supply.next()
                 val b = IR.Tm.App(ek._1, IR.Tm.Local(x, CTy(ety)), ety)
                 (IR.Tm.BindIO(x, -1, ety, ev._1, b), ek._2.retty)
-              case (Tm1.Prim(Primitive.MkCUnit), Nil) =>
-                (IR.Tm.CRecord(Nil), CTy.Rec(Nil))
-              case (Tm1.Prim(Primitive.MkCPair), List(_, _, a, b)) =>
-                val (ca, ta) = stgo(a._1)
-                val (cb, tb) = stgo(b._1)
-                (
-                  IR.Tm.CRecord(List(ca, cb)),
-                  CTy.Rec(List((None, ta), (None, tb)))
-                )
-              case (Tm1.Prim(Primitive.CFst), List(t1, t2, p)) =>
-                val et1 = goCTy(t1._1)
-                val et2 = goCTy(t2._1)
-                val ty = IR.CTy.Rec(List((None, et1), (None, et2)))
-                (IR.Tm.CSelect(stgo(p._1)._1, 0), et1)
-              case (Tm1.Prim(Primitive.CSnd), List(t1, t2, p)) =>
-                val et1 = goCTy(t1._1)
-                val et2 = goCTy(t2._1)
-                val ty = IR.CTy.Rec(List((None, et1), (None, et2)))
-                (IR.Tm.CSelect(stgo(p._1)._1, 1), et2)
               case _ => impossible()
   // types
   private def goCTy(ty: Tm1, env: Env = Env.Empty): CTy =
@@ -252,9 +241,11 @@ object Unstaging:
     forceAll1(ty) match
       case V.Fun(pty, _, rty) => CTy.Fun(goVTy(pty), goCTy(rty))
       case V.IO(ty)           => CTy.IO(goVTy(ty))
-      case V.CUnit            => CTy.Rec(Nil)
-      case V.CPair(fst, snd) =>
-        CTy.Rec(List((None, goCTy(fst)), (None, goCTy(snd))))
+      case vt @ V.RecordTy0(cv, fs) =>
+        forceAll1(cv) match
+          case V.Val  => CTy.Val(goVTy(vt))
+          case V.Comp => CTy.Rec(fs.map((x, t) => (x.toOption, goCTy(t))))
+          case _      => impossible()
       case _ => CTy.Val(goVTy(ty))
 
   private def goVTy(ty: V, menv: State.MonoEnv = Map.empty): VTy =
@@ -263,6 +254,6 @@ object Unstaging:
       case V.Int  => VTy.Int
       case V.TypeCon0(m, x, args) =>
         VTy.Data(m, x, args.map((a, _) => goVTy(a, menv)))
-      case V.Var(lvl)      => menv(lvl)
-      case V.RecordTy0(fs) => VTy.Record(fs.map((x, t) => (x, goVTy(t))))
-      case _               => impossible()
+      case V.Var(lvl)         => menv(lvl)
+      case V.RecordTy0(_, fs) => VTy.Record(fs.map((x, t) => (x, goVTy(t))))
+      case _                  => impossible()
