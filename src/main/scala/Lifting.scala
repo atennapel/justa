@@ -12,12 +12,71 @@ object Lifting:
   def liftModules(mods: List[Module]): List[JVM.Module] =
     mods.map(liftModule)
 
-  private type Globals = mutable.Map[(Name, Name), Shape]
+  private def defSame(a: JVM.Def, b: JVM.Def): Boolean =
+    (a, b) match
+      case (JVM.Def.Value(_, _, t1, v1), JVM.Def.Value(_, _, t2, v2)) =>
+        t1 == t2 && v1 == v2
+      case (
+            JVM.Def.Function(_, _, p1, r1, v1),
+            JVM.Def.Function(_, _, p2, r2, v2)
+          ) =>
+        p1 == p2 && r1 == r2 && v1 == v2
+      case _ => impossible()
+
+  private final case class Globals(
+      shapes: mutable.Map[(Name, Name), Shape],
+      defs: mutable.ArrayBuffer[JVM.Def],
+      renames: mutable.Map[Name, Name]
+  ):
+    inline def get(m: Name, x: Name): Option[Shape] = shapes.get((m, x))
+    inline def apply(m: Name, x: Name): Shape = shapes((m, x))
+    inline def addShape(m: Name, x: Name, s: Shape): Unit =
+      shapes += ((m, x) -> s)
+    inline def getName(x: Name): Name = renames.get(x).getOrElse(x)
+    inline def addDef(d: JVM.Def): Boolean =
+      if d.isData || !d.isSynth then false
+      else
+        defs.find(defSame(_, d)) match
+          case Some(d2) =>
+            renames += d.name -> d2.name
+            false
+          case None =>
+            defs += d
+            true
+
+  private object Globals:
+    def empty: Globals =
+      Globals(mutable.Map.empty, mutable.ArrayBuffer.empty, mutable.Map.empty)
 
   private def liftModule(mod: Module): JVM.Module =
     currentModule = mod.name
-    given Globals = mutable.Map.empty
-    JVM.Module(mod.name, liftDefs(mod.name, mod.defs))
+    given Globals = Globals.empty
+    val ds = liftDefs(mod.name, mod.defs)
+    JVM.Module(mod.name, removeUnused(ds.toList))
+
+  private def removeUnused(ds: List[JVM.Def]): JVM.Defs =
+    inline def strip(s: mutable.Set[(Name, Name)]) =
+      s.toList.filter((m, _) => m == currentModule).map((_, x) => x).toSet
+    inline def usages(ds: List[JVM.Def]): Set[Name] =
+      val static = mutable.Set.empty[(Name, Name)]
+      ds.foreach(_.globals(static))
+      strip(static)
+    def grow(
+        forsure: List[JVM.Def],
+        maybe: List[JVM.Def],
+        cur: Set[Name],
+        prev: Set[Name]
+    ): List[JVM.Def] =
+      if maybe.map(_.name).toSet == prev then forsure
+      else
+        val u = usages(forsure)
+        val (used, notused) = maybe.partition(d => u.contains(d.name))
+        grow(forsure ++ used, notused, notused.map(_.name).toSet, cur)
+    val (synth, nonsynth) = ds.partition(_.isSynth)
+    if synth.isEmpty then JVM.Defs(nonsynth)
+    else
+      val eds = grow(nonsynth, synth, synth.map(_.name).toSet, Set.empty)
+      JVM.Defs(eds)
 
   private def liftDefs(mod: Name, ds: Defs)(using globals: Globals): JVM.Defs =
     JVM.Defs(ds.toList.flatMap(d => liftDef(mod, d)))
@@ -44,6 +103,12 @@ object Lifting:
     case JoinPoint(name: LocalName)
     case LiftedFun(mod: Name, name: Name, extraArgs: List[(LocalName, CTy)])
     case LiftedRec(rec: Shape)
+
+    def isLifted: Boolean = this match
+      case RenVar(_)          => false
+      case JoinPoint(_)       => true
+      case LiftedFun(_, _, _) => true
+      case LiftedRec(_)       => true
   import RenEntry.*
 
   private case class Ctx(
@@ -68,7 +133,15 @@ object Lifting:
     inline def addLiftedRec(x: LocalName, rec: Shape): Ctx =
       Ctx(mod, defname, supply, emit, ren + (x -> LiftedRec(rec)))
     inline def get(x: LocalName): RenEntry = ren(x)
-    inline def addDef(d: JVM.Def): Unit = emit.add(d)
+    inline def has(x: LocalName): Boolean = ren.contains(x)
+    inline def isLifted(x: LocalName): Boolean =
+      ren.get(x) match
+        case Some(e) => e.isLifted
+        case None    => false
+    inline def addDef(d: JVM.Def)(using g: Globals): Unit =
+      if g.addDef(d) then emit.add(d)
+  private object Ctx:
+    def dummy: Ctx = Ctx(null, null, null, null, Map.empty)
 
   private enum Shape:
     case Rec(fs: List[(Option[Name], Shape)])
@@ -80,8 +153,8 @@ object Lifting:
   ): List[JVM.Def] =
     debug(s"liftDef $mod.${d.name}")
     val lifted: LiftedGlobals = mutable.Map.empty
-    val rec = liftCTy(mod, d.name, None, d.ty, d.value, lifted)
-    globals += ((mod, d.name) -> rec)
+    val rec = liftCTy(mod, d.name, None, d.ty, d.value, lifted)(using Ctx.dummy)
+    globals.addShape(mod, d.name, rec)
     lifted.toList.flatMap { case (x, (ty, tm, extraArgs)) =>
       if extraArgs.nonEmpty then impossible()
       val pub =
@@ -126,7 +199,7 @@ object Lifting:
       ty: CTy,
       tm: Tm,
       res: LiftedGlobals
-  ): Shape =
+  )(using ctx: Ctx): Shape =
     @tailrec
     def liftedName(
         defname: Name,
@@ -149,8 +222,9 @@ object Lifting:
         val freeps = local match
           case None    => free(tm)
           case Some(x) => free(tm).filterNot((y, _) => x == y)
-        res += (defname -> (ty, tm, freeps))
-        Shape.Global(mod, defname, ty, freeps)
+        val freeps2 = freeps.filterNot((y, _) => ctx.isLifted(y))
+        res += (defname -> (ty, tm, freeps2))
+        Shape.Global(mod, defname, ty, freeps2)
 
   private def liftCTyLocal(
       ty: CTy,
@@ -192,9 +266,10 @@ object Lifting:
 
       case Tm.Global(m, x, ty) =>
         val (ps, _, io) = defTy(ty)
+        val (m2, x2) = getGlobal(m, x)
         if ps.nonEmpty then impossible()
-        else if io then JVM.Tm.GlobalApp(m, x, Nil)
-        else JVM.Tm.Global(m, x)
+        else if io then JVM.Tm.GlobalApp(m2, x2, Nil)
+        else JVM.Tm.Global(m2, x2)
 
       case Tm.ReturnIO(_, v) => go(v, tail)
       case Tm.BindIO(x, _, ty, v, b) =>
@@ -223,7 +298,7 @@ object Lifting:
         val rec = liftCTyLocal(ty, v, lifted)
         val blocks = lifted.toList.map { case (y, (ty, tm)) =>
           val (lps, v) = removeLams(tm)
-          val (innerctx, ps) = renameParams(lps.map((x, t) => (x, goVTy(t))))
+          val (innerctx, ps) = renameParams(lps.map((x, t) => (x, CTy(t))))
           val etm = go(v, true)(using innerctx)
           (y, ps, etm)
         }
@@ -236,26 +311,17 @@ object Lifting:
             val (nctx, y) = ctx.addFresh(x)
             JVM.Tm.Let(y, goVTy(vty), go(v, false), go(b, tail)(using nctx))
           case None =>
-            val freeps = free(v)
             val lifted: LiftedGlobals = mutable.Map.empty
-            val rec =
-              liftCTy(
-                ctx.mod,
-                Name(s"${ctx.defname}$$let"),
-                None,
-                ty,
-                v,
-                lifted
-              )
+            val name = Name(s"${ctx.defname}$$let$x")
+            val rec = liftCTy(ctx.mod, name, None, ty, v, lifted)
             lifted.foreach { case (y, (ty, tm, freeps)) =>
               val (_, vrty, io) = defTy(ty)
               val retty = goVTy(vrty)
-              val startctx =
-                Ctx(ctx.mod, y, Supply(), ctx.emit, Map.empty)
+              val ren = ctx.ren.filter((_, e) => e.isLifted)
+              val startctx = Ctx(ctx.mod, y, Supply(), ctx.emit, ren)
               val (lps, body) = removeLams(tm)
               val (innerctx, ps) = renameParams(
-                freeps.map((x, t) => (x, goCTy(t))) ++
-                  lps.map((x, t) => (x, goVTy(t)))
+                freeps.map((x, t) => (x, t)) ++ lps.map((x, t) => (x, CTy(t)))
               )(using startctx)
               val etm = go(body, true)(using innerctx)
               val cdef =
@@ -273,7 +339,7 @@ object Lifting:
         val rec = liftCTyLocal(ty, v, lifted)
         val blocks = lifted.toList.map { case (y, (ty, tm)) =>
           val (lps, v) = removeLams(tm)
-          val (innerctx, ps) = renameParams(lps.map((x, t) => (x, goVTy(t))))
+          val (innerctx, ps) = renameParams(lps.map((x, t) => (x, CTy(t))))
           val etm = go(v, true)(using innerctx.addLiftedRec(x, rec))
           (y, ps, etm)
         }
@@ -289,24 +355,16 @@ object Lifting:
 
       case Tm.LetRec(x, _, ty, v, b) =>
         val lifted: LiftedGlobals = mutable.Map.empty
-        val rec =
-          liftCTy(
-            ctx.mod,
-            Name(s"${ctx.defname}$$letrec"),
-            Some(x),
-            ty,
-            v,
-            lifted
-          )
+        val name = Name(s"${ctx.defname}$$letrec$x")
+        val rec = liftCTy(ctx.mod, name, Some(x), ty, v, lifted)
         lifted.foreach { case (y, (ty, tm, freeps)) =>
           val (_, vrty, io) = defTy(ty)
           val retty = goVTy(vrty)
-          val startctx =
-            Ctx(ctx.mod, y, Supply(), ctx.emit, Map.empty)
+          val ren = ctx.ren.filter((_, e) => e.isLifted)
+          val startctx = Ctx(ctx.mod, y, Supply(), ctx.emit, ren)
           val (lps, body) = removeLams(tm)
           val (innerctx, ps) = renameParams(
-            freeps.map((x, t) => (x, goCTy(t))) ++
-              lps.map((x, t) => (x, goVTy(t)))
+            freeps.map((x, t) => (x, t)) ++ lps.map((x, t) => (x, CTy(t)))
           )(using startctx)
           val etm = go(body, true)(using innerctx.addLiftedRec(x, rec))
           val cdef =
@@ -351,11 +409,12 @@ object Lifting:
     }
     hd match
       case Tm.Global(m, x, _) =>
-        val (g, a) = reduceCompElims(globals((m, x)), tl)
+        val (g, a) = reduceCompElims(globals(m, x), tl)
         g match
           case Shape.Global(m, x, _, args) =>
             val extraArgs = args.map((x, ty) => go(Tm.Local(x, ty), false))
-            JVM.Tm.GlobalApp(m, x, extraArgs ++ a.map(a => go(a, false)))
+            val (m2, x2) = getGlobal(m, x)
+            JVM.Tm.GlobalApp(m2, x2, extraArgs ++ a.map(a => go(a, false)))
           case _ => impossible()
       case Tm.Prim(p) => JVM.Tm.Prim(p, a.map(a => go(a, false)))
       case Tm.Local(ix, ty) =>
@@ -364,13 +423,15 @@ object Lifting:
           case JoinPoint(x) => JVM.Tm.Jump(x, a.map(a => go(a, false)))
           case LiftedFun(m, x, args) =>
             val extraArgs = args.map((x, ty) => go(Tm.Local(x, ty), false))
-            JVM.Tm.GlobalApp(m, x, extraArgs ++ a.map(a => go(a, false)))
+            val (m2, x2) = getGlobal(m, x)
+            JVM.Tm.GlobalApp(m2, x2, extraArgs ++ a.map(a => go(a, false)))
           case LiftedRec(rec) =>
             val (g, a) = reduceCompElims(rec, tl)
             g match
               case Shape.Global(m, x, _, args) =>
                 val extraArgs = args.map((x, ty) => go(Tm.Local(x, ty), false))
-                JVM.Tm.GlobalApp(m, x, extraArgs ++ a.map(a => go(a, false)))
+                val (m2, x2) = getGlobal(m, x)
+                JVM.Tm.GlobalApp(m2, x2, extraArgs ++ a.map(a => go(a, false)))
               case Shape.Local(x) =>
                 JVM.Tm.Jump(x, a.map(a => go(a, false)))
               case _ => impossible()
@@ -391,6 +452,12 @@ object Lifting:
         (shape, a)
 
   // util
+  private def getGlobal(m: Name, x: Name)(using
+      globals: Globals
+  ): (Name, Name) =
+    if m == currentModule then (m, globals.getName(x))
+    else (m, x)
+
   private def removeLamsCtx(tm: Tm)(using
       ctx: Ctx
   ): (Ctx, List[(LocalName, LocalName, JVM.Ty)], Tm) =
@@ -408,15 +475,18 @@ object Lifting:
         ((x, ty) :: ps, body)
       case tm => (Nil, tm)
 
-  private def renameParams[A](ps: List[(LocalName, A)])(using
+  private def renameParams(ps: List[(LocalName, CTy)])(using
       ctx: Ctx
-  ): (Ctx, List[(LocalName, A)]) =
+  ): (Ctx, List[(LocalName, JVM.Ty)]) =
     ps match
       case Nil => (ctx, Nil)
       case (x, ty) :: ps =>
-        val (nctx, y) = ctx.addFresh(x)
-        val (rctx, rps) = renameParams(ps)(using nctx)
-        (rctx, (y, ty) :: rps)
+        matchVTy(ty) match
+          case None => impossible()
+          case Some(vty) =>
+            val (nctx, y) = ctx.addFresh(x)
+            val (rctx, rps) = renameParams(ps)(using nctx)
+            (rctx, (y, goVTy(vty)) :: rps)
 
   private def free(t: Tm): List[(LocalName, CTy)] =
     def merge(

@@ -28,6 +28,10 @@ object IR:
       case Fun(_, rty) => rty
       case _           => impossible()
 
+    def isVal: Boolean = this match
+      case Val(_) => true
+      case _      => false
+
     override def toString: String = this match
       case Fun(pty, rty) => s"($pty -> $rty)"
       case IO(ty)        => s"(IO $ty)"

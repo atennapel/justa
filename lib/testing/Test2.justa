@@ -1,3 +1,23 @@
 module testing.Test2
 
 import testing.Test (test)
+
+pub def (<) a b = lt a b
+pub def (-) a b = sub a b
+
+def lifttest : [[Bool, Bool], [Bool, Bool]] :=
+  let f (x : Bool) := x;
+  let g (y : Bool) : [Bool, Bool] := [f y, f y];
+  [g True, g False]
+
+def evenodd : CPair (Int -> Bool) (CPair (Int -> Bool) CUnit) :=
+  let f (x : Bool) := x;
+  let rec go : CPair (Int -> Bool) (CPair (Int -> Bool) CUnit) :=
+    MkCPair
+      (\n => if n < 1 then True else f (cfst (csnd go) (n - 1)))
+      (MkCPair
+        (\n => if n < 1 then False else f (cfst go (n - 1)))
+        MkCUnit);
+  go
+
+def even := cfst evenodd

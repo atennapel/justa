@@ -1,5 +1,7 @@
 import Common.*
 
+import scala.collection.mutable
+
 object JVM:
   val RecordConName = Name("Mk")
 
@@ -46,15 +48,15 @@ object JVM:
         s"$acc $name $ps"
 
   enum Def:
-    case Value(acc: Access, name: Name, ty: Ty, value: Tm)
+    case Value(acc: Access, _name: Name, ty: Ty, value: Tm)
     case Function(
         acc: Access,
-        name: Name,
+        _name: Name,
         params: List[(LocalName, Ty)],
         retty: Ty,
         body: Tm
     )
-    case Data(acc: Access, name: Name, constructors: List[Constructor])
+    case Data(acc: Access, _name: Name, constructors: List[Constructor])
 
     override def toString: String = this match
       case Value(acc, x, t, v) =>
@@ -67,6 +69,26 @@ object JVM:
         s"$acc data $x"
       case Data(acc, x, cs) =>
         s"$acc data $x = ${cs.mkString(" | ")}"
+
+    def isData: Boolean = this match
+      case Data(_, _, _) => true
+      case _             => false
+
+    def isSynth: Boolean = this match
+      case Value(acc, _, _, _)       => acc == Access.Synth
+      case Function(acc, _, _, _, _) => acc == Access.Synth
+      case Data(acc, _, _)           => acc == Access.Synth
+
+    def name: Name = this match
+      case Value(_, x, _, _)       => x
+      case Function(_, x, _, _, _) => x
+      case Data(_, x, _)           => x
+
+    def globals(res: mutable.Set[(Name, Name)]): Unit =
+      this match
+        case Value(_, _, _, v)       => v.globals(res)
+        case Function(_, _, _, _, v) => v.globals(res)
+        case Data(_, _, _)           => ()
 
   enum Cases derives CanEqual:
     case Ext(x: Name, ps: List[(LocalName, Ty, Int)], body: Tm, rest: Cases)
@@ -88,7 +110,13 @@ object JVM:
       case Empty => true
       case _     => false
 
-  enum Tm:
+    def globals(res: mutable.Set[(Name, Name)]): Unit =
+      this match
+        case Cases.Ext(_, _, b, r) => b.globals(res); r.globals(res)
+        case Cases.Otherwise(b)    => b.globals(res)
+        case Cases.Empty           => ()
+
+  enum Tm derives CanEqual:
     case Local(ix: LocalName, ty: Ty)
     case Global(mod: Name, name: Name)
     case GlobalApp(mod: Name, name: Name, args: List[Tm])
@@ -132,6 +160,33 @@ object JVM:
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
       case Select(s, i)               => s"$s.$i"
+
+    def globals(res: mutable.Set[(Name, Name)]): Unit =
+      this match
+        case Local(_, _) => ()
+        case BoolLit(_)  => ()
+        case IntLit(_)   => ()
+
+        case Global(m, x) => res += ((m, x))
+        case GlobalApp(m, x, args) =>
+          res += ((m, x))
+          args.foreach(_.globals(res))
+        case Con(_, _, _, _, args) => args.foreach(_.globals(res))
+        case Case(_, _, s, cs) =>
+          def go(cs: Cases): Unit =
+            cs match
+              case Cases.Ext(_, _, b, r) => b.globals(res); go(r)
+              case Cases.Otherwise(b)    => b.globals(res)
+              case Cases.Empty           => ()
+          s.globals(res); go(cs)
+
+        case Prim(_, args)   => args.foreach(_.globals(res))
+        case Let(_, _, v, b) => v.globals(res); b.globals(res)
+        case If(c, t, f)     => c.globals(res); t.globals(res); f.globals(res)
+        case Join(bs, b) =>
+          bs.foreach((_, _, v) => v.globals(res)); b.globals(res)
+        case Jump(_, args) => args.foreach(_.globals(res))
+        case Select(s, _)  => s.globals(res)
 
   object Tm:
     val True = BoolLit(true)
