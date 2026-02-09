@@ -134,7 +134,7 @@ object JVM:
 
     case Con(mod: Name, dx: Name, cx: Name, ix: Int, args: List[Tm])
     case Case(mod: Name, dty: Name, scrut: Tm, cases: Cases)
-    case Select(scrut: Tm, ix: Int)
+    case Select(mod: Name, dty: Name, scrut: Tm, ix: Int)
 
     override def toString: String = this match
       case Local(ix, _)          => s"'$ix"
@@ -159,7 +159,7 @@ object JVM:
       case Con(m, _, cx, _, args)     => s"($m.$cx ${args.mkString(" ")})"
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
-      case Select(s, i)               => s"$s.$i"
+      case Select(_, _, s, i)         => s"$s.$i"
 
     def globals(res: mutable.Set[(Name, Name)]): Unit =
       this match
@@ -185,8 +185,8 @@ object JVM:
         case If(c, t, f)     => c.globals(res); t.globals(res); f.globals(res)
         case Join(bs, b) =>
           bs.foreach((_, _, v) => v.globals(res)); b.globals(res)
-        case Jump(_, args) => args.foreach(_.globals(res))
-        case Select(s, _)  => s.globals(res)
+        case Jump(_, args)      => args.foreach(_.globals(res))
+        case Select(_, _, s, _) => s.globals(res)
 
   object Tm:
     val True = BoolLit(true)

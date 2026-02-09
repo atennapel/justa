@@ -353,7 +353,7 @@ object State:
   inline def conIndex(dx: Name, cx: Name): Int = conIndex(currentModule, dx, cx)
 
   def allGlobals(): Map[Name, List[GlobalEntry]] =
-    globals.mapValues(_.toList).toMap
+    globals.view.mapValues(_.toList).toMap
 
   def allGlobalsForModule(mod: Name = currentModule): List[GlobalEntry] =
     globals(mod).toList

@@ -284,7 +284,9 @@ object Lifting:
       case Tm.Record(dty, args) =>
         val (mdx, dx) = goData(dty)
         JVM.Tm.Con(mdx, dx, JVM.RecordConName, 0, args.map(go(_, false)))
-      case Tm.Select(_, _, s, i) => JVM.Tm.Select(go(s, false), i)
+      case Tm.Select(_, dty, s, i) =>
+        val (mdx, dx) = goData(dty)
+        JVM.Tm.Select(mdx, dx, go(s, false), i)
 
       case tm @ Tm.App(_, _, _) =>
         val (hd, tl) = tm.flattenCompElims

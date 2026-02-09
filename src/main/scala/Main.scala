@@ -5,13 +5,14 @@ import java.nio.file.{FileSystems, Files, Path}
 import scala.jdk.CollectionConverters.*
 
 object Main:
-  private val PathToLib = "lib"
+  private val LibDir = "testing"
+  private val TargetDir = "justatarget"
 
   @main def run(): Unit =
     Debug.setDebug(false)
     Util.time("all") {
       try
-        val root = FileSystems.getDefault.getPath(PathToLib)
+        val root = FileSystems.getDefault.getPath(LibDir)
         val files = allSourceFiles(root).map(p => (p, moduleName(root, p)))
         val modules = Util.time("parsing") {
           files.flatMap((p, m) => parse(m, Files.readString(p)))
@@ -27,10 +28,8 @@ object Main:
         val jvmModules = Util.time("lifting") {
           Lifting.liftModules(simpModules)
         }
-        jvmModules.foreach { m =>
-          println(m)
-          println()
-        }
+        resetDir(TargetDir)
+        Generation.generateBytecode(jvmModules, TargetDir)
       catch
         case err: Throwable =>
           System.err.println(err.getMessage)
