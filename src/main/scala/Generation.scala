@@ -1,4 +1,4 @@
-import Common.{Name, impossible}
+import Common.{Name, impossible, RuntimePrimitive}
 import JVM.*
 
 import scala.jdk.CollectionConverters.*
@@ -7,10 +7,13 @@ import java.lang.classfile.*
 import java.lang.constant.*
 import java.nio.file.Files
 import java.nio.file.Path
-import Common.RuntimePrimitive
+import java.lang.classfile.attribute.InnerClassInfo
+import java.lang.classfile.attribute.InnerClassesAttribute
+import java.util.Optional
 
 // generate JVM bytecode
 // TODO: 0-arity con optimization
+// TODO: use constant value for simple fields
 object Generation:
   private final case class ModuleCtx(
       jname: String,
@@ -19,16 +22,19 @@ object Generation:
   )
   private final case class DatatypeCtx(
       jname: String,
+      jinnername: String,
       desc: ClassDesc,
       path: String,
       cons: Set[Name]
   )
   private final case class ConCtx(
       jname: String,
+      jinnername: String,
       desc: ClassDesc,
       path: String,
       names: List[String],
       types: List[ClassDesc],
+      kinds: List[TypeKind],
       initdesc: MethodTypeDesc
   )
   private final case class ValueCtx(
@@ -66,28 +72,33 @@ object Generation:
       values += (name -> mutable.Map.empty)
 
     def registerDatatype(name: Name, cs: List[Constructor]): Unit =
-      val x = s"${modules(currentModule)._1}$$${JName(name)}"
+      val xinner = JName(name)
+      val x = s"${modules(currentModule)._1}$$$xinner"
       val d = ClassDesc.of(x)
       val p = s"$targetDir/${x.split("\\.").mkString("/")}.class"
       val cons = cs.map(_.name).toSet
-      datatypes(currentModule) += (name -> DatatypeCtx(x, d, p, cons))
+      datatypes(currentModule) += (name -> DatatypeCtx(x, xinner, d, p, cons))
       cs.foreach { case Constructor(_, cx, ps) =>
-        val jcx = s"$x$$${JName(cx)}"
-        val dc = ClassDesc.of(x)
-        val pc = s"$targetDir/${x.split("\\.").mkString("/")}.class"
+        val xcinner = JName(cx)
+        val jcx = s"$x$$$xcinner"
+        val dc = ClassDesc.of(jcx)
+        val pc = s"$targetDir/${jcx.split("\\.").mkString("/")}.class"
         val eps = ps.map((_, t) => gen(t)(using this))
         val names = ps.zipWithIndex.map { case ((x, _), i) =>
           x.fold(s"p$i")(JName.apply)
         }
         val types = eps.map(_._2)
+        val kinds = eps.map(_._1)
         val initd =
           MethodTypeDesc.of(ConstantDescs.CD_void, types.asJava)
         constructors(currentModule) += ((name, cx) -> ConCtx(
           jcx,
+          xcinner,
           dc,
           pc,
           names,
           types,
+          kinds,
           initd
         ))
       }
@@ -129,6 +140,9 @@ object Generation:
       functions(mod)(name)
     inline def getFunction(name: Name): FunctionCtx =
       getFunction(currentModule, name)
+
+    inline def getModule(mod: Name): ModuleCtx = modules(mod)
+    inline def getModule(): ModuleCtx = getModule(currentModule)
 
   private enum EnvEntry:
     case Arg(kind: TypeKind, index: Int)
@@ -182,6 +196,22 @@ object Generation:
       case Def.Function(acc, x, ps, ty, b) => gen(acc, x, ps, ty, b)
       case _                               => ()
     }
+    // static block
+    val modulectx = ctx.getModule()
+    classBuilder.withMethodBody(
+      ConstantDescs.CLASS_INIT_NAME,
+      MethodTypeDesc.of(ConstantDescs.CD_void),
+      ClassFile.ACC_PRIVATE | ClassFile.ACC_STATIC | ClassFile.ACC_SYNTHETIC,
+      codeBuilder =>
+        ds.foreach {
+          case Def.Value(_, x, _, v) =>
+            val valctx = ctx.getValue(x)
+            gen(v)(using codeBuilder = codeBuilder, env = Map.empty)
+            codeBuilder.putstatic(modulectx.desc, valctx.jname, valctx.desc)
+          case _ => ()
+        }
+        codeBuilder.return_()
+    )
 
   private def gen(ty: Ty)(using ctx: Ctx): (TypeKind, ClassDesc) =
     ty match
@@ -196,12 +226,94 @@ object Generation:
       case Access.Synth => ClassFile.ACC_PRIVATE | ClassFile.ACC_SYNTHETIC
 
   private def gen(acc: Access, name: Name, cs: List[Constructor])(using
-      ctx: Ctx
-  ): Unit = ???
+      ctx: Ctx,
+      outerClassBuilder: ClassBuilder
+  ): Unit =
+    val modulectx = ctx.getModule()
+    val datactx = ctx.getDatatype(name)
+    val bytes = ClassFile
+      .of()
+      .build(
+        datactx.desc,
+        classBuilder => {
+          val flag = ClassFile.ACC_ABSTRACT | gen(acc)
+          classBuilder.withFlags(flag)
+          outerClassBuilder.`with`(
+            InnerClassesAttribute.of(
+              InnerClassInfo.of(
+                datactx.desc,
+                Optional.of(modulectx.desc),
+                Optional.of(datactx.jinnername),
+                flag
+              )
+            )
+          )
+          cs.foreach(c => gen(name, c)(using dataClassBuilder = classBuilder))
+        }
+      )
+    Files.write(Path.of(datactx.path), bytes)
+
+  private def gen(dx: Name, con: Constructor)(using
+      ctx: Ctx,
+      dataClassBuilder: ClassBuilder
+  ): Unit =
+    val Constructor(acc, cx, _) = con
+    val datactx = ctx.getDatatype(dx)
+    val conctx = ctx.getCon(ctx.currentModule, dx, cx)
+    val bytes = ClassFile
+      .of()
+      .build(
+        conctx.desc,
+        classBuilder => {
+          val flag = gen(acc)
+          classBuilder.withFlags(flag)
+          classBuilder.withSuperclass(datactx.desc)
+          dataClassBuilder.`with`(
+            InnerClassesAttribute.of(
+              InnerClassInfo.of(
+                conctx.desc,
+                Optional.of(datactx.desc),
+                Optional.of(conctx.jinnername),
+                flag
+              )
+            )
+          )
+          // fields
+          val ps = conctx.names.zip(conctx.types).zip(conctx.kinds).map {
+            case ((x, t), k) => (x, t, k)
+          }
+          ps.foreach { (px, pty, _) =>
+            classBuilder
+              .withField(px, pty, ClassFile.ACC_FINAL | ClassFile.ACC_PUBLIC)
+          }
+          // constructor
+          classBuilder.withMethodBody(
+            ConstantDescs.INIT_NAME,
+            conctx.initdesc,
+            flag | ClassFile.ACC_SYNTHETIC,
+            codeBuilder =>
+              ps.zipWithIndex.foreach { case ((px, pty, pk), ix) =>
+                codeBuilder
+                  .loadLocal(TypeKind.REFERENCE, codeBuilder.receiverSlot())
+                codeBuilder.loadLocal(pk, codeBuilder.parameterSlot(ix))
+                codeBuilder.putfield(conctx.desc, px, pty)
+              }
+              codeBuilder.return_()
+          )
+        }
+      )
+    Files.write(Path.of(conctx.path), bytes)
 
   private def gen(acc: Access, name: Name, ty: Ty, value: Tm)(using
-      ctx: Ctx
-  ): Unit = ???
+      ctx: Ctx,
+      classBuilder: ClassBuilder
+  ): Unit =
+    val valctx = ctx.getValue(name)
+    classBuilder.withField(
+      valctx.jname,
+      valctx.desc,
+      ClassFile.ACC_STATIC | ClassFile.ACC_FINAL | gen(acc)
+    )
 
   private def gen(
       acc: Access,
@@ -228,8 +340,7 @@ object Generation:
           .toMap
         gen(body)(using
           codeBuilder = codeBuilder,
-          env = env,
-          returnkind = functx.kind
+          env = env
         )
         codeBuilder.return_(functx.kind)
     )
@@ -239,8 +350,7 @@ object Generation:
   )(using
       ctx: Ctx,
       codeBuilder: CodeBuilder,
-      env: Env,
-      returnkind: TypeKind
+      env: Env
   ): Unit =
     tm match
       case Tm.BoolLit(true)  => codeBuilder.iconst_1()
@@ -252,8 +362,7 @@ object Generation:
           case EnvEntry.Label(_)       => impossible()
           case EnvEntry.Local(k, slot) => codeBuilder.loadLocal(k, slot)
           case EnvEntry.Arg(k, ix) =>
-            val slot = codeBuilder.parameterSlot(ix)
-            codeBuilder.loadLocal(k, slot)
+            codeBuilder.loadLocal(k, codeBuilder.parameterSlot(ix))
       case Tm.Jump(ix, args) =>
         env(ix) match
           case EnvEntry.Label(l) =>
@@ -318,6 +427,7 @@ object Generation:
       case Tm.Join(bs, b) =>
         // TODO: use codeBuilder.block
         val endLabel = codeBuilder.newLabel()
+        val retLabel = codeBuilder.newLabel()
         codeBuilder.goto_(endLabel)
         val (nenv, ls) = bs.foldLeft((env, Map.empty[LocalName, Label])) {
           case ((env, ls), (x, _, _)) =>
@@ -334,12 +444,59 @@ object Generation:
             env + (y -> EnvEntry.Local(k, slot))
           }
           gen(b)(using env = innerenv)
-          codeBuilder.return_(returnkind)
+          codeBuilder.goto_(retLabel)
         }
         codeBuilder.labelBinding(endLabel)
         gen(b)(using env = nenv)
+        codeBuilder.labelBinding(retLabel)
 
-      case Tm.Case(m, dty, s, cs) => ???
+      case Tm.Case(m, dx, s, cs) =>
+        gen(s)
+        val endLabel = codeBuilder.newLabel()
+        gen(m, dx, endLabel, cs)
+        codeBuilder.labelBinding(endLabel)
+
+  private def gen(m: Name, dx: Name, endLabel: Label, cs: Cases)(using
+      ctx: Ctx,
+      codeBuilder: CodeBuilder,
+      env: Env
+  ): Unit =
+    val datactx = ctx.getDatatype(m, dx)
+    // TODO: use codeBuilder.block
+    cs match
+      case Cases.Empty => codeBuilder.pop()
+      case Cases.Otherwise(b) =>
+        codeBuilder.pop()
+        gen(b)
+      case Cases.Ext(cx, cps, b, r) =>
+        val conctx = ctx.getCon(m, dx, cx)
+        val ps =
+          cps.zip(conctx.names).zip(conctx.kinds).zip(conctx.types).map {
+            case ((((x, _, u), px), k), ty) => (x, px, u, k, ty)
+          }
+        def genbody(codeBuilder: CodeBuilder): Unit =
+          if (ps.nonEmpty) codeBuilder.checkcast(conctx.desc)
+          val nenv = ps.foldLeft(env) { case (env, (x, px, u, k, ty)) =>
+            if u == 0 then env
+            else
+              val l = codeBuilder.allocateLocal(k)
+              codeBuilder.dup()
+              codeBuilder.getfield(conctx.desc, px, ty)
+              codeBuilder.storeLocal(k, l)
+              env + (x -> EnvEntry.Local(k, l))
+          }
+          codeBuilder.pop()
+          gen(b)(using codeBuilder = codeBuilder, env = nenv)
+          codeBuilder.goto_(endLabel)
+        if r == Cases.Empty then genbody(codeBuilder)
+        else
+          codeBuilder.dup()
+          codeBuilder.instanceOf(conctx.desc)
+          codeBuilder.ifThenElse(
+            codeBuilder => genbody(codeBuilder),
+            codeBuilder =>
+              gen(m, dx, endLabel, r)(using codeBuilder = codeBuilder)
+          )
 
   private def gen(n: Int)(using codeBuilder: CodeBuilder): Unit =
     n match

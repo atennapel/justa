@@ -152,6 +152,7 @@ object Lifting:
       globals: Globals
   ): List[JVM.Def] =
     debug(s"liftDef $mod.${d.name}")
+    newDefs.clear()
     val lifted: LiftedGlobals = mutable.Map.empty
     val rec = liftCTy(mod, d.name, None, d.ty, d.value, lifted)(using Ctx.dummy)
     globals.addShape(mod, d.name, rec)
@@ -181,7 +182,7 @@ object Lifting:
       else
         val nps = ps.map((_, x, t) => (x, t))
         JVM.Def.Function(acc, x, nps, retty, etm)
-    emit.get ++ List(cdef)
+    newDefs.toList ++ emit.get ++ List(cdef)
 
   private def defTy(ty: CTy): (List[VTy], VTy, Boolean) =
     ty match

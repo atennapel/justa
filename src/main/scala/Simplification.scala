@@ -304,6 +304,7 @@ object Simplification:
                     Tm.Let(x, u, CTy(ty), cargs(i)._1, b)
                 }
                 go(ty, lets, args)
+          case Tm.Case(_, _, _, Cases.Otherwise(b)) => go(ty, b, args)
           case Tm.Case(rty, dty, s, cs) =>
             @tailrec
             def goParamsRec(

@@ -33,3 +33,26 @@ def evenodd : [even : Int -> Bool, odd : Int -> Bool] :=
   go
 
 def even := evenodd.even
+
+def fff := 42
+
+def evenodd2 : [even : Int -> Bool, odd : Int -> Bool] :=
+  let f (x : Bool) := x;
+  let rec go : [even : Int -> Bool, odd : Int -> Bool] :=
+    [
+      \n => if n < 1 then True else f (go.odd (n - 1)),
+      \n => if n < 1 then False else f (go.even (n - 1))
+    ];
+  go
+
+def even2 := evenodd2.even
+
+data Option A := None | Some A
+
+def testoption (x : Option Int) := x
+def testoption2 := Some 42
+
+def testoption3 :=
+  match testoption2
+  | Some x => x
+  | None => 0
