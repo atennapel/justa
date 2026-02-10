@@ -34,6 +34,7 @@ https://github.com/AndrasKovacs/cctt
 - [x] Check postponing
 - [x] Computational records in elaboration
 - [x] Remove unused and de-duplicate synthetic definitions
+- [ ] De-duplicate generated datatypes between modules
 - [ ] Generate private anonymous records if possible
 - [ ] Handle recursion when de-duplicating
 - [ ] Improve de-duplication and unused def removal

@@ -50,6 +50,8 @@ object Lifting:
 
   private def liftModule(mod: Module): JVM.Module =
     currentModule = mod.name
+    monoStore.clear()
+    monoRecStore.clear()
     given Globals = Globals.empty
     val ds = liftDefs(mod.name, mod.defs)
     JVM.Module(mod.name, removeUnused(ds.toList))

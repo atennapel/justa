@@ -1,4 +1,5 @@
 import Common.{Name, impossible, RuntimePrimitive}
+import Debug.debug
 import JVM.*
 
 import scala.jdk.CollectionConverters.*
@@ -76,14 +77,17 @@ object Generation:
 
     def registerDatatype(name: Name, cs: List[Constructor]): Unit =
       val xinner = JName(name)
-      val x = s"${modules(currentModule)._1}$$$xinner"
+      val x = s"${modules(currentModule).jname}$$$xinner"
       val d = ClassDesc.of(x)
       val p = s"$targetDir/${x.split("\\.").mkString("/")}.class"
       val cons = cs.map(_.name).toSet
       datatypes(currentModule) += (name -> DatatypeCtx(x, xinner, d, p, cons))
+
+    def registerCons(name: Name, cs: List[Constructor]): Unit =
+      val dx = getDatatype(name).jname
       cs.foreach { case Constructor(_, cx, ps) =>
         val xcinner = JName(cx)
-        val jcx = s"$x$$$xcinner"
+        val jcx = s"$dx$$$xcinner"
         val dc = ClassDesc.of(jcx)
         val pc = s"$targetDir/${jcx.split("\\.").mkString("/")}.class"
         val eps = ps.map((_, t) => gen(t)(using this))
@@ -159,6 +163,8 @@ object Generation:
     modules.foreach(gen)
 
   private def gen(m: Module)(using ctx: Ctx): Unit =
+    debug(s"gen module ${m.name}")
+    println(m)
     ctx.registerModule(m.name)
     ctx.currentModule = m.name
     val moduleCtx = ctx.modules(m.name)
@@ -171,7 +177,7 @@ object Generation:
           gen(m.defs.toList)(using classBuilder = classBuilder)
         }
       )
-    Files.write(Path.of(moduleCtx.path), bytes)
+    writeClass(Path.of(moduleCtx.path), bytes)
 
   private def gen(
       ds: List[Def]
@@ -182,6 +188,10 @@ object Generation:
       case _                  => ()
     }
     ds.foreach {
+      case Def.Data(_, x, cs) => ctx.registerCons(x, cs)
+      case _                  => ()
+    }
+    ds.foreach {
       case Def.Function(_, x, params, retty, _) =>
         ctx.registerFunction(x, params.map(_._2), retty)
       case Def.Value(_, x, ty, _) =>
@@ -189,10 +199,11 @@ object Generation:
       case _ => ()
     }
     // generate classes for datatypes
-    ds.foreach {
-      case Def.Data(acc, x, cs) => gen(acc, x, cs)
-      case _                    => ()
+    val innerClassInfos = ds.flatMap {
+      case Def.Data(acc, x, cs) => Some(gen(acc, x, cs))
+      case _                    => None
     }
+    classBuilder.`with`(InnerClassesAttribute.of(innerClassInfos.asJava))
     // generate values and methods
     ds.foreach {
       case Def.Value(acc, x, ty, v)        => gen(acc, x, ty, v)
@@ -229,36 +240,32 @@ object Generation:
       case Access.Synth => ClassFile.ACC_PRIVATE | ClassFile.ACC_SYNTHETIC
 
   private def gen(acc: Access, name: Name, cs: List[Constructor])(using
-      ctx: Ctx,
-      outerClassBuilder: ClassBuilder
-  ): Unit =
+      ctx: Ctx
+  ): InnerClassInfo =
+    debug(s"gen datatype ${name}")
     val modulectx = ctx.getModule()
     val datactx = ctx.getDatatype(name)
+    val flag = ClassFile.ACC_ABSTRACT | gen(acc)
     val bytes = ClassFile
       .of()
       .build(
         datactx.desc,
-        classBuilder => {
-          val flag = ClassFile.ACC_ABSTRACT | gen(acc)
+        classBuilder =>
           classBuilder.withFlags(flag)
-          outerClassBuilder.`with`(
-            InnerClassesAttribute.of(
-              InnerClassInfo.of(
-                datactx.desc,
-                Optional.of(modulectx.desc),
-                Optional.of(datactx.jinnername),
-                flag
-              )
-            )
-          )
           val innerClassInfos = cs.map(c => gen(name, c))
           classBuilder.`with`(InnerClassesAttribute.of(innerClassInfos.asJava))
-        }
       )
-    Files.write(Path.of(datactx.path), bytes)
+    writeClass(Path.of(datactx.path), bytes)
+    InnerClassInfo.of(
+      datactx.desc,
+      Optional.of(modulectx.desc),
+      Optional.of(datactx.jinnername),
+      flag
+    )
 
   private def gen(dx: Name, con: Constructor)(using ctx: Ctx): InnerClassInfo =
     val Constructor(acc, cx, _) = con
+    debug(s"gen datatype constructor $dx.$cx")
     val datactx = ctx.getDatatype(dx)
     val conctx = ctx.getCon(ctx.currentModule, dx, cx)
     val flag = gen(acc)
@@ -315,7 +322,7 @@ object Generation:
             )
         }
       )
-    Files.write(Path.of(conctx.path), bytes)
+    writeClass(Path.of(conctx.path), bytes)
     InnerClassInfo.of(
       conctx.desc,
       Optional.of(datactx.desc),
@@ -327,6 +334,7 @@ object Generation:
       ctx: Ctx,
       classBuilder: ClassBuilder
   ): Unit =
+    debug(s"gen value $name")
     val valctx = ctx.getValue(name)
     val c = constant(value)(using classBuilder.constantPool())
     classBuilder.withField(
@@ -349,6 +357,7 @@ object Generation:
       ctx: Ctx,
       classBuilder: ClassBuilder
   ): Unit =
+    debug(s"gen function $name")
     val functx = ctx.getFunction(name)
     classBuilder.withMethodBody(
       functx.jname,
@@ -561,3 +570,8 @@ object Generation:
         if v then Some(pool.intEntry(1)) else Some(pool.intEntry(0))
       case Tm.IntLit(v) => Some(pool.intEntry(v))
       case _            => None
+
+  private def writeClass(path: Path, bytes: Array[Byte]): Unit =
+    debug(s"write class $path")
+    Files.createDirectories(path.getParent())
+    Files.write(path, bytes)
