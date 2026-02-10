@@ -10,11 +10,14 @@ import java.nio.file.Path
 import java.lang.classfile.attribute.InnerClassInfo
 import java.lang.classfile.attribute.InnerClassesAttribute
 import java.util.Optional
+import java.lang.classfile.constantpool.ConstantValueEntry
+import java.lang.classfile.constantpool.ConstantPoolBuilder
+import java.lang.classfile.attribute.ConstantValueAttribute
 
 // generate JVM bytecode
-// TODO: 0-arity con optimization
-// TODO: use constant value for simple fields
 object Generation:
+  private val Arity0InstanceName = "INSTANCE"
+
   private final case class ModuleCtx(
       jname: String,
       desc: ClassDesc,
@@ -204,7 +207,7 @@ object Generation:
       ClassFile.ACC_PRIVATE | ClassFile.ACC_STATIC | ClassFile.ACC_SYNTHETIC,
       codeBuilder =>
         ds.foreach {
-          case Def.Value(_, x, _, v) =>
+          case Def.Value(_, x, _, v) if !isConstant(v) =>
             val valctx = ctx.getValue(x)
             gen(v)(using codeBuilder = codeBuilder, env = Map.empty)
             codeBuilder.putstatic(modulectx.desc, valctx.jname, valctx.desc)
@@ -248,36 +251,24 @@ object Generation:
               )
             )
           )
-          cs.foreach(c => gen(name, c)(using dataClassBuilder = classBuilder))
+          val innerClassInfos = cs.map(c => gen(name, c))
+          classBuilder.`with`(InnerClassesAttribute.of(innerClassInfos.asJava))
         }
       )
     Files.write(Path.of(datactx.path), bytes)
 
-  private def gen(dx: Name, con: Constructor)(using
-      ctx: Ctx,
-      dataClassBuilder: ClassBuilder
-  ): Unit =
+  private def gen(dx: Name, con: Constructor)(using ctx: Ctx): InnerClassInfo =
     val Constructor(acc, cx, _) = con
     val datactx = ctx.getDatatype(dx)
     val conctx = ctx.getCon(ctx.currentModule, dx, cx)
+    val flag = gen(acc)
     val bytes = ClassFile
       .of()
       .build(
         conctx.desc,
         classBuilder => {
-          val flag = gen(acc)
           classBuilder.withFlags(flag)
           classBuilder.withSuperclass(datactx.desc)
-          dataClassBuilder.`with`(
-            InnerClassesAttribute.of(
-              InnerClassInfo.of(
-                conctx.desc,
-                Optional.of(datactx.desc),
-                Optional.of(conctx.jinnername),
-                flag
-              )
-            )
-          )
           // fields
           val ps = conctx.names.zip(conctx.types).zip(conctx.kinds).map {
             case ((x, t), k) => (x, t, k)
@@ -300,19 +291,52 @@ object Generation:
               }
               codeBuilder.return_()
           )
+          // optimization for arity 0 constructors
+          if ps.isEmpty then
+            classBuilder.withField(
+              Arity0InstanceName,
+              conctx.desc,
+              ClassFile.ACC_FINAL | ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC | ClassFile.ACC_SYNTHETIC
+            )
+            classBuilder.withMethodBody(
+              ConstantDescs.CLASS_INIT_NAME,
+              MethodTypeDesc.of(ConstantDescs.CD_void),
+              ClassFile.ACC_PRIVATE | ClassFile.ACC_STATIC | ClassFile.ACC_SYNTHETIC,
+              codeBuilder =>
+                codeBuilder.new_(conctx.desc).dup()
+                codeBuilder.invokespecial(
+                  conctx.desc,
+                  ConstantDescs.INIT_NAME,
+                  conctx.initdesc
+                )
+                codeBuilder
+                  .putstatic(conctx.desc, Arity0InstanceName, conctx.desc)
+                codeBuilder.return_()
+            )
         }
       )
     Files.write(Path.of(conctx.path), bytes)
+    InnerClassInfo.of(
+      conctx.desc,
+      Optional.of(datactx.desc),
+      Optional.of(conctx.jinnername),
+      flag
+    )
 
   private def gen(acc: Access, name: Name, ty: Ty, value: Tm)(using
       ctx: Ctx,
       classBuilder: ClassBuilder
   ): Unit =
     val valctx = ctx.getValue(name)
+    val c = constant(value)(using classBuilder.constantPool())
     classBuilder.withField(
       valctx.jname,
       valctx.desc,
-      ClassFile.ACC_STATIC | ClassFile.ACC_FINAL | gen(acc)
+      fieldBuilder =>
+        fieldBuilder.withFlags(
+          ClassFile.ACC_STATIC | ClassFile.ACC_FINAL | gen(acc)
+        )
+        c.foreach(v => fieldBuilder.`with`(ConstantValueAttribute.of(v)))
     )
 
   private def gen(
@@ -409,13 +433,16 @@ object Generation:
 
       case Tm.Con(m, dx, cx, _, args) =>
         val conctx = ctx.getCon(m, dx, cx)
-        codeBuilder.new_(conctx.desc).dup()
-        args.foreach(gen)
-        codeBuilder.invokespecial(
-          conctx.desc,
-          ConstantDescs.INIT_NAME,
-          conctx.initdesc
-        )
+        if conctx.types.isEmpty then
+          codeBuilder.getstatic(conctx.desc, Arity0InstanceName, conctx.desc)
+        else
+          codeBuilder.new_(conctx.desc).dup()
+          args.foreach(gen)
+          codeBuilder.invokespecial(
+            conctx.desc,
+            ConstantDescs.INIT_NAME,
+            conctx.initdesc
+          )
 
       case Tm.Select(m, dx, s, ix) =>
         val cons = ctx.getDatatype(m, dx).cons
@@ -491,12 +518,21 @@ object Generation:
         if r == Cases.Empty then genbody(codeBuilder)
         else
           codeBuilder.dup()
-          codeBuilder.instanceOf(conctx.desc)
-          codeBuilder.ifThenElse(
-            codeBuilder => genbody(codeBuilder),
-            codeBuilder =>
-              gen(m, dx, endLabel, r)(using codeBuilder = codeBuilder)
-          )
+          if ps.isEmpty then
+            codeBuilder.getstatic(conctx.desc, Arity0InstanceName, conctx.desc)
+            codeBuilder.ifThenElse(
+              Opcode.IF_ACMPEQ,
+              codeBuilder => genbody(codeBuilder),
+              codeBuilder =>
+                gen(m, dx, endLabel, r)(using codeBuilder = codeBuilder)
+            )
+          else
+            codeBuilder.instanceOf(conctx.desc)
+            codeBuilder.ifThenElse(
+              codeBuilder => genbody(codeBuilder),
+              codeBuilder =>
+                gen(m, dx, endLabel, r)(using codeBuilder = codeBuilder)
+            )
 
   private def gen(n: Int)(using codeBuilder: CodeBuilder): Unit =
     n match
@@ -510,3 +546,18 @@ object Generation:
       case n if n >= -128 && n <= 127     => codeBuilder.bipush(n)
       case n if n >= -32768 && n <= 32767 => codeBuilder.sipush(n)
       case n                              => codeBuilder.ldc(n)
+
+  private def isConstant(tm: Tm): Boolean =
+    tm match
+      case Tm.BoolLit(_) => true
+      case Tm.IntLit(_)  => true
+      case _             => false
+
+  private def constant(tm: Tm)(using
+      pool: ConstantPoolBuilder
+  ): Option[ConstantValueEntry] =
+    tm match
+      case Tm.BoolLit(v) =>
+        if v then Some(pool.intEntry(1)) else Some(pool.intEntry(0))
+      case Tm.IntLit(v) => Some(pool.intEntry(v))
+      case _            => None

@@ -56,3 +56,10 @@ def testoption3 :=
   match testoption2
   | Some x => x
   | None => 0
+
+def testoption4 : Option Int := None
+
+def testoption5 :=
+  match testoption2
+  | None => True
+  | _ => False
