@@ -164,7 +164,6 @@ object Generation:
 
   private def gen(m: Module)(using ctx: Ctx): Unit =
     debug(s"gen module ${m.name}")
-    println(m)
     ctx.registerModule(m.name)
     ctx.currentModule = m.name
     val moduleCtx = ctx.modules(m.name)
@@ -214,7 +213,7 @@ object Generation:
     val modulectx = ctx.getModule()
     classBuilder.withMethodBody(
       ConstantDescs.CLASS_INIT_NAME,
-      MethodTypeDesc.of(ConstantDescs.CD_void),
+      ConstantDescs.MTD_void,
       ClassFile.ACC_PRIVATE | ClassFile.ACC_STATIC | ClassFile.ACC_SYNTHETIC,
       codeBuilder =>
         ds.foreach {
@@ -245,15 +244,32 @@ object Generation:
     debug(s"gen datatype ${name}")
     val modulectx = ctx.getModule()
     val datactx = ctx.getDatatype(name)
-    val flag = ClassFile.ACC_ABSTRACT | gen(acc)
+    val flag = ClassFile.ACC_ABSTRACT | ClassFile.ACC_STATIC | gen(acc)
     val bytes = ClassFile
       .of()
       .build(
         datactx.desc,
         classBuilder =>
           classBuilder.withFlags(flag)
+          classBuilder.withSuperclass(ConstantDescs.CD_Object)
           val innerClassInfos = cs.map(c => gen(name, c))
           classBuilder.`with`(InnerClassesAttribute.of(innerClassInfos.asJava))
+          // private empty constructor
+          classBuilder
+            .withMethodBody(
+              ConstantDescs.INIT_NAME,
+              ConstantDescs.MTD_void,
+              ClassFile.ACC_PRIVATE | ClassFile.ACC_SYNTHETIC,
+              codeBuilder =>
+                codeBuilder
+                  .loadLocal(TypeKind.REFERENCE, codeBuilder.receiverSlot())
+                codeBuilder.invokespecial(
+                  ConstantDescs.CD_Object,
+                  ConstantDescs.INIT_NAME,
+                  ConstantDescs.MTD_void
+                )
+                codeBuilder.return_()
+            )
       )
     writeClass(Path.of(datactx.path), bytes)
     InnerClassInfo.of(
@@ -269,12 +285,13 @@ object Generation:
     val datactx = ctx.getDatatype(dx)
     val conctx = ctx.getCon(ctx.currentModule, dx, cx)
     val flag = gen(acc)
+    val classflag = ClassFile.ACC_STATIC | ClassFile.ACC_FINAL | flag
     val bytes = ClassFile
       .of()
       .build(
         conctx.desc,
         classBuilder => {
-          classBuilder.withFlags(flag)
+          classBuilder.withFlags(classflag)
           classBuilder.withSuperclass(datactx.desc)
           // fields
           val ps = conctx.names.zip(conctx.types).zip(conctx.kinds).map {
@@ -285,11 +302,21 @@ object Generation:
               .withField(px, pty, ClassFile.ACC_FINAL | ClassFile.ACC_PUBLIC)
           }
           // constructor
+          val constructorflag = acc match
+            case Access.Pub if ps.isEmpty => gen(Access.Synth)
+            case _                        => flag | ClassFile.ACC_SYNTHETIC
           classBuilder.withMethodBody(
             ConstantDescs.INIT_NAME,
             conctx.initdesc,
-            flag | ClassFile.ACC_SYNTHETIC,
+            constructorflag,
             codeBuilder =>
+              codeBuilder
+                .loadLocal(TypeKind.REFERENCE, codeBuilder.receiverSlot())
+              codeBuilder.invokespecial(
+                datactx.desc,
+                ConstantDescs.INIT_NAME,
+                ConstantDescs.MTD_void
+              )
               ps.zipWithIndex.foreach { case ((px, pty, pk), ix) =>
                 codeBuilder
                   .loadLocal(TypeKind.REFERENCE, codeBuilder.receiverSlot())
@@ -307,7 +334,7 @@ object Generation:
             )
             classBuilder.withMethodBody(
               ConstantDescs.CLASS_INIT_NAME,
-              MethodTypeDesc.of(ConstantDescs.CD_void),
+              ConstantDescs.MTD_void,
               ClassFile.ACC_PRIVATE | ClassFile.ACC_STATIC | ClassFile.ACC_SYNTHETIC,
               codeBuilder =>
                 codeBuilder.new_(conctx.desc).dup()
@@ -327,7 +354,7 @@ object Generation:
       conctx.desc,
       Optional.of(datactx.desc),
       Optional.of(conctx.jinnername),
-      flag
+      classflag
     )
 
   private def gen(acc: Access, name: Name, ty: Ty, value: Tm)(using
