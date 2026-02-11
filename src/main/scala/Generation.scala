@@ -14,6 +14,7 @@ import java.util.Optional
 import java.lang.classfile.constantpool.ConstantValueEntry
 import java.lang.classfile.constantpool.ConstantPoolBuilder
 import java.lang.classfile.attribute.ConstantValueAttribute
+import java.lang.classfile.ClassHierarchyResolver.ClassHierarchyInfo
 
 // generate JVM bytecode
 object Generation:
@@ -63,11 +64,23 @@ object Generation:
         mutable.Map.empty,
       functions: mutable.Map[Name, mutable.Map[Name, FunctionCtx]] =
         mutable.Map.empty,
-      values: mutable.Map[Name, mutable.Map[Name, ValueCtx]] = mutable.Map.empty
+      values: mutable.Map[Name, mutable.Map[Name, ValueCtx]] =
+        mutable.Map.empty,
+      hierarchyInfo: mutable.Map[ClassDesc, ClassDesc] = mutable.Map.empty
   ):
+    inline def registerClass(
+        d: ClassDesc,
+        sup: ClassDesc = ConstantDescs.CD_Object
+    ): Unit =
+      hierarchyInfo += (d -> sup)
+
+    inline def getSuperClass(d: ClassDesc): Option[ClassDesc] =
+      hierarchyInfo.get(d)
+
     def registerModule(name: Name): Unit =
       val x = JName.module(name.expose)
       val d = ClassDesc.of(x)
+      registerClass(d)
       val p = s"$targetDir/${x.split("\\.").mkString("/")}.class"
       modules += (name -> ModuleCtx(x, d, p))
       datatypes += (name -> mutable.Map.empty)
@@ -79,16 +92,19 @@ object Generation:
       val xinner = JName(name)
       val x = s"${modules(currentModule).jname}$$$xinner"
       val d = ClassDesc.of(x)
+      registerClass(d)
       val p = s"$targetDir/${x.split("\\.").mkString("/")}.class"
       val cons = cs.map(_.name).toSet
       datatypes(currentModule) += (name -> DatatypeCtx(x, xinner, d, p, cons))
 
     def registerCons(name: Name, cs: List[Constructor]): Unit =
-      val dx = getDatatype(name).jname
+      val dctx = getDatatype(name)
+      val dx = dctx.jname
       cs.foreach { case Constructor(_, cx, ps) =>
         val xcinner = JName(cx)
         val jcx = s"$dx$$$xcinner"
         val dc = ClassDesc.of(jcx)
+        registerClass(dc, dctx.desc)
         val pc = s"$targetDir/${jcx.split("\\.").mkString("/")}.class"
         val eps = ps.map((_, t) => gen(t)(using this))
         val names = ps.zipWithIndex.map { case ((x, _), i) =>
@@ -162,26 +178,40 @@ object Generation:
     given ctx: Ctx = Ctx(targetDir)
     modules.foreach(gen)
 
+  private final class HierarchyResolver(ctx: Ctx)
+      extends ClassHierarchyResolver:
+    override def getClassInfo(d: ClassDesc): ClassHierarchyInfo =
+      ctx.getSuperClass(d).map(ClassHierarchyInfo.ofClass(_)).orNull
+
+  private inline def getHierarchyResolver(using
+      ctx: Ctx
+  ): ClassHierarchyResolver =
+    new HierarchyResolver(ctx).orElse(ClassHierarchyResolver.defaultResolver())
+
   private def gen(m: Module)(using ctx: Ctx): Unit =
     debug(s"gen module ${m.name}")
     ctx.registerModule(m.name)
     ctx.currentModule = m.name
     val moduleCtx = ctx.modules(m.name)
+    val ds = m.defs.toList
+    registerDefs(ds)
+    ds.foreach {
+      case Def.Data(acc, x, cs) =>
+        cs.foreach(c => gen(x, c))
+        gen(acc, x, cs)
+      case _ => ()
+    }
     val bytes = ClassFile
-      .of()
+      .of(ClassFile.ClassHierarchyResolverOption.of(getHierarchyResolver))
       .build(
         moduleCtx.desc,
-        classBuilder => {
+        classBuilder =>
           classBuilder.withFlags(ClassFile.ACC_PUBLIC)
-          gen(m.defs.toList)(using classBuilder = classBuilder)
-        }
+          gen(ds)(using classBuilder = classBuilder)
       )
     writeClass(Path.of(moduleCtx.path), bytes)
 
-  private def gen(
-      ds: List[Def]
-  )(using ctx: Ctx, classBuilder: ClassBuilder): Unit =
-    // register datatypes and functions for mutual recursive definitions
+  private def registerDefs(ds: List[Def])(using ctx: Ctx): Unit =
     ds.foreach {
       case Def.Data(_, x, cs) => ctx.registerDatatype(x, cs)
       case _                  => ()
@@ -197,10 +227,14 @@ object Generation:
         ctx.registerValue(x, ty)
       case _ => ()
     }
-    // generate classes for datatypes
+
+  private def gen(
+      ds: List[Def]
+  )(using ctx: Ctx, classBuilder: ClassBuilder): Unit =
+    // set inner class infos for datatypes
     val innerClassInfos = ds.flatMap {
-      case Def.Data(acc, x, cs) => Some(gen(acc, x, cs))
-      case _                    => None
+      case Def.Data(acc, x, _) => Some(innerClassInfoForDatatype(acc, x))
+      case _                   => None
     }
     classBuilder.`with`(InnerClassesAttribute.of(innerClassInfos.asJava))
     // generate values and methods
@@ -240,19 +274,18 @@ object Generation:
 
   private def gen(acc: Access, name: Name, cs: List[Constructor])(using
       ctx: Ctx
-  ): InnerClassInfo =
+  ): Unit =
     debug(s"gen datatype ${name}")
-    val modulectx = ctx.getModule()
     val datactx = ctx.getDatatype(name)
-    val flag = ClassFile.ACC_ABSTRACT | ClassFile.ACC_STATIC | gen(acc)
     val bytes = ClassFile
-      .of()
+      .of(ClassFile.ClassHierarchyResolverOption.of(getHierarchyResolver))
       .build(
         datactx.desc,
         classBuilder =>
-          classBuilder.withFlags(flag)
+          classBuilder.withFlags(datatypeFlags(acc))
           classBuilder.withSuperclass(ConstantDescs.CD_Object)
-          val innerClassInfos = cs.map(c => gen(name, c))
+          val innerClassInfos =
+            cs.map(c => innerClassInfoForConstructor(c.acc, name, c.name))
           classBuilder.`with`(InnerClassesAttribute.of(innerClassInfos.asJava))
           // private empty constructor
           classBuilder
@@ -272,26 +305,33 @@ object Generation:
             )
       )
     writeClass(Path.of(datactx.path), bytes)
+
+  private def datatypeFlags(acc: Access): Int =
+    ClassFile.ACC_ABSTRACT | ClassFile.ACC_STATIC | gen(acc)
+
+  private def innerClassInfoForDatatype(acc: Access, name: Name)(using
+      ctx: Ctx
+  ): InnerClassInfo =
+    val modulectx = ctx.getModule()
+    val datactx = ctx.getDatatype(name)
     InnerClassInfo.of(
       datactx.desc,
       Optional.of(modulectx.desc),
       Optional.of(datactx.jinnername),
-      flag
+      datatypeFlags(acc)
     )
 
-  private def gen(dx: Name, con: Constructor)(using ctx: Ctx): InnerClassInfo =
+  private def gen(dx: Name, con: Constructor)(using ctx: Ctx): Unit =
     val Constructor(acc, cx, _) = con
     debug(s"gen datatype constructor $dx.$cx")
     val datactx = ctx.getDatatype(dx)
     val conctx = ctx.getCon(ctx.currentModule, dx, cx)
-    val flag = gen(acc)
-    val classflag = ClassFile.ACC_STATIC | ClassFile.ACC_FINAL | flag
     val bytes = ClassFile
-      .of()
+      .of(ClassFile.ClassHierarchyResolverOption.of(getHierarchyResolver))
       .build(
         conctx.desc,
         classBuilder => {
-          classBuilder.withFlags(classflag)
+          classBuilder.withFlags(constructorFlags(acc))
           classBuilder.withSuperclass(datactx.desc)
           // fields
           val ps = conctx.names.zip(conctx.types).zip(conctx.kinds).map {
@@ -304,7 +344,7 @@ object Generation:
           // constructor
           val constructorflag = acc match
             case Access.Pub if ps.isEmpty => gen(Access.Synth)
-            case _                        => flag | ClassFile.ACC_SYNTHETIC
+            case _                        => gen(acc) | ClassFile.ACC_SYNTHETIC
           classBuilder.withMethodBody(
             ConstantDescs.INIT_NAME,
             conctx.initdesc,
@@ -350,11 +390,20 @@ object Generation:
         }
       )
     writeClass(Path.of(conctx.path), bytes)
+
+  private def constructorFlags(acc: Access): Int =
+    ClassFile.ACC_STATIC | ClassFile.ACC_FINAL | gen(acc)
+
+  private def innerClassInfoForConstructor(acc: Access, dx: Name, cx: Name)(
+      using ctx: Ctx
+  ): InnerClassInfo =
+    val datactx = ctx.getDatatype(dx)
+    val conctx = ctx.getCon(ctx.currentModule, dx, cx)
     InnerClassInfo.of(
       conctx.desc,
       Optional.of(datactx.desc),
       Optional.of(conctx.jinnername),
-      classflag
+      constructorFlags(acc)
     )
 
   private def gen(acc: Access, name: Name, ty: Ty, value: Tm)(using
