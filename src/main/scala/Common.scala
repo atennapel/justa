@@ -173,6 +173,9 @@ object Common:
 
     case FixIx
 
+    case Label
+    case Class
+
     override def toString: String = this match
       case Meta     => "meta"
       case Type     => "type"
@@ -194,6 +197,8 @@ object Common:
       case Refl     => "refl"
       case ElimId   => "elimId"
       case FixIx    => "fixIx"
+      case Label    => "label"
+      case Class    => "class"
 
   enum RuntimePrimitive derives CanEqual:
     case Lt

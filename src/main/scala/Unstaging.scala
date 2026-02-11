@@ -57,7 +57,8 @@ object Unstaging:
   )(using tenv: TEnv, venv: Env, ren: Ren, supply: Supply): (Tm, CTy) =
     inline def extVEnv: Env = Env.Ext0(venv, V0.Var(mkLvl(venv.size)))
     tm match
-      case Tm0.IntLit(v) => (Tm.IntLit(v), CTy(VTy.Int))
+      case Tm0.IntLit(v)    => (Tm.IntLit(v), CTy(VTy.Int))
+      case Tm0.StringLit(v) => (Tm.StringLit(v), CTy(VTy.String))
       case Tm0.Global(m, x) =>
         State.getGlobalDirect(m, x) match
           case Some(GlobalEntry.Def0(_, _, _, _, _, _, vty, _)) =>
@@ -256,4 +257,8 @@ object Unstaging:
         VTy.Data(m, x, args.map((a, _) => goVTy(a, menv)))
       case V.Var(lvl)         => menv(lvl)
       case V.RecordTy0(_, fs) => VTy.Record(fs.map((x, t) => (x, goVTy(t))))
-      case _                  => impossible()
+      case V.Class(x) =>
+        forceAll1(x) match
+          case V.LabelLit(c) => VTy.Class(c)
+          case _             => impossible()
+      case _ => impossible()

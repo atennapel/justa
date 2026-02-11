@@ -604,6 +604,11 @@ object Elaboration:
           val eb = check0(b, ty, cv)(using nctx)
           Tm0.Let(x, ety, ev, eb)
 
+        case S.StringLit(_, v) =>
+          unify(cv, V.Val)
+          unify(ty, V.String)
+          Tm0.StringLit(v)
+
         case S.If(_, c, t, f) =>
           val ec = check0(c, V.Bool, V.Val)
           val et = check0(t, ty, cv)
@@ -961,6 +966,8 @@ object Elaboration:
           val vcv = ctx.eval1(cv)
           (Tm0.RecordConEmpty(cv), V.RecordTy0Empty(vcv), vcv)
 
+        case S.StringLit(_, v) => (Tm0.StringLit(v), V.String, V.Val)
+
         case tm =>
           insert(infer(tm)) match
             case Infer0(etm, ty, cv) => (etm, ty, cv)
@@ -996,6 +1003,8 @@ object Elaboration:
           val ty = ctx.eval1(freshMeta(V.Meta))
           val tm = freshMeta(ty)
           (tm, ty)
+
+        case S.StringLit(_, v) => (Tm1.LabelLit(v), V.Label)
 
         case tm =>
           infer(tm) match
@@ -1136,7 +1145,9 @@ object Elaboration:
                   )
               )
           )
-      )
+      ),
+    Primitive.Label -> V.Meta,
+    Primitive.Class -> V.fun1(V.Label, V.TypeV)
   )
 
   private inline def inferPrimType(p: Primitive): VTy = primTypes(p)
@@ -1170,8 +1181,9 @@ object Elaboration:
     debug(s"infer $tm")
     enter(tm.pos):
       tm match
-        case S.Prim(_, p)   => Infer1(Tm1.Prim(p), inferPrimType(p))
-        case S.IntLit(_, v) => Infer0(Tm0.IntLit(v), V.Int, V.Val)
+        case S.Prim(_, p)      => Infer1(Tm1.Prim(p), inferPrimType(p))
+        case S.IntLit(_, v)    => Infer0(Tm0.IntLit(v), V.Int, V.Val)
+        case S.StringLit(_, v) => err(s"cannot infer string literal")
 
         case S.Var(_, x) =>
           ctx.lookup(x) match

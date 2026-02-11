@@ -34,6 +34,7 @@ https://github.com/AndrasKovacs/cctt
 - [x] Check postponing
 - [x] Computational records in elaboration
 - [x] Remove unused and de-duplicate synthetic definitions
+- [ ] Primitive names should not be keyword, e.g. module name could be a primitive name such as IO
 - [ ] De-duplicate generated datatypes between modules
 - [ ] Generate private anonymous records if possible
 - [ ] Handle recursion when de-duplicating

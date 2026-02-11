@@ -128,6 +128,8 @@ object Lexer:
     case REFL
     case ELIMID
     case FIXIX
+    case LABEL
+    case CLASS
 
     def pretty: String =
       this match
@@ -166,6 +168,8 @@ object Lexer:
         case REFL     => "refl"
         case ELIMID   => "elimId"
         case FIXIX    => "fixIx"
+        case LABEL    => "label"
+        case CLASS    => "class"
 
   object Keyword:
     val Primitives: Array[Keyword] = Array(
@@ -188,7 +192,9 @@ object Lexer:
       ID,
       REFL,
       ELIMID,
-      FIXIX
+      FIXIX,
+      LABEL,
+      CLASS
     )
 
     def parse(keyword: String): Keyword | Null =
@@ -228,6 +234,8 @@ object Lexer:
         case "refl"     => REFL
         case "elimId"   => ELIMID
         case "fixIx"    => FIXIX
+        case "label"    => LABEL
+        case "class"    => CLASS
         case _          => null
 
   enum Token:
@@ -237,6 +245,7 @@ object Lexer:
     case NUMBER(number: String, _pos: PosInfo)
     case IDENT(name: String, _pos: PosInfo)
     case OP(name: String, _pos: PosInfo)
+    case STRING(value: String, _pos: PosInfo)
 
     def pretty: String =
       this match
@@ -246,6 +255,7 @@ object Lexer:
         case NUMBER(n, _)   => n
         case IDENT(x, _)    => x
         case OP(op, _)      => op
+        case STRING(v, _)   => s"\"$v\""
 
     def pos: PosInfo = this match
       case EOF(p)        => p
@@ -254,6 +264,7 @@ object Lexer:
       case NUMBER(_, p)  => p
       case IDENT(_, p)   => p
       case OP(_, p)      => p
+      case STRING(_, p)  => p
   import Token.*
 
   object Token:
@@ -271,6 +282,7 @@ object Lexer:
     case Ident
     case Number
     case Op
+    case String
 
   private final class State(
       text: String,
@@ -335,6 +347,8 @@ object Lexer:
               add(EOF(pos))
             case '#' if tokens.isEmpty && takeSkip == '!' =>
               skip(); skip(); to(LexState.Comment); tokenize()
+            case '"' =>
+              skip(); to(LexState.String); tokenize()
             case c =>
               Symbol.parseImmediate(c.toString) match
                 case null =>
@@ -405,4 +419,18 @@ object Lexer:
                 acc.clear()
                 add(NUMBER(n, pos))
               to(LexState.Start)
+              tokenize()
+        case LexState.String =>
+          take match
+            case '"' =>
+              skip()
+              val v = acc.result()
+              // TODO: handle escapes
+              // TODO: correct position
+              add(STRING(v, pos))
+              acc.clear()
+              to(LexState.Start)
+              tokenize()
+            case c =>
+              use(c)
               tokenize()

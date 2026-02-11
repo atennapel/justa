@@ -257,9 +257,10 @@ object Lifting:
       case Tm.Lam(_, _, _, _) => impossible()
       case Tm.CRecord(_)      => impossible()
 
-      case Tm.BoolLit(v) => JVM.Tm.bool(v)
-      case Tm.IntLit(v)  => JVM.Tm.IntLit(v)
-      case Tm.Prim(p)    => JVM.Tm.Prim(p, Nil)
+      case Tm.BoolLit(v)   => JVM.Tm.bool(v)
+      case Tm.IntLit(v)    => JVM.Tm.IntLit(v)
+      case Tm.StringLit(v) => JVM.Tm.StringLit(v)
+      case Tm.Prim(p)      => JVM.Tm.Prim(p, Nil)
 
       case Tm.Local(ix, ty) =>
         ctx.get(ix) match
@@ -513,6 +514,7 @@ object Lifting:
       case Tm.Prim(_)         => Nil
       case Tm.BoolLit(_)      => Nil
       case Tm.IntLit(_)       => Nil
+      case Tm.StringLit(_)    => Nil
 
       case Tm.Local(ix, ty) => List(ix -> ty)
 
@@ -577,6 +579,7 @@ object Lifting:
       case Tm.Prim(_)         => true
       case Tm.BoolLit(_)      => true
       case Tm.IntLit(_)       => true
+      case Tm.StringLit(_)    => true
 
       case Tm.Lam(_, _, _, b) => isUsedInTailOnly(x, tail, b)
 
@@ -631,6 +634,7 @@ object Lifting:
     t match
       case VTy.Bool             => JVM.Ty.Bool
       case VTy.Int              => JVM.Ty.Int
+      case VTy.Class(x)         => JVM.Ty.Class(x)
       case VTy.Data(m, x, args) => monomorphize(m, x, args)
       case VTy.Record(fs)       => monomorphizeRec(fs)
 
@@ -711,6 +715,7 @@ object Lifting:
     def paramStr(p: IR.VTy): String = p match
       case VTy.Bool            => "Bool"
       case VTy.Int             => "Int"
+      case VTy.Class(x)        => x.replace(".", "_")
       case VTy.Data(m, x, Nil) => s"$m$$$x"
       case VTy.Data(m, x, args) =>
         s"$m$$${x}_${args.map(paramStr).mkString("_")}"

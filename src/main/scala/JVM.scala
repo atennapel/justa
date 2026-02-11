@@ -9,11 +9,13 @@ object JVM:
     case Bool
     case Int
     case Data(mod: Name, name: Name)
+    case Class(fullyQualifiedName: String)
 
     override def toString: String = this match
       case Bool       => "Bool"
       case Int        => "Int"
       case Data(m, x) => s"$m.$x"
+      case Class(x)   => s"$x"
 
   final case class Module(name: Name, defs: Defs):
     override def toString: String = s"module $name\n$defs"
@@ -123,6 +125,7 @@ object JVM:
     case Prim(prim: RuntimePrimitive, args: List[Tm])
     case BoolLit(value: Boolean)
     case IntLit(value: Int)
+    case StringLit(value: String)
     case Let(name: LocalName, ty: Ty, value: Tm, body: Tm)
     case If(cond: Tm, ifTrue: Tm, ifFalse: Tm)
 
@@ -144,6 +147,7 @@ object JVM:
       case Prim(p, args)         => s"$p${args.mkString("(", ",", ")")}"
       case BoolLit(v)            => s"$v"
       case IntLit(v)             => s"$v"
+      case StringLit(v)          => s"\"$v\""
       case Let(x, ty, v, b)      => s"(let '$x : $ty = $v; $b)"
       case If(c, t, f)           => s"(if $c then $t else $f)"
       case Join(bs, b) =>
@@ -163,9 +167,10 @@ object JVM:
 
     def globals(res: mutable.Set[(Name, Name)]): Unit =
       this match
-        case Local(_, _) => ()
-        case BoolLit(_)  => ()
-        case IntLit(_)   => ()
+        case Local(_, _)  => ()
+        case BoolLit(_)   => ()
+        case IntLit(_)    => ()
+        case StringLit(_) => ()
 
         case Global(m, x) => res += ((m, x))
         case GlobalApp(m, x, args) =>

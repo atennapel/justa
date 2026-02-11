@@ -61,6 +61,7 @@ object Pretty:
       case Tm0.Var(_)           => pretty0(tm)
       case Tm0.Global(_, _)     => pretty0(tm)
       case Tm0.IntLit(_)        => pretty0(tm)
+      case Tm0.StringLit(_)     => pretty0(tm)
       case Tm0.Splice(_)        => pretty0(tm)
       case Tm0.App(_, _) if app => pretty0(tm)
       case Tm0.Proj(_, _, _)    => pretty0(tm)
@@ -77,6 +78,7 @@ object Pretty:
       case Tm1.Var(_)                => pretty1(tm)
       case Tm1.Global(_, _, _)       => pretty1(tm)
       case Tm1.Prim(_)               => pretty1(tm)
+      case Tm1.LabelLit(_)           => pretty1(tm)
       case Tm1.TypeCon1(_, _)        => pretty1(tm)
       case Tm1.Con1(_, _, _)         => pretty1(tm)
       case Tm1.TypeCon0(_, _)        => pretty1(tm)
@@ -116,6 +118,7 @@ object Pretty:
         case DoBind(x) => s"$x"
     case Tm0.Global(m, x) => s"$m.$x"
     case Tm0.IntLit(v)    => s"$v"
+    case Tm0.StringLit(v) => s"\"$v\""
     case Tm0.Let(x, t, v, b) =>
       s"let $x : ${pretty1(t)} := ${pretty0(v)}; ${prettyLift0(x.toBind, b)}"
     case Tm0.LetRec(x, t, v, b) =>
@@ -166,6 +169,7 @@ object Pretty:
         case DoBind(x) => s"$x"
     case Tm1.Global(m, x, _) => s"$m.$x"
     case Tm1.Prim(p)         => s"$p"
+    case Tm1.LabelLit(v)     => s"\"$v\""
     case Tm1.TypeCon1(m, x)  => s"$m.$x"
     case Tm1.Con1(m, _, cx)  => s"$m.$cx"
     case Tm1.TypeCon0(m, x)  => s"$m.$x"

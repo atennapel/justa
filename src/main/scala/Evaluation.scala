@@ -1,7 +1,7 @@
 import Common.*
 import Common.Icit.*
 import Core.*
-import Core.{Val1 as V1, Val0 as V0, Tm1 as T1, Tm0 as T0}
+import Core.{Val1 as V1, Val0 as V0}
 import State.{CheckEntry, MetaEntry}
 
 import scala.annotation.tailrec
@@ -176,60 +176,62 @@ object Evaluation:
         vmetaapp0(vappPruning(v, p)(using env), u)
       case _ => impossible()
 
-  def eval0(t: T0)(using env: Env): V0 =
+  def eval0(t: Tm0)(using env: Env): V0 =
     t match
-      case T0.Var(ix)          => var0(ix)
-      case T0.Global(m, x)     => V0.Global(m, x)
-      case T0.IntLit(v)        => V0.IntLit(v)
-      case T0.Let(x, ty, v, b) => V0.Let(x, eval1(ty), eval0(v), Clos0(b))
-      case T0.LetRec(x, ty, v, b) =>
+      case Tm0.Var(ix)          => var0(ix)
+      case Tm0.Global(m, x)     => V0.Global(m, x)
+      case Tm0.IntLit(v)        => V0.IntLit(v)
+      case Tm0.StringLit(v)     => V0.StringLit(v)
+      case Tm0.Let(x, ty, v, b) => V0.Let(x, eval1(ty), eval0(v), Clos0(b))
+      case Tm0.LetRec(x, ty, v, b) =>
         V0.LetRec(x, eval1(ty), Clos0(v), Clos0(b))
-      case T0.Lam(x, ty, b)   => V0.Lam(x, eval1(ty), Clos0(b))
-      case T0.App(f, a)       => V0.App(eval0(f), eval0(a))
-      case T0.Splice(tm)      => vsplice(eval1(tm))
-      case T0.If(ty, c, t, f) => V0.If(eval1(ty), eval0(c), eval0(t), eval0(f))
-      case T0.Case(rty, dty, s, cs) =>
+      case Tm0.Lam(x, ty, b)   => V0.Lam(x, eval1(ty), Clos0(b))
+      case Tm0.App(f, a)       => V0.App(eval0(f), eval0(a))
+      case Tm0.Splice(tm)      => vsplice(eval1(tm))
+      case Tm0.If(ty, c, t, f) => V0.If(eval1(ty), eval0(c), eval0(t), eval0(f))
+      case Tm0.Case(rty, dty, s, cs) =>
         V0.Case(eval1(rty), eval1(dty), eval0(s), ClosCases0(cs))
       case Tm0.RecordCon(ty, fs) => Val0.RecordCon(eval1(ty), fs.map(eval0))
-      case T0.Proj(rty, s, p)    => V0.Proj(eval1(rty), eval0(s), p)
-      case T0.Wk1(t)             => eval0(t)(using env.wk1)
-      case T0.Wk0(t)             => eval0(t)(using env.wk0)
+      case Tm0.Proj(rty, s, p)   => V0.Proj(eval1(rty), eval0(s), p)
+      case Tm0.Wk1(t)            => eval0(t)(using env.wk1)
+      case Tm0.Wk0(t)            => eval0(t)(using env.wk0)
 
-  def eval1(t: T1)(using env: Env): V1 =
+  def eval1(t: Tm1)(using env: Env): V1 =
     t match
-      case T1.Var(ix) => var1(ix)
-      case T1.Global(m, x, v) =>
+      case Tm1.Var(ix) => var1(ix)
+      case Tm1.Global(m, x, v) =>
         V1.Unfold(UnfoldHead.Global(m, x, v), Spine.Empty, () => v)
-      case T1.TypeCon1(m, x)   => V1.TypeCon1(m, x)
-      case T1.Con1(m, dx, cx)  => V1.Con1(m, dx, cx)
-      case T1.TypeCon0(m, x)   => V1.TypeCon0(m, x)
-      case T1.Con0(m, dx, cx)  => V1.Con0(m, dx, cx)
-      case T1.Let(x, ty, v, b) => eval1(b)(using Env.Ext1(env, eval1(v)))
-      case T1.Pi(x, i, ty, b)  => V1.Pi(x, i, eval1(ty), Clos1(b))
-      case T1.Lam(x, i, ty, b) => V1.Lam(x, i, eval1(ty), Clos1(b))
-      case T1.App(f, a, i)     => vapp(eval1(f), eval1(a), i)
-      case T1.Fun(p, cv, r)    => V1.Fun(eval1(p), eval1(cv), eval1(r))
-      case T1.Lift(cv, ty)     => V1.Lift(eval1(cv), eval1(ty))
-      case T1.Quote(tm)        => vquote(eval0(tm))
-      case T1.RecordTy1(fs)    => Val1.RecordTy1(ClosRec(fs))
-      case T1.RecordTy0(cv, fs) =>
+      case Tm1.LabelLit(v)      => V1.LabelLit(v)
+      case Tm1.TypeCon1(m, x)   => V1.TypeCon1(m, x)
+      case Tm1.Con1(m, dx, cx)  => V1.Con1(m, dx, cx)
+      case Tm1.TypeCon0(m, x)   => V1.TypeCon0(m, x)
+      case Tm1.Con0(m, dx, cx)  => V1.Con0(m, dx, cx)
+      case Tm1.Let(x, ty, v, b) => eval1(b)(using Env.Ext1(env, eval1(v)))
+      case Tm1.Pi(x, i, ty, b)  => V1.Pi(x, i, eval1(ty), Clos1(b))
+      case Tm1.Lam(x, i, ty, b) => V1.Lam(x, i, eval1(ty), Clos1(b))
+      case Tm1.App(f, a, i)     => vapp(eval1(f), eval1(a), i)
+      case Tm1.Fun(p, cv, r)    => V1.Fun(eval1(p), eval1(cv), eval1(r))
+      case Tm1.Lift(cv, ty)     => V1.Lift(eval1(cv), eval1(ty))
+      case Tm1.Quote(tm)        => vquote(eval0(tm))
+      case Tm1.RecordTy1(fs)    => Val1.RecordTy1(ClosRec(fs))
+      case Tm1.RecordTy0(cv, fs) =>
         Val1.RecordTy0(eval1(cv), fs.map((x, t) => (x, eval1(t))))
-      case T1.RecordCon(fs)      => Val1.RecordCon(fs.map(eval1))
-      case T1.Proj(tm, p)        => vproj(eval1(tm), p)
-      case T1.Case(s, cs)        => vcase(eval1(s), ClosCases1(cs))
-      case T1.Wk0(tm)            => eval1(tm)(using env.wk0)
-      case T1.Wk1(tm)            => eval1(tm)(using env.wk1)
-      case T1.Meta(id)           => vmeta(id)
-      case T1.MetaPi1(t, b)      => V1.MetaPi1(eval1(t), Clos1(b))
-      case T1.MetaPi0(t, b)      => V1.MetaPi0(eval1(t), Clos1(b))
-      case T1.MetaLam1(b)        => V1.MetaLam1(Clos1(b))
-      case T1.MetaLam0(b)        => V1.MetaLam0(Clos1(b))
-      case T1.MetaApp1(f, a)     => vmetaapp1(eval1(f), eval1(a))
-      case T1.MetaApp0(f, a)     => vmetaapp0(eval1(f), eval0(a))
-      case T1.AppPruning(m, p)   => vappPruning(vmeta(m), p)
-      case T1.PostponedCheck(id) => vcheck(id)
+      case Tm1.RecordCon(fs)      => Val1.RecordCon(fs.map(eval1))
+      case Tm1.Proj(tm, p)        => vproj(eval1(tm), p)
+      case Tm1.Case(s, cs)        => vcase(eval1(s), ClosCases1(cs))
+      case Tm1.Wk0(tm)            => eval1(tm)(using env.wk0)
+      case Tm1.Wk1(tm)            => eval1(tm)(using env.wk1)
+      case Tm1.Meta(id)           => vmeta(id)
+      case Tm1.MetaPi1(t, b)      => V1.MetaPi1(eval1(t), Clos1(b))
+      case Tm1.MetaPi0(t, b)      => V1.MetaPi0(eval1(t), Clos1(b))
+      case Tm1.MetaLam1(b)        => V1.MetaLam1(Clos1(b))
+      case Tm1.MetaLam0(b)        => V1.MetaLam0(Clos1(b))
+      case Tm1.MetaApp1(f, a)     => vmetaapp1(eval1(f), eval1(a))
+      case Tm1.MetaApp0(f, a)     => vmetaapp0(eval1(f), eval0(a))
+      case Tm1.AppPruning(m, p)   => vappPruning(vmeta(m), p)
+      case Tm1.PostponedCheck(id) => vcheck(id)
 
-      case T1.Prim(Primitive.ElimId) =>
+      case Tm1.Prim(Primitive.ElimId) =>
         V1.lamI(
           "A",
           V1.Meta,
@@ -260,7 +262,7 @@ object Evaluation:
                 )
             )
         )
-      case T1.Prim(Primitive.FixIx) =>
+      case Tm1.Prim(Primitive.FixIx) =>
         V1.lamI(
           "I",
           V1.Meta,
@@ -304,7 +306,7 @@ object Evaluation:
                 )
             )
         )
-      case T1.Prim(p) => V1.Prim(p)
+      case Tm1.Prim(p) => V1.Prim(p)
 
   // forcing
   def force1(v: V1): V1 = v match
@@ -368,17 +370,17 @@ object Evaluation:
     case None
     case Unstage
 
-  private def readbackSpine(h: T1, sp: Spine)(using
+  private def readbackSpine(h: Tm1, sp: Spine)(using
       lvl: Lvl,
       q: UnfoldOption
-  ): T1 = sp match
+  ): Tm1 = sp match
     case Spine.Empty         => h
-    case Spine.App(sp, v, i) => T1.App(readbackSpine(h, sp), readback1(v), i)
-    case Spine.Proj(sp, p)   => T1.Proj(readbackSpine(h, sp), p)
+    case Spine.App(sp, v, i) => Tm1.App(readbackSpine(h, sp), readback1(v), i)
+    case Spine.Proj(sp, p)   => Tm1.Proj(readbackSpine(h, sp), p)
     case Spine.MetaApp1(sp, v) =>
-      T1.MetaApp1(readbackSpine(h, sp), readback1(v))
+      Tm1.MetaApp1(readbackSpine(h, sp), readback1(v))
     case Spine.MetaApp0(sp, v) =>
-      T1.MetaApp0(readbackSpine(h, sp), readback0(v))
+      Tm1.MetaApp0(readbackSpine(h, sp), readback0(v))
     case Spine.Case(sp, cs) =>
       def go(env: Env, cs: Cases1): Cases1 =
         cs match
@@ -389,7 +391,7 @@ object Evaluation:
           case Cases1.Otherwise(b) =>
             Cases1.Otherwise(readback1(eval1(b)(using env)))
           case Cases1.Empty => Cases1.Empty
-      T1.Case(readbackSpine(h, sp), go(cs.env, cs.cases))
+      Tm1.Case(readbackSpine(h, sp), go(cs.env, cs.cases))
     case Spine.ElimId(sp, a, x, pp, hh, y) =>
       Tm1.ElimId(
         readback1(a),
@@ -409,13 +411,13 @@ object Evaluation:
         readbackSpine(h, sp)
       )
 
-  def readback1(v: V1)(using lvl: Lvl, unfoldOption: UnfoldOption): T1 =
-    inline def go0(v: V0): T0 = readback0(v)
-    inline def go1(v: V1): T1 = readback1(v)
-    inline def goSp(h: T1, sp: Spine): T1 = readbackSpine(h, sp)
-    inline def goClos(c: Clos1): T1 =
+  def readback1(v: V1)(using lvl: Lvl, unfoldOption: UnfoldOption): Tm1 =
+    inline def go0(v: V0): Tm0 = readback0(v)
+    inline def go1(v: V1): Tm1 = readback1(v)
+    inline def goSp(h: Tm1, sp: Spine): Tm1 = readbackSpine(h, sp)
+    inline def goClos(c: Clos1): Tm1 =
       readback1(c(V1.Var(lvl)))(using lvl + 1)
-    inline def goClos0(c: Clos1): T1 =
+    inline def goClos0(c: Clos1): Tm1 =
       readback1(c(V0.Var(lvl)))(using lvl + 1)
     inline def force(v: V1): V1 = unfoldOption match
       case UnfoldOption.All     => forceAll1(v)
@@ -433,33 +435,34 @@ object Evaluation:
     force(v) match
       case V1.Rigid(hd, sp) =>
         hd match
-          case Head.Var(lvl)        => goSp(T1.Var(lvl.toIx), sp)
-          case Head.Prim(p)         => goSp(T1.Prim(p), sp)
-          case Head.TypeCon1(m, x)  => goSp(T1.TypeCon1(m, x), sp)
-          case Head.Con1(m, dx, cx) => goSp(T1.Con1(m, dx, cx), sp)
-          case Head.TypeCon0(m, x)  => goSp(T1.TypeCon0(m, x), sp)
-          case Head.Con0(m, dx, cx) => goSp(T1.Con0(m, dx, cx), sp)
-      case V1.Flex(id, sp) => goSp(T1.Meta(id), sp)
+          case Head.Var(lvl)        => goSp(Tm1.Var(lvl.toIx), sp)
+          case Head.Prim(p)         => goSp(Tm1.Prim(p), sp)
+          case Head.TypeCon1(m, x)  => goSp(Tm1.TypeCon1(m, x), sp)
+          case Head.Con1(m, dx, cx) => goSp(Tm1.Con1(m, dx, cx), sp)
+          case Head.TypeCon0(m, x)  => goSp(Tm1.TypeCon0(m, x), sp)
+          case Head.Con0(m, dx, cx) => goSp(Tm1.Con0(m, dx, cx), sp)
+      case V1.LabelLit(v)  => Tm1.LabelLit(v)
+      case V1.Flex(id, sp) => goSp(Tm1.Meta(id), sp)
       case V1.Unfold(UnfoldHead.Global(m, x, v), sp, _) =>
-        goSp(T1.Global(m, x, v), sp)
-      case V1.Pi(x, i, ty, b)   => T1.Pi(x, i, go1(ty), goClos(b))
-      case V1.Lam(x, i, ty, b)  => T1.Lam(x, i, go1(ty), goClos(b))
-      case V1.Fun(pty, cv, rty) => T1.Fun(go1(pty), go1(cv), go1(rty))
-      case V1.Lift(cv, ty)      => T1.Lift(go1(cv), go1(ty))
+        goSp(Tm1.Global(m, x, v), sp)
+      case V1.Pi(x, i, ty, b)   => Tm1.Pi(x, i, go1(ty), goClos(b))
+      case V1.Lam(x, i, ty, b)  => Tm1.Lam(x, i, go1(ty), goClos(b))
+      case V1.Fun(pty, cv, rty) => Tm1.Fun(go1(pty), go1(cv), go1(rty))
+      case V1.Lift(cv, ty)      => Tm1.Lift(go1(cv), go1(ty))
       case V1.Quote(tm)         => go0(tm).quote
-      case V1.RecordTy1(fs)     => T1.RecordTy1(goRec(fs))
+      case V1.RecordTy1(fs)     => Tm1.RecordTy1(goRec(fs))
       case V1.RecordTy0(cv, fs) =>
-        T1.RecordTy0(go1(cv), fs.map((x, t) => (x, go1(t))))
-      case V1.RecordCon(fs) => T1.RecordCon(fs.map(t => go1(t)))
-      case V1.MetaPi1(t, b) => T1.MetaPi1(go1(t), goClos(b))
-      case V1.MetaPi0(t, b) => T1.MetaPi0(go1(t), goClos0(b))
-      case V1.MetaLam1(b)   => T1.MetaLam1(goClos(b))
-      case V1.MetaLam0(b)   => T1.MetaLam0(goClos0(b))
+        Tm1.RecordTy0(go1(cv), fs.map((x, t) => (x, go1(t))))
+      case V1.RecordCon(fs) => Tm1.RecordCon(fs.map(t => go1(t)))
+      case V1.MetaPi1(t, b) => Tm1.MetaPi1(go1(t), goClos(b))
+      case V1.MetaPi0(t, b) => Tm1.MetaPi0(go1(t), goClos0(b))
+      case V1.MetaLam1(b)   => Tm1.MetaLam1(goClos(b))
+      case V1.MetaLam0(b)   => Tm1.MetaLam0(goClos0(b))
 
-  def readback0(v: V0)(using lvl: Lvl, unfoldOption: UnfoldOption): T0 =
-    inline def go0(v: V0): T0 = readback0(v)
-    inline def go1(v: V1): T1 = readback1(v)
-    inline def goClos(c: Clos0): T0 =
+  def readback0(v: V0)(using lvl: Lvl, unfoldOption: UnfoldOption): Tm0 =
+    inline def go0(v: V0): Tm0 = readback0(v)
+    inline def go1(v: V1): Tm1 = readback1(v)
+    inline def goClos(c: Clos0): Tm0 =
       readback0(c(V0.Var(lvl)))(using lvl + 1)
     inline def force(v: V0): V0 = unfoldOption match
       case UnfoldOption.All     => forceAll0(v)
@@ -467,18 +470,19 @@ object Evaluation:
       case UnfoldOption.None    => v
       case UnfoldOption.Unstage => forceUnstage0(v)
     force(v) match
-      case V0.Var(x)           => T0.Var(x.toIx)
-      case V0.Global(m, x)     => T0.Global(m, x)
-      case V0.IntLit(v)        => T0.IntLit(v)
-      case V0.Let(x, ty, v, b) => T0.Let(x, go1(ty), go0(v), goClos(b))
+      case V0.Var(x)           => Tm0.Var(x.toIx)
+      case V0.Global(m, x)     => Tm0.Global(m, x)
+      case V0.IntLit(v)        => Tm0.IntLit(v)
+      case V0.StringLit(v)     => Tm0.StringLit(v)
+      case V0.Let(x, ty, v, b) => Tm0.Let(x, go1(ty), go0(v), goClos(b))
       case V0.LetRec(x, ty, v, b) =>
-        T0.LetRec(x, go1(ty), goClos(v), goClos(b))
-      case V0.Lam(x, ty, b)     => T0.Lam(x, go1(ty), goClos(b))
-      case V0.App(f, a)         => T0.App(go0(f), go0(a))
-      case V0.If(ty, c, t, f)   => T0.If(go1(ty), go0(c), go0(t), go0(f))
+        Tm0.LetRec(x, go1(ty), goClos(v), goClos(b))
+      case V0.Lam(x, ty, b)     => Tm0.Lam(x, go1(ty), goClos(b))
+      case V0.App(f, a)         => Tm0.App(go0(f), go0(a))
+      case V0.If(ty, c, t, f)   => Tm0.If(go1(ty), go0(c), go0(t), go0(f))
       case V0.Splice(tm)        => go1(tm).splice
-      case V0.Proj(rty, s, p)   => T0.Proj(go1(rty), go0(s), p)
-      case V0.RecordCon(ty, fs) => T0.RecordCon(go1(ty), fs.map(t => go0(t)))
+      case V0.Proj(rty, s, p)   => Tm0.Proj(go1(rty), go0(s), p)
+      case V0.RecordCon(ty, fs) => Tm0.RecordCon(go1(ty), fs.map(t => go0(t)))
       case V0.Case(rty, dty, s, cs) =>
         def goCases(cs: Cases0)(using env: Env): Cases0 =
           cs match
@@ -489,7 +493,7 @@ object Evaluation:
               val nps = ps.map((x, ty) => (x, go1(eval1(ty))))
               val rb = readback0(eval0(b)(using innerenv))(using innerlvl)
               Cases0.Ext(x, nps, rb, goCases(r))
-        T0.Case(
+        Tm0.Case(
           go1(rty),
           go1(dty),
           go0(s),
@@ -518,18 +522,18 @@ object Evaluation:
         (nlvl, nenv, (x, i, ety) :: nps)
 
   // helpers
-  inline def readback1m(v: V1)(using lvl: Lvl): T1 =
+  inline def readback1m(v: V1)(using lvl: Lvl): Tm1 =
     readback1(v)(using unfoldOption = UnfoldOption.Metas)
-  inline def readback0m(v: V0)(using lvl: Lvl): T0 =
+  inline def readback0m(v: V0)(using lvl: Lvl): Tm0 =
     readback0(v)(using unfoldOption = UnfoldOption.Metas)
-  inline def readback1n(v: V1)(using lvl: Lvl): T1 =
+  inline def readback1n(v: V1)(using lvl: Lvl): Tm1 =
     readback1(v)(using unfoldOption = UnfoldOption.None)
-  inline def readback0n(v: V0)(using lvl: Lvl): T0 =
+  inline def readback0n(v: V0)(using lvl: Lvl): Tm0 =
     readback0(v)(using unfoldOption = UnfoldOption.None)
 
-  inline def unstage(tm: T0): T0 =
+  inline def unstage(tm: Tm0): Tm0 =
     readback0(eval0(tm)(using Env.Empty))(using lvl0, UnfoldOption.Unstage)
-  inline def unstageUnder(tm: T0, env: Env): T0 =
+  inline def unstageUnder(tm: Tm0, env: Env): Tm0 =
     readback0(eval0(tm)(using env))(using mkLvl(env.size), UnfoldOption.Unstage)
 
   def allGlobals(v: V1): Set[(Name, Name)] =
@@ -594,6 +598,7 @@ object Evaluation:
     def go1(v: V1)(using lvl: Lvl): Unit =
       v match
         case V1.Rigid(h, sp)      => goHead(h); goSp(sp)
+        case V1.LabelLit(_)       => ()
         case V1.Unfold(h, sp, _)  => goUnfoldHead(h); goSp(sp)
         case V1.Pi(_, _, ty, b)   => go1(ty); goClos1(b)
         case V1.Lam(_, _, ty, b)  => go1(ty); goClos1(b)
@@ -616,6 +621,7 @@ object Evaluation:
         case V0.Global(m, x)        => set += ((m, x))
         case V0.Var(_)              => ()
         case V0.IntLit(_)           => ()
+        case V0.StringLit(_)        => ()
         case V0.Let(_, ty, v, b)    => go1(ty); go0(v); goClos0(b)
         case V0.LetRec(_, ty, v, b) => go1(ty); goClos0(v); goClos0(b)
         case V0.Lam(_, ty, b)       => go1(ty); goClos0(b)

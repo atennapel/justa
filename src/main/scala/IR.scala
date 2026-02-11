@@ -6,6 +6,7 @@ object IR:
     case Int
     case Data(mod: Name, name: Name, args: List[VTy])
     case Record(fields: AssocBind[VTy])
+    case Class(fullyQualifiedName: String)
 
     override def toString: String = this match
       case Bool             => "Bool"
@@ -13,6 +14,10 @@ object IR:
       case Data(m, x, Nil)  => s"$m.$x"
       case Data(m, x, args) => s"($m.$x ${args.mkString(" ")})"
       case Record(fs) => fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
+      case Class(x)   => s"$x"
+
+  object VTy:
+    val String = VTy.Class("java.lang.String")
 
   enum CTy derives CanEqual:
     case Fun(pty: VTy, rty: CTy)
@@ -81,6 +86,7 @@ object IR:
     case Prim(prim: RuntimePrimitive)
     case BoolLit(value: Boolean)
     case IntLit(value: Int)
+    case StringLit(value: String)
 
     case Let(name: LocalName, usage: Int, ty: CTy, value: Tm, body: Tm)
     case LetRec(name: LocalName, usage: Int, ty: CTy, value: Tm, body: Tm)
@@ -114,6 +120,7 @@ object IR:
       case Prim(p)                  => s"$p"
       case BoolLit(v)               => s"$v"
       case IntLit(v)                => s"$v"
+      case StringLit(v)             => s"\"$v\""
       case Let(x, _, ty, v, b)      => s"(let '$x : $ty = $v; $b)"
       case LetRec(x, _, ty, v, b)   => s"(let rec '$x : $ty = $v; $b)"
       case Lam(x, _, ty, b)         => s"(\\('$x : $ty) => $b)"

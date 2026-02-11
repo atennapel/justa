@@ -265,6 +265,7 @@ object Generation:
       case Ty.Bool       => (TypeKind.BOOLEAN, ConstantDescs.CD_boolean)
       case Ty.Int        => (TypeKind.INT, ConstantDescs.CD_int)
       case Ty.Data(m, x) => (TypeKind.REFERENCE, ctx.datatypes(m)(x).desc)
+      case Ty.Class(c)   => (TypeKind.REFERENCE, ClassDesc.of(c))
 
   private def gen(acc: Access): Int =
     acc match
@@ -459,12 +460,16 @@ object Generation:
   )(using
       ctx: Ctx,
       codeBuilder: CodeBuilder,
-      env: Env
+      env: Env,
+      classBuilder: ClassBuilder
   ): Unit =
     tm match
       case Tm.BoolLit(true)  => codeBuilder.iconst_1()
       case Tm.BoolLit(false) => codeBuilder.iconst_0()
       case Tm.IntLit(v)      => gen(v)
+      case Tm.StringLit(v) =>
+        val entry = classBuilder.constantPool().stringEntry(v)
+        codeBuilder.ldc(entry)
 
       case Tm.Local(ix, _) =>
         env(ix) match
@@ -571,7 +576,8 @@ object Generation:
   private def gen(m: Name, dx: Name, endLabel: Label, cs: Cases)(using
       ctx: Ctx,
       codeBuilder: CodeBuilder,
-      env: Env
+      env: Env,
+      classBuilder: ClassBuilder
   ): Unit =
     val datactx = ctx.getDatatype(m, dx)
     // TODO: use codeBuilder.block

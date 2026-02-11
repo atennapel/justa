@@ -1,0 +1,17 @@
+module testing.IOTest
+
+import Prelude (vtype, (+))
+import IOUtil (return, bind, seq, map)
+
+def doStuff := return 42
+
+def ioTest1 : IO Int :=
+  bind doStuff \x =>
+  bind doStuff \y =>
+  return (x + y)
+
+def Str = class "java.lang.String"
+
+def strtest (x : Str) := x
+
+def str := "abcdefg"

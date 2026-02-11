@@ -35,6 +35,7 @@ object Core:
     case Var(ix: Ix)
     case Global(mod: Name, name: Name)
     case IntLit(value: Int)
+    case StringLit(value: String)
     case Let(name: Name, ty: Ty, value: Tm0, body: Tm0)
     case LetRec(name: Name, ty: Ty, value: Tm0, body: Tm0)
 
@@ -71,6 +72,7 @@ object Core:
       case Var(ix)                     => s"'$ix"
       case Global(m, x)                => s"$m.$x"
       case IntLit(v)                   => s"$v"
+      case StringLit(v)                => s"\"$v\""
       case Let(x, ty, v, b)            => s"(let $x : $ty := $v; $b)"
       case LetRec(x, ty, v, b)         => s"(let rec $x : $ty := $v; $b)"
       case Lam(x, ty, b)               => s"(\\($x : $ty) => $b)"
@@ -112,6 +114,7 @@ object Core:
     case Var(ix: Ix)
     case Global(mod: Name, name: Name, value: Val1)
     case Prim(prim: Primitive)
+    case LabelLit(value: String)
     case TypeCon1(mod: Name, name: Name)
     case Con1(mod: Name, dx: Name, cx: Name)
     case TypeCon0(mod: Name, name: Name)
@@ -165,6 +168,7 @@ object Core:
       case Var(ix)            => s"'$ix"
       case Global(m, x, _)    => s"$m.$x"
       case Prim(p)            => s"$p"
+      case LabelLit(v)        => s"\"$v\""
       case TypeCon1(m, x)     => s"$m.$x"
       case Con1(m, _, x)      => s"$m.$x"
       case TypeCon0(m, x)     => s"$m.$x"
@@ -320,6 +324,7 @@ object Core:
     case Var(lvl: Lvl)
     case Global(mod: Name, name: Name)
     case IntLit(value: Int)
+    case StringLit(value: String)
     case Let(name: Name, ty: VTy, value: Val0, body: Clos0)
     case LetRec(name: Name, ty: VTy, value: Clos0, body: Clos0)
     case Lam(name: Bind, ty: VTy, body: Clos0)
@@ -395,6 +400,8 @@ object Core:
     case Rigid(head: Head, spine: Spine)
     case Flex(id: MetaId, spine: Spine)
     case Unfold(head: UnfoldHead, spine: Spine, value: () => Val1)
+
+    case LabelLit(value: String)
 
     case Pi(name: Bind, icit: PiIcit, ty: VTy, body: Clos1)
     case Lam(name: Bind, icit: PiIcit, ty: VTy, body: Clos1)
@@ -556,12 +563,25 @@ object Core:
           case Rigid(Head.Prim(p), spine) => Some((p, spine.toList))
           case _                          => None
 
+    object Class:
+      def apply(l: Val1): Val1 =
+        Rigid(Head.Prim(Primitive.Class), Spine.App(Spine.Empty, l, Expl))
+      def unapply(value: Val1): Option[Val1] = value match
+        case Rigid(
+              Head.Prim(Primitive.Class),
+              Spine.App(Spine.Empty, l, Expl)
+            ) =>
+          Some(l)
+        case _ => None
+
     val Meta = Prim(Primitive.Meta)
     val CV = Prim(Primitive.CV)
     val Val = Prim(Primitive.Val)
     val Comp = Prim(Primitive.Comp)
     val Bool = Prim(Primitive.Bool)
     val Int = Prim(Primitive.Int)
+    val Label = Prim(Primitive.Label)
+    val String = Class(LabelLit("java.lang.String"))
 
     val TypeV = Type(Val)
     val TypeC = Type(Comp)

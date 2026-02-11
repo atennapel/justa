@@ -117,6 +117,13 @@ object Parser:
     private def tryOp(): String | Null = tryConsume(matchOp)
     private def op(): String = consume("operator")(matchOp)
 
+    private inline def matchString(token: Token): String | Null =
+      token match
+        case STRING(x, _) => x
+        case _            => null
+    private def tryString(): String | Null = tryConsume(matchString)
+    private def string(): String = consume("string")(matchString)
+
     private inline def matchSymbol(s: Symbol)(token: Token): Boolean =
       token match
         case SYMBOL(s2, _) if s2 == s => true
@@ -203,67 +210,72 @@ object Parser:
     // Language parsing
     private def tryAtomInner(): Tm | Null =
       val p = pos
-      tryPrimitive() match
+      tryString() match
         case null =>
-          tryNumber() match
+          tryPrimitive() match
             case null =>
-              tryIdent() match
+              tryNumber() match
                 case null =>
-                  if trySymbol(UNDERSCORE) then Tm.Hole(p, None)
-                  else if trySymbol(CARET) then Tm.Lift(p, atom())
-                  else if trySymbol(GRAVE) then Tm.Quote(p, atom())
-                  else if trySymbol(DOLLAR) then Tm.Splice(p, atom())
-                  else if trySymbol(L_BRACKET) then
-                    if trySymbol(R_BRACKET) then Tm.EmptyRecord(p)
-                    else
-                      val tm = record(p)
-                      symbol(R_BRACKET)
-                      tm
-                  else if trySymbol(L_PAREN) then
-                    val p2 = pos
-                    tryOp() match
-                      case null =>
-                        if trySymbol(R_PAREN) then Tm.UnitLit(p)
+                  tryIdent() match
+                    case null =>
+                      if trySymbol(UNDERSCORE) then Tm.Hole(p, None)
+                      else if trySymbol(CARET) then Tm.Lift(p, atom())
+                      else if trySymbol(GRAVE) then Tm.Quote(p, atom())
+                      else if trySymbol(DOLLAR) then Tm.Splice(p, atom())
+                      else if trySymbol(L_BRACKET) then
+                        if trySymbol(R_BRACKET) then Tm.EmptyRecord(p)
                         else
-                          val e = expr()
-                          symbol(R_PAREN)
-                          e
-                      case op =>
-                        if trySymbol(R_PAREN) then Tm.Var(p2, Name.op(op))
-                        else
-                          val arg = apps()
-                          symbol(R_PAREN)
-                          // operator section
-                          // (op arg) ~> \x => x op arg
-                          // TODO: (arg op) ~> ((op) arg)
-                          val x = Name("x") // TODO: name shadowing issues!!!
-                          Tm.Lam(
-                            p,
-                            DoBind(x),
-                            ArgInfo.PiExpl,
-                            None,
-                            Tm.App(
-                              p,
-                              Tm.App(
+                          val tm = record(p)
+                          symbol(R_BRACKET)
+                          tm
+                      else if trySymbol(L_PAREN) then
+                        val p2 = pos
+                        tryOp() match
+                          case null =>
+                            if trySymbol(R_PAREN) then Tm.UnitLit(p)
+                            else
+                              val e = expr()
+                              symbol(R_PAREN)
+                              e
+                          case op =>
+                            if trySymbol(R_PAREN) then Tm.Var(p2, Name.op(op))
+                            else
+                              val arg = apps()
+                              symbol(R_PAREN)
+                              // operator section
+                              // (op arg) ~> \x => x op arg
+                              // TODO: (arg op) ~> ((op) arg)
+                              val x = Name(
+                                "x"
+                              ) // TODO: name shadowing issues!!!
+                              Tm.Lam(
                                 p,
-                                Tm.Var(p2, Name.op(op)),
-                                Tm.Var(p, x),
-                                ArgInfo.Expl
-                              ),
-                              arg,
-                              ArgInfo.Expl
-                            )
-                          )
-                  else null
-                case x if x.startsWith("_") =>
-                  val y = if x.length == 1 then None else Some(Name(x.tail))
-                  Tm.Hole(p, y)
-                case x => Tm.Var(p, Name(x))
-            case n =>
-              n.toIntOption match
-                case Some(n) => Tm.IntLit(p, n)
-                case None    => err(s"invalid number literal: $n")
-        case pr => Tm.Prim(p, pr)
+                                DoBind(x),
+                                ArgInfo.PiExpl,
+                                None,
+                                Tm.App(
+                                  p,
+                                  Tm.App(
+                                    p,
+                                    Tm.Var(p2, Name.op(op)),
+                                    Tm.Var(p, x),
+                                    ArgInfo.Expl
+                                  ),
+                                  arg,
+                                  ArgInfo.Expl
+                                )
+                              )
+                      else null
+                    case x if x.startsWith("_") =>
+                      val y = if x.length == 1 then None else Some(Name(x.tail))
+                      Tm.Hole(p, y)
+                    case x => Tm.Var(p, Name(x))
+                case n =>
+                  n.toIntOption match
+                    case Some(n) => Tm.IntLit(p, n)
+                    case None    => err(s"invalid number literal: $n")
+            case pr => Tm.Prim(p, pr)
+        case s => Tm.StringLit(p, s)
 
     private def tryPrimitive(): Primitive | Null =
       val l = Primitives.length
@@ -292,6 +304,8 @@ object Parser:
             case REFL     => return Primitive.Refl
             case ELIMID   => return Primitive.ElimId
             case FIXIX    => return Primitive.FixIx
+            case LABEL    => return Primitive.Label
+            case CLASS    => return Primitive.Class
             case _        => return null
         i += 1
       }

@@ -368,6 +368,7 @@ object Unification:
           case Some(PS0(v)) => readback0(v)(using psub.dom, UnfoldOption.None)
       case V0.Global(m, x)     => Tm0.Global(m, x)
       case V0.IntLit(v)        => Tm0.IntLit(v)
+      case V0.StringLit(v)     => Tm0.StringLit(v)
       case V0.Let(x, ty, v, b) => Tm0.Let(x, go1(ty), go0(v), goClos(b))
       case V0.LetRec(x, ty, v, b) =>
         Tm0.LetRec(x, go1(ty), goClos(v), goClos(b))
@@ -478,6 +479,7 @@ object Unification:
       case V.Rigid(Head.Con1(m, dx, cx), sp) => goSp(Tm1.Con1(m, dx, cx), sp)
       case V.Rigid(Head.Con0(m, dx, cx), sp) => goSp(Tm1.Con0(m, dx, cx), sp)
       case v @ V.Rigid(Head.Prim(p), sp)     => goApx(v, Tm1.Prim(p), sp)
+      case V.LabelLit(v)                     => Tm1.LabelLit(v)
       case v @ V.Rigid(Head.TypeCon1(m, x), sp) =>
         goApx(v, Tm1.TypeCon1(m, x), sp)
       case v @ V.Rigid(Head.TypeCon0(m, x), sp) =>
@@ -563,6 +565,7 @@ object Unification:
       case (V0.Var(x), V0.Var(y)) if x == y                           => ()
       case (V0.Global(m1, x), V0.Global(m2, y)) if m1 == m2 && x == y => ()
       case (V0.IntLit(x), V0.IntLit(y)) if x == y                     => ()
+      case (V0.StringLit(x), V0.StringLit(y)) if x == y               => ()
       case (V0.Let(_, ty1, v1, b1), V0.Let(_, ty2, v2, b2)) =>
         unify1(ty1, ty2); unify0(v1, v2); goClos(b1, b2)
       case (V0.LetRec(_, ty1, v1, b1), V0.LetRec(_, ty2, v2, b2)) =>
@@ -721,6 +724,7 @@ object Unification:
     (forceMetas1(a), forceMetas1(b)) match
       case (V.Rigid(x, sp1), V.Rigid(y, sp2)) if x == y =>
         unify1(a, sp1, b, sp2)
+      case (V.LabelLit(x), V.LabelLit(y)) if x == y => ()
 
       case (V.Lift(cv1, ty1), V.Lift(cv2, ty2)) =>
         unify1(cv1, cv2); unify1(ty1, ty2)

@@ -136,8 +136,9 @@ object Simplification:
       // other simplifications
       case (_, tm) =>
         tm match
-          case Tm.BoolLit(v) => tm
-          case Tm.IntLit(v)  => tm
+          case Tm.BoolLit(v)   => tm
+          case Tm.IntLit(v)    => tm
+          case Tm.StringLit(v) => tm
 
           case Tm.Global(_, _, _) => apply(tm, args)
 
@@ -336,6 +337,7 @@ object Simplification:
     case Tm.Prim(_)                      => true
     case Tm.BoolLit(_)                   => true
     case Tm.IntLit(_)                    => true
+    case Tm.StringLit(_)                 => true
     case Tm.CRecord(Nil)                 => true
     case Tm.Con(_, _, _, _, _, Nil)      => true
     case Tm.Record(_, Nil)               => true
@@ -383,6 +385,7 @@ object Simplification:
       case Tm.Prim(_)         => (t, Map.empty)
       case Tm.BoolLit(_)      => (t, Map.empty)
       case Tm.IntLit(_)       => (t, Map.empty)
+      case Tm.StringLit(_)    => (t, Map.empty)
 
       case Tm.CRecord(fs) =>
         val (cfs, usages) = fold(fs)
