@@ -132,48 +132,54 @@ object Lexer:
     case CLASS
     case UNSAFE
     case UNSAFEIO
+    case ARRAY
+    case VOID
+    case UNSAFERUNIO
 
     def pretty: String =
       this match
-        case MODULE   => "module"
-        case IMPORT   => "import"
-        case DEF      => "def"
-        case DECLARE  => "declare"
-        case DATA     => "data"
-        case PUB      => "pub"
-        case PRIV     => "priv"
-        case LET      => "let"
-        case REC      => "rec"
-        case IF       => "if"
-        case THEN     => "then"
-        case ELSE     => "else"
-        case MATCH    => "match"
-        case DEFAULT  => "default"
-        case AUTO     => "auto"
-        case META     => "meta"
-        case TYPE     => "type"
-        case CV       => "cv"
-        case VAL      => "val"
-        case COMP     => "comp"
-        case BOOL     => "Bool"
-        case TRUE     => "True"
-        case FALSE    => "False"
-        case INT      => "Int"
-        case LT       => "lt"
-        case ADD      => "add"
-        case SUB      => "sub"
-        case MUL      => "mul"
-        case IO       => "IO"
-        case RETURNIO => "returnIO"
-        case BINDIO   => "bindIO"
-        case ID       => "Id"
-        case REFL     => "refl"
-        case ELIMID   => "elimId"
-        case FIXIX    => "fixIx"
-        case LABEL    => "label"
-        case CLASS    => "class"
-        case UNSAFE   => "unsafe"
-        case UNSAFEIO => "unsafeIO"
+        case MODULE      => "module"
+        case IMPORT      => "import"
+        case DEF         => "def"
+        case DECLARE     => "declare"
+        case DATA        => "data"
+        case PUB         => "pub"
+        case PRIV        => "priv"
+        case LET         => "let"
+        case REC         => "rec"
+        case IF          => "if"
+        case THEN        => "then"
+        case ELSE        => "else"
+        case MATCH       => "match"
+        case DEFAULT     => "default"
+        case AUTO        => "auto"
+        case META        => "meta"
+        case TYPE        => "type"
+        case CV          => "cv"
+        case VAL         => "val"
+        case COMP        => "comp"
+        case BOOL        => "Bool"
+        case TRUE        => "True"
+        case FALSE       => "False"
+        case INT         => "Int"
+        case LT          => "lt"
+        case ADD         => "add"
+        case SUB         => "sub"
+        case MUL         => "mul"
+        case IO          => "IO"
+        case RETURNIO    => "returnIO"
+        case BINDIO      => "bindIO"
+        case ID          => "Id"
+        case REFL        => "refl"
+        case ELIMID      => "elimId"
+        case FIXIX       => "fixIx"
+        case LABEL       => "label"
+        case CLASS       => "class"
+        case UNSAFE      => "unsafe"
+        case UNSAFEIO    => "unsafeIO"
+        case ARRAY       => "Array"
+        case VOID        => "Void"
+        case UNSAFERUNIO => "unsafeRunIO"
 
   object Keyword:
     val Primitives: Array[Keyword] = Array(
@@ -198,51 +204,57 @@ object Lexer:
       ELIMID,
       FIXIX,
       LABEL,
-      CLASS
+      CLASS,
+      ARRAY,
+      VOID,
+      UNSAFERUNIO
     )
 
     def parse(keyword: String): Keyword | Null =
       keyword match
-        case "module"   => MODULE
-        case "import"   => IMPORT
-        case "def"      => DEF
-        case "declare"  => DECLARE
-        case "data"     => DATA
-        case "pub"      => PUB
-        case "priv"     => PRIV
-        case "let"      => LET
-        case "rec"      => REC
-        case "if"       => IF
-        case "then"     => THEN
-        case "else"     => ELSE
-        case "match"    => MATCH
-        case "default"  => DEFAULT
-        case "auto"     => AUTO
-        case "meta"     => META
-        case "type"     => TYPE
-        case "cv"       => CV
-        case "val"      => VAL
-        case "comp"     => COMP
-        case "Bool"     => BOOL
-        case "True"     => TRUE
-        case "False"    => FALSE
-        case "Int"      => INT
-        case "lt"       => LT
-        case "add"      => ADD
-        case "sub"      => SUB
-        case "mul"      => MUL
-        case "IO"       => IO
-        case "returnIO" => RETURNIO
-        case "bindIO"   => BINDIO
-        case "Id"       => ID
-        case "refl"     => REFL
-        case "elimId"   => ELIMID
-        case "fixIx"    => FIXIX
-        case "label"    => LABEL
-        case "class"    => CLASS
-        case "unsafe"   => UNSAFE
-        case "unsafeIO" => UNSAFEIO
-        case _          => null
+        case "module"      => MODULE
+        case "import"      => IMPORT
+        case "def"         => DEF
+        case "declare"     => DECLARE
+        case "data"        => DATA
+        case "pub"         => PUB
+        case "priv"        => PRIV
+        case "let"         => LET
+        case "rec"         => REC
+        case "if"          => IF
+        case "then"        => THEN
+        case "else"        => ELSE
+        case "match"       => MATCH
+        case "default"     => DEFAULT
+        case "auto"        => AUTO
+        case "meta"        => META
+        case "type"        => TYPE
+        case "cv"          => CV
+        case "val"         => VAL
+        case "comp"        => COMP
+        case "Bool"        => BOOL
+        case "True"        => TRUE
+        case "False"       => FALSE
+        case "Int"         => INT
+        case "lt"          => LT
+        case "add"         => ADD
+        case "sub"         => SUB
+        case "mul"         => MUL
+        case "IO"          => IO
+        case "returnIO"    => RETURNIO
+        case "bindIO"      => BINDIO
+        case "Id"          => ID
+        case "refl"        => REFL
+        case "elimId"      => ELIMID
+        case "fixIx"       => FIXIX
+        case "label"       => LABEL
+        case "class"       => CLASS
+        case "unsafe"      => UNSAFE
+        case "unsafeIO"    => UNSAFEIO
+        case "Array"       => ARRAY
+        case "Void"        => VOID
+        case "unsafeRunIO" => UNSAFERUNIO
+        case _             => null
 
   enum Token:
     case EOF(_pos: PosInfo)

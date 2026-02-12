@@ -2,19 +2,23 @@ import Common.*
 
 object IR:
   enum VTy derives CanEqual:
+    case Void
     case Bool
     case Int
     case Data(mod: Name, name: Name, args: List[VTy])
     case Record(fields: AssocBind[VTy])
     case Class(fullyQualifiedName: String)
+    case Array(ty: VTy)
 
     override def toString: String = this match
+      case Void             => "Void"
       case Bool             => "Bool"
       case Int              => "Int"
       case Data(m, x, Nil)  => s"$m.$x"
       case Data(m, x, args) => s"($m.$x ${args.mkString(" ")})"
       case Record(fs) => fs.map((x, t) => s"$x : $t").mkString("[", ", ", "]")
       case Class(x)   => s"$x"
+      case Array(ty)  => s"(Array $ty)"
 
   object VTy:
     val String = VTy.Class("java.lang.String")

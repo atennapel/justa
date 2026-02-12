@@ -1,6 +1,6 @@
 module testing.IOTest
 
-import Prelude (vtype, (+))
+import Prelude (vtype, Unit, Str, (+), arrayLength, arrayGet, arraySet, mainJVM)
 import IOUtil (return, bind, seq, map)
 
 def doStuff := return 42
@@ -10,14 +10,27 @@ def ioTest1 : IO Int :=
   bind doStuff \y =>
   return (x + y)
 
-def Str = class "java.lang.String"
-
 def strtest (x : Str) := x
 
 def str := "abcdefg"
 
-def println (msg : Str) : IO [] :=
+def println (msg : Str) : IO Unit :=
   let out : class "java.io.PrintStream" :=
     unsafe "getstatic:java.lang.System.out";
-  let res : [] = [];
-  unsafeIO "invokevirtualvoid:println" out res msg
+  let action : Void = unsafe "invokevirtual:println" out msg;
+  unsafeIO "void" action []
+
+-- arrays
+def arrayTest (a : Array Int) :=
+  bind (arrayGet a 0) \x =>
+  seq (arraySet a 0 (x + 1))
+    (arrayLength a)
+
+-- main method
+def mainJusta (args : Array Str) : IO Unit =
+  println "Hello, world!"
+
+pub def main := mainJVM mainJusta
+
+pub def main2 := mainJVM \args =>
+  println "Hello, world!"

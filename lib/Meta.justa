@@ -1,8 +1,8 @@
 module Meta
 
-pub data VoidM : meta
+pub data NeverM : meta
 
-pub def absurdM {A} (v : VoidM) : A = match v {}
+pub def absurdM {A} (v : NeverM) : A = match v {}
 
 pub data UnitM = UM
 

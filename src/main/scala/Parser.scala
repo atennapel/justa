@@ -284,29 +284,32 @@ object Parser:
         val p = Primitives(i)
         if tryKeyword(p) then
           p match
-            case META     => return Primitive.Meta
-            case TYPE     => return Primitive.Type
-            case CV       => return Primitive.CV
-            case VAL      => return Primitive.Val
-            case COMP     => return Primitive.Comp
-            case BOOL     => return Primitive.Bool
-            case TRUE     => return Primitive.True
-            case FALSE    => return Primitive.False
-            case INT      => return Primitive.Int
-            case LT       => return Primitive.Lt
-            case ADD      => return Primitive.Add
-            case SUB      => return Primitive.Sub
-            case MUL      => return Primitive.Mul
-            case IO       => return Primitive.IO
-            case RETURNIO => return Primitive.ReturnIO
-            case BINDIO   => return Primitive.BindIO
-            case ID       => return Primitive.Id
-            case REFL     => return Primitive.Refl
-            case ELIMID   => return Primitive.ElimId
-            case FIXIX    => return Primitive.FixIx
-            case LABEL    => return Primitive.Label
-            case CLASS    => return Primitive.Class
-            case _        => return null
+            case META        => return Primitive.Meta
+            case TYPE        => return Primitive.Type
+            case CV          => return Primitive.CV
+            case VAL         => return Primitive.Val
+            case COMP        => return Primitive.Comp
+            case BOOL        => return Primitive.Bool
+            case TRUE        => return Primitive.True
+            case FALSE       => return Primitive.False
+            case INT         => return Primitive.Int
+            case LT          => return Primitive.Lt
+            case ADD         => return Primitive.Add
+            case SUB         => return Primitive.Sub
+            case MUL         => return Primitive.Mul
+            case IO          => return Primitive.IO
+            case RETURNIO    => return Primitive.ReturnIO
+            case BINDIO      => return Primitive.BindIO
+            case ID          => return Primitive.Id
+            case REFL        => return Primitive.Refl
+            case ELIMID      => return Primitive.ElimId
+            case FIXIX       => return Primitive.FixIx
+            case LABEL       => return Primitive.Label
+            case CLASS       => return Primitive.Class
+            case ARRAY       => return Primitive.Array
+            case VOID        => return Primitive.Void
+            case UNSAFERUNIO => return Primitive.UnsafeRunIO
+            case _           => return null
         i += 1
       }
       null

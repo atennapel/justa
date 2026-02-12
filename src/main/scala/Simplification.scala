@@ -201,12 +201,8 @@ object Simplification:
             )
 
           case Tm.Unsafe(rt, io, l, args) =>
-            Tm.Unsafe(
-              rt,
-              io,
-              l,
-              args.map((tm, ty) => (go(CTy(ty), tm, Nil), ty))
-            )
+            val eargs = args.map((tm, ty) => (go(CTy(ty), tm, Nil), ty))
+            Tm.Unsafe(rt, io, l, eargs)
 
           case Tm.Select(rty, sty, Tm.If(_, c, t, f), i) =>
             go(
@@ -267,8 +263,8 @@ object Simplification:
 
           case Tm.Let(_, u, _, _, b) if u == 0 => go(ty, b, args)
           case Tm.Let(x, u, vty, v0, b) if u == 1 || isSmall(v0) =>
-            // val v = go(vty, v0, Nil)
-            go(ty, b, args)(using ctx.assign(x, v0))
+            val v = go(vty, v0, Nil)
+            go(ty, b, args)(using ctx.assign(x, v))
           case Tm.Let(x, _, vty, v0, b0) =>
             val v = go(vty, v0, Nil)
             val (y, b) = ctx.enter(x, vty, ctx ?=> go(ty, b0, args))

@@ -6,16 +6,20 @@ object JVM:
   val RecordConName = Name("Mk")
 
   enum Ty derives CanEqual:
+    case Void
     case Bool
     case Int
     case Data(mod: Name, name: Name)
     case Class(fullyQualifiedName: String)
+    case Array(ty: Ty)
 
     override def toString: String = this match
+      case Void       => "Void"
       case Bool       => "Bool"
       case Int        => "Int"
       case Data(m, x) => s"$m.$x"
       case Class(x)   => s"$x"
+      case Array(ty)  => s"(Array $ty)"
 
   final case class Module(name: Name, defs: Defs):
     override def toString: String = s"module $name\n$defs"

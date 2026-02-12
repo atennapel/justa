@@ -640,9 +640,11 @@ object Lifting:
 
   private def goVTy(t: VTy): JVM.Ty =
     t match
+      case VTy.Void             => JVM.Ty.Void
       case VTy.Bool             => JVM.Ty.Bool
       case VTy.Int              => JVM.Ty.Int
       case VTy.Class(x)         => JVM.Ty.Class(x)
+      case VTy.Array(ty)        => JVM.Ty.Array(goVTy(ty))
       case VTy.Data(m, x, args) => monomorphize(m, x, args)
       case VTy.Record(fs)       => monomorphizeRec(fs)
 
@@ -721,9 +723,11 @@ object Lifting:
 
   private def createName(name: Name, ps: List[IR.VTy]): Name =
     def paramStr(p: IR.VTy): String = p match
+      case VTy.Void            => "Void"
       case VTy.Bool            => "Bool"
       case VTy.Int             => "Int"
       case VTy.Class(x)        => x.replace(".", "_")
+      case VTy.Array(ty)       => s"Array_${paramStr(ty)}"
       case VTy.Data(m, x, Nil) => s"$m$$$x"
       case VTy.Data(m, x, args) =>
         s"$m$$${x}_${args.map(paramStr).mkString("_")}"

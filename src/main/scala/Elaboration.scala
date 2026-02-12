@@ -1169,7 +1169,15 @@ object Elaboration:
           )
       ),
     Primitive.Label -> V.Meta,
-    Primitive.Class -> V.fun1(V.Label, V.TypeV)
+    Primitive.Class -> V.fun1(V.Label, V.TypeV),
+    Primitive.Array -> V.fun1(V.TypeV, V.TypeV),
+    Primitive.Void -> V.TypeV,
+    // {A : type val} -> ^(IO A) -> ^A
+    Primitive.UnsafeRunIO -> V.piI(
+      "A",
+      V.TypeV,
+      a => V.fun1(V.liftC(V.IO(a)), V.liftV(a))
+    )
   )
 
   private inline def inferPrimType(p: Primitive): VTy = primTypes(p)

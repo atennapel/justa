@@ -24,8 +24,6 @@ https://github.com/AndrasKovacs/cctt
 - [x] Mutual recursion
 - [x] JVM bytecode generation
 - [x] JVM classes and IO access
-- [ ] JVM arrays
-- [ ] JVM main method
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
 - [ ] Null handling
@@ -36,6 +34,12 @@ https://github.com/AndrasKovacs/cctt
 - [x] Check postponing
 - [x] Computational records in elaboration
 - [x] Remove unused and de-duplicate synthetic definitions
+- [x] JVM array type
+- [x] JVM main method helper
+- [x] unsafeRunIO
+- [ ] JVM invoke static
+- [ ] Optimize IO Unit functions
+- [ ] Array creation helpers
 - [ ] Primitive names should not be keyword, e.g. module name could be a primitive name such as IO
 - [ ] De-duplicate generated datatypes between modules
 - [ ] Generate private anonymous records if possible

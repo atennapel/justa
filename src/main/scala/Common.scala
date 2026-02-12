@@ -175,30 +175,36 @@ object Common:
 
     case Label
     case Class
+    case Array
+    case Void
+    case UnsafeRunIO
 
     override def toString: String = this match
-      case Meta     => "meta"
-      case Type     => "type"
-      case CV       => "cv"
-      case Comp     => "comp"
-      case Val      => "val"
-      case Bool     => "Bool"
-      case True     => "True"
-      case False    => "False"
-      case Int      => "Int"
-      case Lt       => "lt"
-      case Add      => "add"
-      case Sub      => "sub"
-      case Mul      => "mul"
-      case IO       => "IO"
-      case ReturnIO => "returnIO"
-      case BindIO   => "bindIO"
-      case Id       => "Id"
-      case Refl     => "refl"
-      case ElimId   => "elimId"
-      case FixIx    => "fixIx"
-      case Label    => "label"
-      case Class    => "class"
+      case Meta        => "meta"
+      case Type        => "type"
+      case CV          => "cv"
+      case Comp        => "comp"
+      case Val         => "val"
+      case Bool        => "Bool"
+      case True        => "True"
+      case False       => "False"
+      case Int         => "Int"
+      case Lt          => "lt"
+      case Add         => "add"
+      case Sub         => "sub"
+      case Mul         => "mul"
+      case IO          => "IO"
+      case ReturnIO    => "returnIO"
+      case BindIO      => "bindIO"
+      case Id          => "Id"
+      case Refl        => "refl"
+      case ElimId      => "elimId"
+      case FixIx       => "fixIx"
+      case Label       => "label"
+      case Class       => "class"
+      case Array       => "Array"
+      case Void        => "Void"
+      case UnsafeRunIO => "unsafeRunIO"
 
   enum RuntimePrimitive derives CanEqual:
     case Lt

@@ -240,6 +240,10 @@ object Unstaging:
                 val x = supply.next()
                 val b = IR.Tm.App(ek._1, IR.Tm.Local(x, CTy(ety)), ety)
                 (IR.Tm.BindIO(x, -1, ety, ev._1, b), ek._2.retty)
+              case (Tm1.Prim(Primitive.UnsafeRunIO), List(ty, v)) =>
+                val ety = goTy(ty._1)
+                val (ev, _) = stgo(v._1)
+                (IR.Tm.Unsafe(ety, false, "runio", List((ev, ety))), CTy(ety))
               case _ => impossible()
   // types
   private def goCTy(ty: Tm1, env: Env = Env.Empty): CTy =
@@ -260,14 +264,17 @@ object Unstaging:
 
   private def goVTy(ty: V, menv: State.MonoEnv = Map.empty): VTy =
     forceAll1(ty) match
+      case V.Void => VTy.Void
       case V.Bool => VTy.Bool
       case V.Int  => VTy.Int
       case V.TypeCon0(m, x, args) =>
         VTy.Data(m, x, args.map((a, _) => goVTy(a, menv)))
-      case V.Var(lvl)         => menv(lvl)
-      case V.RecordTy0(_, fs) => VTy.Record(fs.map((x, t) => (x, goVTy(t))))
+      case V.Var(lvl) => menv(lvl)
+      case V.RecordTy0(_, fs) =>
+        VTy.Record(fs.map((x, t) => (x, goVTy(t, menv))))
       case V.Class(x) =>
         forceAll1(x) match
           case V.LabelLit(c) => VTy.Class(c)
           case _             => impossible()
-      case _ => impossible()
+      case V.Array(ty) => VTy.Array(goVTy(ty, menv))
+      case _           => impossible()

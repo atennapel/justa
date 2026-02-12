@@ -580,12 +580,24 @@ object Core:
           Some(l)
         case _ => None
 
+    object Array:
+      def apply(ty: Val1): Val1 =
+        Rigid(Head.Prim(Primitive.Array), Spine.App(Spine.Empty, ty, Expl))
+      def unapply(value: Val1): Option[Val1] = value match
+        case Rigid(
+              Head.Prim(Primitive.Array),
+              Spine.App(Spine.Empty, ty, Expl)
+            ) =>
+          Some(ty)
+        case _ => None
+
     val Meta = Prim(Primitive.Meta)
     val CV = Prim(Primitive.CV)
     val Val = Prim(Primitive.Val)
     val Comp = Prim(Primitive.Comp)
     val Bool = Prim(Primitive.Bool)
     val Int = Prim(Primitive.Int)
+    val Void = Prim(Primitive.Void)
     val Label = Prim(Primitive.Label)
     val String = Class(LabelLit("java.lang.String"))
 

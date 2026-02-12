@@ -1,6 +1,6 @@
 module MetaId
 
-import Meta (VoidM, absurdM, UnitM, UM, BoolM, TrueM, FalseM, notM, NatM, ZM, SM, predM)
+import Meta (NeverM, absurdM, UnitM, UM, BoolM, TrueM, FalseM, notM, NatM, ZM, SM, predM)
 import IdUtil ((~), (!~), rewrite, cong)
 
 pub def Singleton {A} (x : A) : meta = [value : A, proof : value ~ x]
@@ -14,7 +14,7 @@ pub def not_not_id {b : BoolM} : notM (notM b) ~ b =
 def LiftBool (b : BoolM) =
   match b
   | TrueM => UnitM
-  | FalseM => VoidM
+  | FalseM => NeverM
 
 pub def true_neq_false : TrueM !~ FalseM =
   \p => rewrite LiftBool p UM
@@ -24,7 +24,7 @@ pub def So b = b ~ TrueM
 def LiftNat (n : NatM) =
   match n
   | ZM => UnitM
-  | SM _ => VoidM
+  | SM _ => NeverM
 
 pub def z_neq_s {n} : ZM !~ SM n =
   \p => rewrite LiftNat p UM

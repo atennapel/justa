@@ -1,6 +1,6 @@
 module Push
 
-import Prelude (vtype, (&&), (||), (<), (+), (-), (*), Unit, U)
+import Prelude (vtype, (&&), (||), (<), (+), (-), (*), Unit)
 import IOUtil (return, seq)
 import List => L (List)
 
@@ -38,4 +38,4 @@ pub def range (n : Int) : Push Int =
     go n
 
 pub def foldIO_ {A : vtype} (f : A -> IO Unit) (as : Push A) : IO Unit =
-  foldr (return U) (\hd tl => seq (f hd) tl) as
+  foldr (return []) (\hd tl => seq (f hd) tl) as

@@ -1,10 +1,10 @@
 module IdUtil
 
-import Meta (VoidM)
+import Meta (NeverM)
 
 -- identity type
 pub def (~) {A} (x y : A) = Id x y
-pub def (!~) {A} (x y : A) = x ~ y -> VoidM
+pub def (!~) {A} (x y : A) = x ~ y -> NeverM
 
 pub def idJ {A} (P : {a b : A} -> a ~ b -> meta) (h : {a} -> P {a} refl) {a b : A} (p : a ~ b) : P p =
   elimId (\{c} q => P {a} {c} q) h p

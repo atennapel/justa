@@ -1,6 +1,6 @@
 module Pull
 
-import Prelude (vtype, (&&), (||), (<), (+), (-), (*), Unit, U)
+import Prelude (vtype, (&&), (||), (<), (+), (-), (*), Unit)
 import IOUtil (return, seq)
 import List => L (List)
 import Push (Push)

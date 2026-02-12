@@ -24,11 +24,12 @@ pub def factorial (n : Int) :=
     else go (n - 1) (acc * n);
   go n 1
 
-pub data Void : vtype
+pub data Never : vtype
 
-pub def absurd {k} {A : type k} (v : Void) : A = match v {}
+pub def absurd {k} {A : type k} (v : Never) : A = match v {}
 
-pub data Unit := U
+pub def Unit : vtype = []
+pub def U : Unit = []
 
 pub data Option A := None | Some (value : A)
 
@@ -43,7 +44,7 @@ pub data Monoid (A : vtype) : meta = MkMonoid (unit : A) (append : A -> A -> A)
 pub def unit {A} {auto m : Monoid A} : A = m.unit
 pub def append {A} {auto m : Monoid A} : A -> A -> A = m.append
 
-pub auto def MonoidUnit : Monoid Unit = MkMonoid U (\x y => U)
+pub auto def MonoidUnit : Monoid Unit = MkMonoid [] (\x y => [])
 
 pub def appendOption {A} {auto m : Monoid A} (a b : Option A) : Option A =
   match a
@@ -55,3 +56,21 @@ pub def appendOption {A} {auto m : Monoid A} (a b : Option A) : Option A =
 
 pub auto def MonoidOption {A} {auto m : Monoid A} : Monoid (Option A) =
   MkMonoid None appendOption
+
+-- strings
+pub def Str = class "java.lang.String"
+
+-- arrays
+pub def arrayLength {A} (arr : Array A) : IO Int =
+  unsafeIO "arraylength" arr
+
+pub def arrayGet {A} (arr : Array A) (ix : Int) : IO A =
+  unsafeIO "arrayload" arr ix
+
+pub def arraySet {A} (arr : Array A) (ix : Int) (value : A) : IO Unit =
+  let action : Void = unsafe "arraystore" arr ix value;
+  unsafeIO "void" action []
+
+-- JVM
+pub def mainJVM (action : Array Str -> IO Unit) : Array Str -> Void =
+  \args => unsafe "pop" (unsafeRunIO (action args))
