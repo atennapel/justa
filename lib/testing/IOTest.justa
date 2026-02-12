@@ -15,3 +15,9 @@ def Str = class "java.lang.String"
 def strtest (x : Str) := x
 
 def str := "abcdefg"
+
+def println (msg : Str) : IO [] :=
+  let out : class "java.io.PrintStream" :=
+    unsafe "getstatic:java.lang.System.out";
+  let res : [] = [];
+  unsafeIO "invokevirtualvoid:println" out res msg

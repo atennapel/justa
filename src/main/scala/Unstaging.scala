@@ -119,6 +119,15 @@ object Unstaging:
           case CTy.Val(vty) => (Tm.Record(vty, fs.map(f => go(f)._1)), CTy(vty))
           case _            => impossible()
 
+      case Tm0.Unsafe(rt, io, l, args) =>
+        val el = forceAll1(eval1(l)(using venv)) match
+          case V.LabelLit(v) => v
+          case _             => impossible()
+        val ty = goTy(rt)
+        val eargs = args.map(go).map((tm, ty) => (tm, ty.vty))
+        val rty = if io then CTy.IO(ty) else CTy(ty)
+        (Tm.Unsafe(ty, io, el, eargs), rty)
+
       case Tm0.Case(rty, dty, s, cs) =>
         def goCases(cs: Core.Cases0): Cases =
           cs match

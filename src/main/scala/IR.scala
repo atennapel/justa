@@ -114,6 +114,8 @@ object IR:
     case CRecord(fields: List[Tm])
     case CSelect(scrut: Tm, i: Int)
 
+    case Unsafe(rty: VTy, io: Boolean, label: String, args: List[(Tm, VTy)])
+
     override def toString: String = this match
       case Local(ix, _)             => s"'$ix"
       case Global(m, x, _)          => s"$m.$x"
@@ -137,6 +139,9 @@ object IR:
       case BindIO(x, _, ty, v, b)     => s"(bindIO '$x : $ty = $v; $b)"
       case CRecord(fs)                => fs.mkString("[", ", ", "]")
       case CSelect(s, i)              => s"$s.$i"
+      case Unsafe(_, io, l, Nil) => s"(unsafe${if io then "IO" else ""} $l)"
+      case Unsafe(_, io, l, args) =>
+        s"(unsafe${if io then "IO" else ""} $l ${args.map(_._1).mkString(" ")})"
 
     def flattenApps: (Tm, List[Tm]) = this match
       case App(f, a, _) =>

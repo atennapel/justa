@@ -202,6 +202,8 @@ object Surface:
     case RecordCon0(_pos: PosInfo, fields: Assoc[Tm])
     case Tuple(_pos: PosInfo, fields: List[Tm])
 
+    case Unsafe(_pos: PosInfo, io: Boolean, label: Tm, args: List[Tm])
+
     case Hole(_pos: PosInfo, name: Option[Name])
 
     def pos: PosInfo = this match
@@ -228,6 +230,7 @@ object Surface:
       case RecordCon1(_pos, _)       => _pos
       case RecordCon0(_pos, _)       => _pos
       case Tuple(_pos, _)            => _pos
+      case Unsafe(_pos, _, _, _)     => _pos
 
     def splitProjs: (Tm, List[(PosInfo, ProjType)]) = this match
       case Proj(pos, tm, proj) =>
@@ -281,4 +284,7 @@ object Surface:
         fs.map((x, t) => s"$x = $t").mkString("[", ", ", "]")
       case RecordCon0(_, fs) =>
         fs.map((x, t) => s"$x := $t").mkString("[", ", ", "]")
-      case Tuple(_, fs) => fs.mkString("[", ", ", "]")
+      case Tuple(_, fs)          => fs.mkString("[", ", ", "]")
+      case Unsafe(_, io, l, Nil) => s"(unsafe${if io then "IO" else ""} $l)"
+      case Unsafe(_, io, l, args) =>
+        s"(unsafe${if io then "IO" else ""} $l ${args.mkString(" ")})"

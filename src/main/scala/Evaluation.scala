@@ -193,8 +193,10 @@ object Evaluation:
         V0.Case(eval1(rty), eval1(dty), eval0(s), ClosCases0(cs))
       case Tm0.RecordCon(ty, fs) => Val0.RecordCon(eval1(ty), fs.map(eval0))
       case Tm0.Proj(rty, s, p)   => V0.Proj(eval1(rty), eval0(s), p)
-      case Tm0.Wk1(t)            => eval0(t)(using env.wk1)
-      case Tm0.Wk0(t)            => eval0(t)(using env.wk0)
+      case Tm0.Unsafe(rt, io, l, args) =>
+        V0.Unsafe(eval1(rt), io, eval1(l), args.map(eval0))
+      case Tm0.Wk1(t) => eval0(t)(using env.wk1)
+      case Tm0.Wk0(t) => eval0(t)(using env.wk0)
 
   def eval1(t: Tm1)(using env: Env): V1 =
     t match
@@ -483,6 +485,8 @@ object Evaluation:
       case V0.Splice(tm)        => go1(tm).splice
       case V0.Proj(rty, s, p)   => Tm0.Proj(go1(rty), go0(s), p)
       case V0.RecordCon(ty, fs) => Tm0.RecordCon(go1(ty), fs.map(t => go0(t)))
+      case V0.Unsafe(rt, io, l, args) =>
+        Tm0.Unsafe(go1(rt), io, go1(l), args.map(go0))
       case V0.Case(rty, dty, s, cs) =>
         def goCases(cs: Cases0)(using env: Env): Cases0 =
           cs match
@@ -630,6 +634,8 @@ object Evaluation:
         case V0.Splice(tm)          => go1(tm)
         case V0.Proj(rty, s, _)     => go1(rty); go0(s)
         case V0.RecordCon(ty, fs)   => go1(ty); fs.foreach(t => go0(t))
+        case V0.Unsafe(rt, io, l, args) =>
+          go1(rt); go1(l); args.foreach(t => go0(t))
         case V0.Case(rty, dty, s, cs) =>
           @tailrec
           def goCases(cs: Cases0)(using env: Env): Unit =

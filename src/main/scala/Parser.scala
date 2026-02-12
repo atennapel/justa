@@ -665,6 +665,8 @@ object Parser:
         Tm.If(p, c, t, f)
       else if tryKeyword(MATCH) then pmatch()
       else if trySymbol(BACKSLASH) then lam()
+      else if tryKeyword(UNSAFE) then unsafe(p, false)
+      else if tryKeyword(UNSAFEIO) then unsafe(p, true)
       else
         backtrack(tryPiParam()) match
           case null => apps()
@@ -676,6 +678,11 @@ object Parser:
             ps.foldRight(rt) { case ((i, xs, ty), rt) =>
               xs.foldRight(rt) { case ((p, x), rt) => Tm.Pi(p, x, i, ty, rt) }
             }
+
+    private def unsafe(p: PosInfo, io: Boolean): Tm =
+      val l = atom()
+      val args = list(tryAtom()).toList
+      Tm.Unsafe(p, io, l, args)
 
     private def tryDataConParam(): List[(Bind, PiIcit, Ty)] | Null =
       if trySymbol(L_BRACE) then

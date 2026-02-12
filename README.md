@@ -23,7 +23,9 @@ https://github.com/AndrasKovacs/cctt
 - [x] Mutual recursive datatypes
 - [x] Mutual recursion
 - [x] JVM bytecode generation
-- [ ] JVM classes and IO access
+- [x] JVM classes and IO access
+- [ ] JVM arrays
+- [ ] JVM main method
 - [ ] Datatype annotations and optimizations
 - [ ] Expanded representation polymorphism
 - [ ] Null handling

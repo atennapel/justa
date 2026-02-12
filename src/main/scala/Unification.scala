@@ -378,6 +378,8 @@ object Unification:
       case V0.Splice(v)         => go1(v).splice
       case V0.Proj(ty, s, p)    => Tm0.Proj(go1(ty), go0(s), p)
       case V0.RecordCon(ty, fs) => Tm0.RecordCon(go1(ty), fs.map(t => go0(t)))
+      case V0.Unsafe(rt, io, l, args) =>
+        Tm0.Unsafe(go1(rt), io, go1(l), args.map(t => go0(t)))
       case V0.Case(rty, dty, s, cs) =>
         def addParams(
             ps: List[(Bind, Ty)]
@@ -582,6 +584,10 @@ object Unification:
       case (V0.Case(rty1, dty1, s1, cases1), V0.Case(rty2, dty2, s2, cases2)) =>
         unify1(rty1, rty2); unify1(dty1, dty2); unify0(s1, s2)
         unify0(cases1, cases2, a, b)
+      case (V0.Unsafe(rt1, io1, l1, args1), V0.Unsafe(rt2, io2, l2, args2))
+          if io1 == io2 && args1.size == args2.size =>
+        unify1(rt1, rt2); unify1(l1, l2)
+        args1.zip(args2).foreach((a, b) => unify0(a, b))
       case _ => err(s"cannot unify ${readback0n(a)} ~ ${readback0n(b)}")
 
   private def flexFlex(m1: MetaId, sp1: Spine, m2: MetaId, sp2: Spine)(using

@@ -604,6 +604,11 @@ object Elaboration:
           val eb = check0(b, ty, cv)(using nctx)
           Tm0.Let(x, ety, ev, eb)
 
+        case tm @ S.Let1(_, _, _, _, _, _) =>
+          val mty = V.Lift(cv, ty)
+          val etm = check1(tm, mty)
+          Tm0.Splice(etm)
+
         case S.StringLit(_, v) =>
           unify(cv, V.Val)
           unify(ty, V.String)
@@ -694,6 +699,23 @@ object Elaboration:
                     )
               Tm0.RecordCon(ctx.readback1(ty), go(fs, ts))
             case _ => err(s"cannot check record against ${ctx.pretty1(ty)}")
+
+        case S.Unsafe(_, io, l, args) =>
+          val el = check1(l, V.Label)
+          val eargs = args.map { a =>
+            val (ea, _, acv) = infer0(a)
+            unify(acv, V.Val)
+            ea
+          }
+          val rty = if io then
+            unify(cv, V.Comp)
+            val m = ctx.eval1(freshMeta(V.TypeV))
+            unify(ty, V.IO(m))
+            m
+          else
+            unify(cv, V.Val)
+            ty
+          Tm0.Unsafe(ctx.readback1(rty), io, el, eargs)
 
         case tm =>
           infer(tm) match
@@ -1330,6 +1352,9 @@ object Elaboration:
 
         case S.Match(_, None, _, _)       => err("cannot infer lambda match")
         case S.Match(_, Some(s), sty, cs) => inferMatch(s, sty, cs)
+
+        case S.Unsafe(_, io, _, _) =>
+          err(s"cannot infer unsafe${if io then "IO" else ""}")
 
         case S.UnitLit(_)       => err("cannot infer unit")
         case S.EmptyRecord(_)   => err("cannot infer empty record")

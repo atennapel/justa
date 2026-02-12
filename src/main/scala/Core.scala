@@ -50,6 +50,8 @@ object Core:
     case RecordCon(ty: Ty, fields: List[Tm0])
     case Proj(rty: Ty, scrut: Tm0, p: ProjType)
 
+    case Unsafe(rty: Tm1, io: Boolean, label: Tm1, args: List[Tm0])
+
     case Wk1(tm: Tm0)
     case Wk0(tm: Tm0)
 
@@ -85,6 +87,9 @@ object Core:
       case Case(_, _, s, cs)           => s"(match $s { $cs })"
       case Proj(_, s, p)               => s"$s.$p"
       case RecordCon(_, fs)            => fs.mkString("[", ", ", "]")
+      case Unsafe(_, io, l, Nil) => s"(unsafe${if io then "IO" else ""} $l)"
+      case Unsafe(_, io, l, args) =>
+        s"(unsafe${if io then "IO" else ""} $l ${args.mkString(" ")})"
 
   object Tm0:
     def RecordConEmpty(cv: Ty) = RecordCon(Tm1.RecordTy0Empty(cv), Nil)
@@ -334,6 +339,7 @@ object Core:
     case Proj(rty: VTy, scrut: Val0, p: ProjType)
     case RecordCon(ty: VTy, fields: List[Val0])
     case Splice(tm: Val1)
+    case Unsafe(rty: Val1, io: Boolean, label: Val1, args: List[Val0])
 
   enum Head derives CanEqual:
     case Var(lvl: Lvl)

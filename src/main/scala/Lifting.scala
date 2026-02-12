@@ -291,6 +291,10 @@ object Lifting:
       case Tm.Select(_, dty, s, i) =>
         val (mdx, dx) = goData(dty)
         JVM.Tm.Select(mdx, dx, go(s, false), i)
+      case Tm.Unsafe(rt, io, l, args) =>
+        val ty = goVTy(rt)
+        val eargs = args.map((a, t) => (go(a, false), goVTy(t)))
+        JVM.Tm.Unsafe(ty, io, l, eargs)
 
       case tm @ Tm.App(_, _, _) =>
         val (hd, tl) = tm.flattenCompElims
@@ -539,6 +543,8 @@ object Lifting:
         args.map(free).foldLeft(Nil)(merge)
       case Tm.CRecord(args) =>
         args.map(free).foldLeft(Nil)(merge)
+      case Tm.Unsafe(_, _, _, args) =>
+        args.map((a, _) => free(a)).foldLeft(Nil)(merge)
 
       case Tm.Case(_, _, s, cs) =>
         def go(cs: Cases): List[(LocalName, CTy)] =
@@ -597,9 +603,11 @@ object Lifting:
         isUsedInTailOnly(x, tail, t) &&
         isUsedInTailOnly(x, tail, f)
       case Tm.Con(_, _, _, _, _, args) =>
-        args.forall((a, t) => isUsedInTailOnly(x, false, a))
+        args.forall((a, _) => isUsedInTailOnly(x, false, a))
       case Tm.Record(_, args) =>
         args.forall(isUsedInTailOnly(x, false, _))
+      case Tm.Unsafe(_, _, _, args) =>
+        args.forall((a, _) => isUsedInTailOnly(x, false, a))
 
       case Tm.Select(_, _, s, _) => isUsedInTailOnly(x, false, s)
 

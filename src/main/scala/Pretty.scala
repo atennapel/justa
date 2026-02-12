@@ -138,6 +138,10 @@ object Pretty:
     case Tm0.RecordCon(_, fs) => fs.map(pretty0).mkString("[", ", ", "]")
     case Tm0.Proj(_, s, p)    => s"${prettyParen0(s)}.$p"
 
+    case Tm0.Unsafe(_, io, l, Nil) => s"unsafe${if io then "IO" else ""} $l"
+    case Tm0.Unsafe(_, io, l, args) =>
+      s"unsafe${if io then "IO" else ""} $l ${args.mkString(" ")}"
+
     case Tm0.Case(_, _, s, Cases0.Empty) => s"match $s {}"
     case Tm0.Case(_, _, s, cs) =>
       def go(c: Cases0): String =

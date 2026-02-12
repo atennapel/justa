@@ -200,6 +200,14 @@ object Simplification:
               go(rty, f, args)
             )
 
+          case Tm.Unsafe(rt, io, l, args) =>
+            Tm.Unsafe(
+              rt,
+              io,
+              l,
+              args.map((tm, ty) => (go(CTy(ty), tm, Nil), ty))
+            )
+
           case Tm.Select(rty, sty, Tm.If(_, c, t, f), i) =>
             go(
               ty,
@@ -417,6 +425,9 @@ object Simplification:
       case Tm.Con(m, dx, cx, ix, dty, args) =>
         val (cargs, usages) = fold(args.map(_._1))
         (Tm.Con(m, dx, cx, ix, dty, cargs.zip(args.map(_._2))), usages)
+      case Tm.Unsafe(rt, io, l, args) =>
+        val (cargs, usages) = fold(args.map(_._1))
+        (Tm.Unsafe(rt, io, l, cargs.zip(args.map(_._2))), usages)
 
       case Tm.Record(ty, args) =>
         val (cargs, usages) = fold(args)

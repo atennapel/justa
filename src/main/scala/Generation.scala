@@ -20,6 +20,9 @@ import java.lang.classfile.ClassHierarchyResolver.ClassHierarchyInfo
 object Generation:
   private val Arity0InstanceName = "INSTANCE"
 
+  final class GenerationError(msg: String) extends Exception(msg)
+  private inline def err(msg: String): Nothing = throw new GenerationError(msg)
+
   private final case class ModuleCtx(
       jname: String,
       desc: ClassDesc,
@@ -572,6 +575,45 @@ object Generation:
         val endLabel = codeBuilder.newLabel()
         gen(m, dx, endLabel, cs)
         codeBuilder.labelBinding(endLabel)
+
+      case Tm.Unsafe(rt, io, l, args) =>
+        val (op, rest) =
+          if l.contains(":") then
+            val spl = l.split("\\:")
+            (spl.head, spl.tail.mkString(":"))
+          else (l, "")
+        op match
+          case "getstatic" =>
+            if args.nonEmpty then
+              err(s"unsafe operation getstatic does not take arguments")
+            val spl = rest.split("\\.")
+            val c = spl.init.mkString(".")
+            val v = spl.last
+            codeBuilder.getstatic(ClassDesc.of(c), v, gen(rt)._2)
+          case "invokevirtual" =>
+            if args.isEmpty then
+              err("unsafe operation invokevirtual takes at least 1 argument")
+            val (i, ity) = args.head
+            val margsts = args.tail.map((_, ty) => gen(ty)._2)
+            val mtd = MethodTypeDesc.of(gen(rt)._2, margsts.asJava)
+            gen(i)
+            args.tail.map((t, _) => gen(t))
+            codeBuilder.invokevirtual(gen(ity)._2, rest, mtd)
+          case "invokevirtualvoid" =>
+            if args.size < 2 then
+              err(
+                "unsafe operation invokevirtualvoid takes at least 2 arguments"
+              )
+            val (i, ity) = args.head
+            val (r, _) = args(1)
+            val margsts = args.drop(2).map((_, ty) => gen(ty)._2)
+            val mtd = MethodTypeDesc.of(ConstantDescs.CD_void, margsts.asJava)
+            gen(i)
+            args.drop(2).map((t, _) => gen(t))
+            codeBuilder.invokevirtual(gen(ity)._2, rest, mtd)
+            gen(r)
+          case _ =>
+            err(s"invalid operation for unsafe${if io then "IO" else ""}: $op")
 
   private def gen(m: Name, dx: Name, endLabel: Label, cs: Cases)(using
       ctx: Ctx,

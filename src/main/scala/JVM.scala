@@ -139,6 +139,8 @@ object JVM:
     case Case(mod: Name, dty: Name, scrut: Tm, cases: Cases)
     case Select(mod: Name, dty: Name, scrut: Tm, ix: Int)
 
+    case Unsafe(rty: Ty, io: Boolean, label: String, args: List[(Tm, Ty)])
+
     override def toString: String = this match
       case Local(ix, _)          => s"'$ix"
       case Global(m, x)          => s"$m.$x"
@@ -164,6 +166,9 @@ object JVM:
       case Case(_, _, s, Cases.Empty) => s"(match $s)"
       case Case(_, _, s, cs)          => s"(match $s { $cs })"
       case Select(_, _, s, i)         => s"$s.$i"
+      case Unsafe(_, io, l, Nil) => s"(unsafe${if io then "IO" else ""} $l)"
+      case Unsafe(_, io, l, args) =>
+        s"(unsafe${if io then "IO" else ""} $l ${args.map(_._1).mkString(" ")})"
 
     def globals(res: mutable.Set[(Name, Name)]): Unit =
       this match
@@ -190,8 +195,9 @@ object JVM:
         case If(c, t, f)     => c.globals(res); t.globals(res); f.globals(res)
         case Join(bs, b) =>
           bs.foreach((_, _, v) => v.globals(res)); b.globals(res)
-        case Jump(_, args)      => args.foreach(_.globals(res))
-        case Select(_, _, s, _) => s.globals(res)
+        case Jump(_, args)         => args.foreach(_.globals(res))
+        case Select(_, _, s, _)    => s.globals(res)
+        case Unsafe(_, _, _, args) => args.foreach((t, _) => t.globals(res))
 
   object Tm:
     val True = BoolLit(true)

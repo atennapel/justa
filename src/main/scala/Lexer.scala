@@ -130,6 +130,8 @@ object Lexer:
     case FIXIX
     case LABEL
     case CLASS
+    case UNSAFE
+    case UNSAFEIO
 
     def pretty: String =
       this match
@@ -170,6 +172,8 @@ object Lexer:
         case FIXIX    => "fixIx"
         case LABEL    => "label"
         case CLASS    => "class"
+        case UNSAFE   => "unsafe"
+        case UNSAFEIO => "unsafeIO"
 
   object Keyword:
     val Primitives: Array[Keyword] = Array(
@@ -236,6 +240,8 @@ object Lexer:
         case "fixIx"    => FIXIX
         case "label"    => LABEL
         case "class"    => CLASS
+        case "unsafe"   => UNSAFE
+        case "unsafeIO" => UNSAFEIO
         case _          => null
 
   enum Token:
