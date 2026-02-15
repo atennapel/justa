@@ -1,0 +1,5 @@
+module testing.VariableTest
+
+--variable {k : cv}
+
+--def id {A : type k} (x : A) = x

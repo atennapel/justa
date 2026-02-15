@@ -144,6 +144,7 @@ object JVM:
     case Select(mod: Name, dty: Name, scrut: Tm, ix: Int)
 
     case Unsafe(rty: Ty, io: Boolean, label: String, args: List[(Tm, Ty)])
+    case UnsafeRunIO(tm: Tm)
 
     override def toString: String = this match
       case Local(ix, _)          => s"'$ix"
@@ -173,6 +174,7 @@ object JVM:
       case Unsafe(_, io, l, Nil) => s"(unsafe${if io then "IO" else ""} $l)"
       case Unsafe(_, io, l, args) =>
         s"(unsafe${if io then "IO" else ""} $l ${args.map(_._1).mkString(" ")})"
+      case UnsafeRunIO(tm) => s"(unsafeRunIO $tm)"
 
     def globals(res: mutable.Set[(Name, Name)]): Unit =
       this match
@@ -202,6 +204,7 @@ object JVM:
         case Jump(_, args)         => args.foreach(_.globals(res))
         case Select(_, _, s, _)    => s.globals(res)
         case Unsafe(_, _, _, args) => args.foreach((t, _) => t.globals(res))
+        case UnsafeRunIO(tm)       => tm.globals(res)
 
   object Tm:
     val True = BoolLit(true)

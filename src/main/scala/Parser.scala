@@ -140,6 +140,16 @@ object Parser:
     private def keyword(s: Keyword): Unit =
       consumeBool(s.pretty)(matchKeyword(s))
 
+    private inline def matchExactName(s: String)(token: Token): Boolean =
+      token match
+        case IDENT(s2, _) if s2 == s => true
+        case OP(s2, _) if s2 == s    => true
+        case _                       => false
+    private def tryExactName(s: String): Boolean =
+      tryConsumeBool(matchExactName(s))
+    private def exactName(s: String): Unit =
+      consumeBool(s)(matchExactName(s))
+
     // names and binds
     private def tryName(): Name | Null =
       tryIdent() match

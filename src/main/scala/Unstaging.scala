@@ -243,7 +243,7 @@ object Unstaging:
               case (Tm1.Prim(Primitive.UnsafeRunIO), List(ty, v)) =>
                 val ety = goTy(ty._1)
                 val (ev, _) = stgo(v._1)
-                (IR.Tm.Unsafe(ety, false, "runio", List((ev, ety))), CTy(ety))
+                (IR.Tm.UnsafeRunIO(ety, ev), CTy(ety))
               case _ => impossible()
   // types
   private def goCTy(ty: Tm1, env: Env = Env.Empty): CTy =

@@ -578,80 +578,14 @@ object Generation:
         gen(m, dx, endLabel, cs)
         codeBuilder.labelBinding(endLabel)
 
+      case Tm.UnsafeRunIO(tm) => gen(tm)
       case Tm.Unsafe(rt, io, l, args) =>
         val (op, rest) =
           if l.contains(":") then
             val spl = l.split("\\:")
             (spl.head, spl.tail.mkString(":"))
           else (l, "")
-        op match
-          case "pop" =>
-            if args.size != 1 then err(s"unsafe operation pop takes 1 argument")
-            gen(args.head._1)
-            codeBuilder.pop()
-          case "trustme" =>
-            if args.size != 1 then
-              err(s"unsafe operation trustme takes 1 argument")
-            gen(args.head._1)
-          case "void" =>
-            if args.size != 2 then
-              err(s"unsafe operation void takes 2 arguments")
-            val (action, _) = args(0)
-            val (ret, _) = args(1)
-            gen(action)
-            gen(ret)
-          case "runio" =>
-            if args.size != 1 then
-              err(s"unsafe operation runio takes 1 argument")
-            gen(args.head._1)
-
-          case "getstatic" =>
-            if args.nonEmpty then
-              err(s"unsafe operation getstatic does not take arguments")
-            val spl = rest.split("\\.")
-            val c = spl.init.mkString(".")
-            val v = spl.last
-            codeBuilder.getstatic(ClassDesc.of(c), v, gen(rt)._2)
-          case "invokevirtual" =>
-            if args.isEmpty then
-              err("unsafe operation invokevirtual takes at least 1 argument")
-            val (i, ity) = args.head
-            val margsts = args.tail.map((_, ty) => gen(ty)._2)
-            val mtd = MethodTypeDesc.of(gen(rt)._2, margsts.asJava)
-            gen(i)
-            args.tail.map((t, _) => gen(t))
-            codeBuilder.invokevirtual(gen(ity)._2, rest, mtd)
-
-          case "arraylength" =>
-            if args.size != 1 then
-              err(s"unsafe operation arraylength takes 1 argument")
-            gen(args.head._1)
-            codeBuilder.arraylength()
-          case "arraystore" =>
-            if args.size != 3 then
-              err(s"unsafe operation arraystore takes 3 arguments")
-            val (arr, _) = args(0)
-            val (ix, _) = args(1)
-            val (v, vty) = args(2)
-            val k = gen(vty)._1
-            gen(arr)
-            gen(ix)
-            gen(v)
-            codeBuilder.arrayStore(k)
-          case "arrayload" =>
-            if args.size != 2 then
-              err(s"unsafe operation arraystore takes 2 arguments")
-            val (arr, arrty) = args(0)
-            val (ix, _) = args(1)
-            val k = arrty match
-              case Ty.Array(ty) => gen(ty)._1
-              case _            => impossible()
-            gen(arr)
-            gen(ix)
-            codeBuilder.arrayLoad(k)
-
-          case _ =>
-            err(s"invalid operation for unsafe${if io then "IO" else ""}: $op")
+        handleUnsafe(rt, io, op, rest, args)
 
   private def gen(m: Name, dx: Name, endLabel: Label, cs: Cases)(using
       ctx: Ctx,
@@ -737,3 +671,78 @@ object Generation:
     debug(s"write class $path")
     Files.createDirectories(path.getParent())
     Files.write(path, bytes)
+
+  private def handleUnsafe(
+      rt: Ty,
+      io: Boolean,
+      op: String,
+      rest: String,
+      args: List[(Tm, Ty)]
+  )(using
+      ctx: Ctx,
+      codeBuilder: CodeBuilder,
+      env: Env,
+      classBuilder: ClassBuilder
+  ): Unit =
+    op match
+      case "pop" =>
+        if args.size != 1 then err(s"unsafe operation pop takes 1 argument")
+        gen(args.head._1)
+        codeBuilder.pop()
+      case "trustme" =>
+        if args.size != 1 then err(s"unsafe operation trustme takes 1 argument")
+        gen(args.head._1)
+      case "void" =>
+        if args.size != 2 then err(s"unsafe operation void takes 2 arguments")
+        val (action, _) = args(0)
+        val (ret, _) = args(1)
+        gen(action)
+        gen(ret)
+
+      case "getstatic" =>
+        if args.nonEmpty then
+          err(s"unsafe operation getstatic does not take arguments")
+        val spl = rest.split("\\.")
+        val c = spl.init.mkString(".")
+        val v = spl.last
+        codeBuilder.getstatic(ClassDesc.of(c), v, gen(rt)._2)
+      case "invokevirtual" =>
+        if args.isEmpty then
+          err("unsafe operation invokevirtual takes at least 1 argument")
+        val (i, ity) = args.head
+        val margsts = args.tail.map((_, ty) => gen(ty)._2)
+        val mtd = MethodTypeDesc.of(gen(rt)._2, margsts.asJava)
+        gen(i)
+        args.tail.map((t, _) => gen(t))
+        codeBuilder.invokevirtual(gen(ity)._2, rest, mtd)
+
+      case "arraylength" =>
+        if args.size != 1 then
+          err(s"unsafe operation arraylength takes 1 argument")
+        gen(args.head._1)
+        codeBuilder.arraylength()
+      case "arraystore" =>
+        if args.size != 3 then
+          err(s"unsafe operation arraystore takes 3 arguments")
+        val (arr, _) = args(0)
+        val (ix, _) = args(1)
+        val (v, vty) = args(2)
+        val k = gen(vty)._1
+        gen(arr)
+        gen(ix)
+        gen(v)
+        codeBuilder.arrayStore(k)
+      case "arrayload" =>
+        if args.size != 2 then
+          err(s"unsafe operation arraystore takes 2 arguments")
+        val (arr, arrty) = args(0)
+        val (ix, _) = args(1)
+        val k = arrty match
+          case Ty.Array(ty) => gen(ty)._1
+          case _            => impossible()
+        gen(arr)
+        gen(ix)
+        codeBuilder.arrayLoad(k)
+
+      case _ =>
+        err(s"invalid operation for unsafe${if io then "IO" else ""}: $op")

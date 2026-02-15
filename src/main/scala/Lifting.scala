@@ -295,6 +295,7 @@ object Lifting:
         val ty = goVTy(rt)
         val eargs = args.map((a, t) => (go(a, false), goVTy(t)))
         JVM.Tm.Unsafe(ty, io, l, eargs)
+      case Tm.UnsafeRunIO(_, tm) => JVM.Tm.UnsafeRunIO(go(tm, tail))
 
       case tm @ Tm.App(_, _, _) =>
         val (hd, tl) = tm.flattenCompElims
@@ -545,6 +546,7 @@ object Lifting:
         args.map(free).foldLeft(Nil)(merge)
       case Tm.Unsafe(_, _, _, args) =>
         args.map((a, _) => free(a)).foldLeft(Nil)(merge)
+      case Tm.UnsafeRunIO(_, tm) => free(tm)
 
       case Tm.Case(_, _, s, cs) =>
         def go(cs: Cases): List[(LocalName, CTy)] =
@@ -608,6 +610,7 @@ object Lifting:
         args.forall(isUsedInTailOnly(x, false, _))
       case Tm.Unsafe(_, _, _, args) =>
         args.forall((a, _) => isUsedInTailOnly(x, false, a))
+      case Tm.UnsafeRunIO(_, tm) => isUsedInTailOnly(x, tail, tm)
 
       case Tm.Select(_, _, s, _) => isUsedInTailOnly(x, false, s)
 

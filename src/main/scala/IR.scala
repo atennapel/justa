@@ -119,6 +119,7 @@ object IR:
     case CSelect(scrut: Tm, i: Int)
 
     case Unsafe(rty: VTy, io: Boolean, label: String, args: List[(Tm, VTy)])
+    case UnsafeRunIO(ty: VTy, tm: Tm)
 
     override def toString: String = this match
       case Local(ix, _)             => s"'$ix"
@@ -146,6 +147,7 @@ object IR:
       case Unsafe(_, io, l, Nil) => s"(unsafe${if io then "IO" else ""} $l)"
       case Unsafe(_, io, l, args) =>
         s"(unsafe${if io then "IO" else ""} $l ${args.map(_._1).mkString(" ")})"
+      case UnsafeRunIO(_, tm) => s"(unsafeRunIO $tm)"
 
     def flattenApps: (Tm, List[Tm]) = this match
       case App(f, a, _) =>

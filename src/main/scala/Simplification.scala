@@ -203,6 +203,8 @@ object Simplification:
           case Tm.Unsafe(rt, io, l, args) =>
             val eargs = args.map((tm, ty) => (go(CTy(ty), tm, Nil), ty))
             Tm.Unsafe(rt, io, l, eargs)
+          case Tm.UnsafeRunIO(rt, tm) =>
+            Tm.UnsafeRunIO(rt, go(CTy.IO(rt), tm, args))
 
           case Tm.Select(rty, sty, Tm.If(_, c, t, f), i) =>
             go(
@@ -261,8 +263,10 @@ object Simplification:
               args
             )
 
-          case Tm.Let(_, u, _, _, b) if u == 0 => go(ty, b, args)
-          case Tm.Let(x, u, vty, v0, b) if u == 1 || isSmall(v0) =>
+          case Tm.Let(_, u, _, v, b) if u == 0 && !doNotRemove(v) =>
+            go(ty, b, args)
+          case Tm.Let(x, u, vty, v0, b)
+              if (u == 1 || isSmall(v0)) && !doNotInline(v0) =>
             val v = go(vty, v0, Nil)
             go(ty, b, args)(using ctx.assign(x, v))
           case Tm.Let(x, _, vty, v0, b0) =>
@@ -270,7 +274,8 @@ object Simplification:
             val (y, b) = ctx.enter(x, vty, ctx ?=> go(ty, b0, args))
             Tm.Let(y, -1, vty, v, b)
 
-          case Tm.LetRec(_, u, _, _, b) if u == 0 => go(ty, b, args)
+          case Tm.LetRec(_, u, _, v, b) if u == 0 && !doNotRemove(v) =>
+            go(ty, b, args)
           case Tm.LetRec(x, _, vty, v0, b0) =>
             val (y, v) = ctx.enter(x, vty, ctx ?=> go(vty, v0, Nil))
             val (_, b) = ctx.enter(x, vty, ctx ?=> go(ty, b0, args))
@@ -348,6 +353,14 @@ object Simplification:
     case Tm.ReturnIO(_, v) if isSmall(v) => true
     case _                               => false
 
+  private def doNotInline(t: Tm): Boolean = t match
+    case Tm.UnsafeRunIO(_, _) => true
+    case _                    => false
+
+  private def doNotRemove(t: Tm): Boolean = t match
+    case Tm.UnsafeRunIO(_, _) => true
+    case _                    => false
+
   private def foldConstants2(p: RuntimePrimitive, a: Tm, b: Tm): Option[Tm] =
     import RuntimePrimitive.*
     (p, a, b) match
@@ -424,6 +437,9 @@ object Simplification:
       case Tm.Unsafe(rt, io, l, args) =>
         val (cargs, usages) = fold(args.map(_._1))
         (Tm.Unsafe(rt, io, l, cargs.zip(args.map(_._2))), usages)
+      case Tm.UnsafeRunIO(rt, tm) =>
+        val (etm, u) = correctUsagesRec(tm)
+        (Tm.UnsafeRunIO(rt, etm), u)
 
       case Tm.Record(ty, args) =>
         val (cargs, usages) = fold(args)
