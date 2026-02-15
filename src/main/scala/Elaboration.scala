@@ -1916,6 +1916,7 @@ object Elaboration:
           GlobalEntry.Def0(pub, x, ev, ty, cv, ctx.eval0(ev), vty, vcv)
         )
       case Surface.Def.Def1(_, pub, auto, x, mty, v) =>
+        given ctx: Ctx = State.getBaseCtx.enter(d.pos)
         if State.currentModuleHasName(x) || State.hasImport(x) then
           err(s"duplicate definition $x")
         val (ev, ty, vv, vty) = mty match
@@ -1927,6 +1928,7 @@ object Elaboration:
             val vty = ctx.eval1(ety)
             val ev = check1(v, vty)
             (ev, ety, ctx.eval1(ev), vty)
+        println(ev) // TODO: check for usage of vars
         if pub then checkAccessibility(vty)
         if auto then
           val (m, dx, _) = checkAutoDef(vty)
@@ -1966,6 +1968,15 @@ object Elaboration:
           if isMeta then Tm1.TypeCon1(State.currentModule, x)
           else Tm1.TypeCon0(State.currentModule, x)
         State.addGlobal(GlobalEntry.DeclaredData(x, tm, vty))
+      case Surface.Def.Variable(_, vs) =>
+        val (basectx, evs) =
+          vs.foldLeft[(Ctx, List[(Bind, PiIcit, Ty)])]((ctx, Nil)) {
+            case ((ctx, evs), (p, x, i, ty)) =>
+              val ety = check1(ty, V.Meta)(using ctx.enter(p))
+              val bx = DoBind(x)
+              (ctx.bind1(bx, ety, ctx.eval1(ety)), evs :+ ((bx, i, ety)))
+          }
+        State.addVars(basectx, evs)
 
   // returns true if meta, false if type
   private def checkDeclaredType(dx: Name, ty: VTy)(using ctx: Ctx): Boolean =
@@ -2184,7 +2195,7 @@ object Elaboration:
 
   private def elaborate(mod: Surface.Module): Unit =
     debug(s"elaborate module ${mod.name}")
-    State.enterModule(mod.name)
+    State.enterModule(mod.pos, mod.name)
     mod.moduleAliases.foreach((m, r) => State.addModuleRenaming(m, r))
     mod.imports.foreach { case (p1, p2, rex, m, x, r) =>
       val ctx = Ctx.empty(mod.pos)

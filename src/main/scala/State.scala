@@ -358,8 +358,19 @@ object State:
   def allGlobalsForModule(mod: Name = currentModule): List[GlobalEntry] =
     globals(mod).toList
 
-  def enterModule(mod: Name): Unit =
+  private var baseCtx: Ctx = null
+  private var vars: List[(Bind, PiIcit, Ty)] = Nil
+
+  def getBaseCtx: Ctx = baseCtx
+
+  def addVars(ctx: Ctx, newvars: List[(Bind, PiIcit, Ty)]): Unit =
+    baseCtx = ctx
+    vars = vars ++ newvars
+
+  def enterModule(pos: PosInfo, mod: Name): Unit =
     moduleCtx = Some(ModuleCtx(mod))
+    baseCtx = Ctx.empty(pos)
+    vars = Nil
     globals.get(mod) match
       case None => globals += (mod -> mutable.ArrayBuffer.empty[GlobalEntry])
       case _    => ()
