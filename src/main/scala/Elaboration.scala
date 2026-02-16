@@ -1919,16 +1919,18 @@ object Elaboration:
         given ctx: Ctx = State.getBaseCtx.enter(d.pos)
         if State.currentModuleHasName(x) || State.hasImport(x) then
           err(s"duplicate definition $x")
-        val (ev, ty, vv, vty) = mty match
+        val (ev0, ty0, vty0) = mty match
           case None =>
             val (ev, vty) = infer1(v)
-            (ev, ctx.readback1(vty), ctx.eval1(ev), vty)
+            (ev, ctx.readback1(vty), vty)
           case Some(sty) =>
             val ety = check1(sty, V.Meta)
             val vty = ctx.eval1(ety)
             val ev = check1(v, vty)
-            (ev, ety, ctx.eval1(ev), vty)
-        println(ev) // TODO: check for usage of vars
+            (ev, ety, vty)
+        val (ev, ty) = generalize(State.getVars, ev0, ctx.eval1(ev0), ty0, vty0)
+        val vv = ctx.eval1(ev)
+        val vty = ctx.eval1(ty)
         if pub then checkAccessibility(vty)
         if auto then
           val (m, dx, _) = checkAutoDef(vty)
@@ -1969,6 +1971,7 @@ object Elaboration:
           else Tm1.TypeCon0(State.currentModule, x)
         State.addGlobal(GlobalEntry.DeclaredData(x, tm, vty))
       case Surface.Def.Variable(_, vs) =>
+        given ctx: Ctx = State.getBaseCtx.enter(d.pos)
         val (basectx, evs) =
           vs.foldLeft[(Ctx, List[(Bind, PiIcit, Ty)])]((ctx, Nil)) {
             case ((ctx, evs), (p, x, i, ty)) =>
@@ -1977,6 +1980,42 @@ object Elaboration:
               (ctx.bind1(bx, ety, ctx.eval1(ety)), evs :+ ((bx, i, ety)))
           }
         State.addVars(basectx, evs)
+      case Surface.Def.VariableEnd(_) =>
+        if State.hasVars then State.endVars()
+        else err("there are no generalized variables to end")
+
+  private def generalize(
+      vars: List[(Bind, PiIcit, Ty)],
+      tm: Tm1,
+      v: V,
+      ty: Ty,
+      vty: VTy
+  ): (Tm1, Ty) =
+    @tailrec
+    def go(
+        lvl: Lvl,
+        rvars: List[(Bind, PiIcit, Ty)],
+        res: List[Boolean],
+        lvls: Set[Lvl]
+    ): List[Boolean] =
+      rvars match
+        case Nil => res
+        case hd :: tl =>
+          go(lvl - 1, tl, lvls.contains(lvl) :: res, lvls)
+    if vars.isEmpty then (tm, ty)
+    else
+      val slvl = mkLvl(vars.size)
+      val rvars = vars.reverse
+      val uty = go(slvl, rvars, Nil, allLocals(vty))
+      val utm = go(slvl, rvars, Nil, allLocals(v))
+      val u = uty.zip(utm).map(_ || _)
+      val ety = vars.zip(u).foldRight(ty) { case (((x, i, t), u), ty) =>
+        if u then Tm1.Pi(x, i, t, ty) else Tm1.Wk1(ty)
+      }
+      val etm = vars.zip(u).foldRight(tm) { case (((x, i, t), u), tm) =>
+        if u then Tm1.Lam(x, i, t, tm) else Tm1.Wk1(tm)
+      }
+      (etm, ety)
 
   // returns true if meta, false if type
   private def checkDeclaredType(dx: Name, ty: VTy)(using ctx: Ctx): Boolean =

@@ -1,5 +1,8 @@
 module testing.VariableTest
 
 variable {k : cv}
+variable (unused : type k)
 
 def id {A : type k} (x : A) = x
+
+variable end

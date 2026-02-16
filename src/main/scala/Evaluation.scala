@@ -651,3 +651,115 @@ object Evaluation:
           goCases(cs.cases)(using cs.env)
     go1(v)(using lvl0)
     set.toSet
+
+  def allLocals(v: V1): Set[Lvl] =
+    val set = mutable.Set.empty[Lvl]
+    inline def goClos1(c: Clos1)(using lvl: Lvl): Unit =
+      go1(c(V1.Var(lvl)))(using lvl + 1)
+    inline def goClos0(c: Clos0)(using lvl: Lvl): Unit =
+      go0(c(V0.Var(lvl)))(using lvl + 1)
+    @tailrec
+    def goSp(sp: Spine)(using lvl: Lvl): Unit =
+      sp match
+        case Spine.Empty         => ()
+        case Spine.App(sp, a, _) => go1(a); goSp(sp)
+        case Spine.Proj(sp, _)   => goSp(sp)
+        case Spine.ElimId(sp, a, x, pp, h, y) =>
+          go1(a); go1(x); go1(pp); go1(h); go1(y); goSp(sp)
+        case Spine.FixIx(sp, ii, a, b, f, i) =>
+          go1(ii); go1(a); go1(b); go1(f); go1(i); goSp(sp)
+        case Spine.MetaApp1(sp, a) => go1(a); goSp(sp)
+        case Spine.MetaApp0(sp, a) => go0(a); goSp(sp)
+        case Spine.Case(sp, cs) =>
+          @tailrec
+          def goCases(cs: Cases1)(using env: Env): Unit =
+            cs match
+              case Cases1.Empty        => ()
+              case Cases1.Otherwise(b) => go1(eval1(b))
+              case Cases1.Ext(x, ps, b, r) =>
+                @tailrec
+                def goParams(
+                    ps: List[(Bind, Icit, Ty)]
+                )(using lvl: Lvl, env: Env): (Lvl, Env) =
+                  ps match
+                    case Nil => (lvl, env)
+                    case (x, i, ty) :: rest =>
+                      go1(eval1(ty))
+                      goParams(rest)(using lvl + 1, Env.Ext1(env, V1.Var(lvl)))
+                val (innerlvl, innerenv) = goParams(ps)
+                go1(eval1(b)(using innerenv))(using innerlvl)
+                goCases(r)
+          goCases(cs.cases)(using cs.env)
+          goSp(sp)
+    def goHead(h: Head): Unit =
+      h match
+        case Head.Var(x)          => set += x
+        case Head.Prim(_)         => ()
+        case Head.TypeCon1(m, x)  => ()
+        case Head.Con1(m, dx, cx) => ()
+        case Head.TypeCon0(m, x)  => ()
+        case Head.Con0(m, dx, cx) => ()
+    def goUnfoldHead(h: UnfoldHead)(using lvl: Lvl): Unit =
+      h match
+        case UnfoldHead.Global(m, x, v) => go1(v)
+    def goRec(c: ClosRec)(using lvl: Lvl): Unit =
+      @tailrec
+      def go(env: Env, lvl: Lvl, fs: AssocBind[Ty]): Unit =
+        fs match
+          case Nil => ()
+          case (x, ty) :: rest =>
+            val qty = go1(eval1(ty)(using env))(using lvl)
+            go(Env.Ext1(env, V1.Var(lvl)), lvl + 1, rest)
+      go(c.env, lvl, c.fields)
+    def go1(v: V1)(using lvl: Lvl): Unit =
+      v match
+        case V1.Rigid(h, sp)      => goHead(h); goSp(sp)
+        case V1.LabelLit(_)       => ()
+        case V1.Unfold(h, sp, _)  => goUnfoldHead(h); goSp(sp)
+        case V1.Pi(_, _, ty, b)   => go1(ty); goClos1(b)
+        case V1.Lam(_, _, ty, b)  => go1(ty); goClos1(b)
+        case V1.Fun(pty, cv, rty) => go1(pty); go1(cv); go1(rty)
+        case V1.Lift(cv, ty)      => go1(cv); go1(ty)
+        case V1.Quote(tm)         => go0(tm)
+        case V1.RecordTy1(fs)     => goRec(fs)
+        case V1.RecordTy0(cv, fs) => go1(cv); fs.foreach((_, t) => go1(t))
+        case V1.RecordCon(fs)     => fs.foreach(t => go1(t))
+        case V1.MetaPi1(ty, b)    => go1(ty); goClos1(b)
+        case V1.MetaPi0(ty, b)    => go1(ty); goClos1(b)
+        case V1.MetaLam1(b)       => goClos1(b)
+        case V1.MetaLam0(b)       => goClos1(b)
+        case V1.Flex(m, sp) =>
+          State.getMeta(m) match
+            case MetaEntry.Unsolved(_, _) => goSp(sp)
+            case MetaEntry.Solved(v, _)   => go1(vspine(v, sp))
+    def go0(v: V0)(using lvl: Lvl): Unit =
+      v match
+        case V0.Var(x)              => set += x
+        case V0.Global(m, x)        => ()
+        case V0.IntLit(_)           => ()
+        case V0.StringLit(_)        => ()
+        case V0.Let(_, ty, v, b)    => go1(ty); go0(v); goClos0(b)
+        case V0.LetRec(_, ty, v, b) => go1(ty); goClos0(v); goClos0(b)
+        case V0.Lam(_, ty, b)       => go1(ty); goClos0(b)
+        case V0.App(f, a)           => go0(f); go0(a)
+        case V0.If(rty, c, t, f)    => go1(rty); go0(c); go0(t); go0(f)
+        case V0.Splice(tm)          => go1(tm)
+        case V0.Proj(rty, s, _)     => go1(rty); go0(s)
+        case V0.RecordCon(ty, fs)   => go1(ty); fs.foreach(t => go0(t))
+        case V0.Unsafe(rt, io, l, args) =>
+          go1(rt); go1(l); args.foreach(t => go0(t))
+        case V0.Case(rty, dty, s, cs) =>
+          @tailrec
+          def goCases(cs: Cases0)(using env: Env): Unit =
+            cs match
+              case Cases0.Empty        => ()
+              case Cases0.Otherwise(b) => go0(eval0(b))
+              case Cases0.Ext(x, ps, b, r) =>
+                val (innerlvl, innerenv) = addParams(ps.size)
+                val nps = ps.foreach((_, ty) => go1(eval1(ty)))
+                val rb = go0(eval0(b)(using innerenv))(using innerlvl)
+                goCases(r)
+          go1(rty); go1(dty); go0(s)
+          goCases(cs.cases)(using cs.env)
+    go1(v)(using lvl0)
+    set.toSet

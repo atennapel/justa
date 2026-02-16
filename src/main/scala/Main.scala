@@ -5,11 +5,11 @@ import java.nio.file.{FileSystems, Files, Path}
 import scala.jdk.CollectionConverters.*
 
 object Main:
-  private val LibDir = "libtest"
+  private val LibDir = "lib"
   private val TargetDir = "justatarget"
 
   @main def run(): Unit =
-    Debug.setDebug(true)
+    Debug.setDebug(false)
     Util.time("all") {
       try
         val root = FileSystems.getDefault.getPath(LibDir)

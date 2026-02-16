@@ -37,6 +37,7 @@ https://github.com/AndrasKovacs/cctt
 - [x] JVM array type
 - [x] JVM main method helper
 - [x] unsafeRunIO
+- [x] Generalized variables
 - [ ] JVM invoke static
 - [ ] Optimize IO Unit functions
 - [ ] Array creation helpers

@@ -135,7 +135,9 @@ object Lexer:
     case ARRAY
     case VOID
     case UNSAFERUNIO
+
     case VARIABLE
+    case END
 
     def pretty: String =
       this match
@@ -182,6 +184,7 @@ object Lexer:
         case VOID        => "Void"
         case UNSAFERUNIO => "unsafeRunIO"
         case VARIABLE    => "variable"
+        case END         => "end"
 
   object Keyword:
     val Primitives: Array[Keyword] = Array(
@@ -257,6 +260,7 @@ object Lexer:
         case "Void"        => VOID
         case "unsafeRunIO" => UNSAFERUNIO
         case "variable"    => VARIABLE
+        case "end"         => END
         case _             => null
 
   enum Token:

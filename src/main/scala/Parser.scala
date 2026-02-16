@@ -798,15 +798,19 @@ object Parser:
         }
         Def.DeclareData(p, dx, dty)
       else if tryKeyword(VARIABLE) then
-        val ps = list(tryPiParam()).flatMap { (i, bs, ty) =>
-          bs.map { (p, x) =>
-            x match
-              case DontBind =>
-                err(s"all variables in a variable declaration must have a name")
-              case DoBind(x) => (p, x, i, ty)
+        if tryKeyword(END) then Def.VariableEnd(p)
+        else
+          val ps = list(tryPiParam()).flatMap { (i, bs, ty) =>
+            bs.map { (p, x) =>
+              x match
+                case DontBind =>
+                  err(
+                    s"all variables in a variable declaration must have a name"
+                  )
+                case DoBind(x) => (p, x, i, ty)
+            }
           }
-        }
-        Def.Variable(p, ps.toList)
+          Def.Variable(p, ps.toList)
       else
         val pub = tryKeyword(PUB)
         val auto = tryKeyword(AUTO)

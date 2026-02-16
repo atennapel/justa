@@ -63,6 +63,7 @@ object Surface:
         ty: Ty
     )
     case Variable(_pos: PosInfo, vars: List[(PosInfo, Name, PiIcit, Ty)])
+    case VariableEnd(_pos: PosInfo)
 
     override def toString: String = this match
       case Def0(_, p, x, t, v) =>
@@ -77,6 +78,7 @@ object Surface:
       case DeclareData(_, x, t) => s"declare data $x : $t"
       case Variable(_, vs) =>
         vs.map((_, x, i, t) => i.wrap(s"$x : $t")).mkString(" ")
+      case VariableEnd(_) => "variable end"
 
     def pos: PosInfo = this match
       case Def0(p, _, _, _, _)       => p
@@ -84,6 +86,7 @@ object Surface:
       case Data(p, _, _, _, _, _, _) => p
       case DeclareData(p, _, _)      => p
       case Variable(p, _)            => p
+      case VariableEnd(p)            => p
 
   enum ImplMode derives CanEqual:
     case Unif

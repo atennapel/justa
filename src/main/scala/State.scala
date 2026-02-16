@@ -358,19 +358,30 @@ object State:
   def allGlobalsForModule(mod: Name = currentModule): List[GlobalEntry] =
     globals(mod).toList
 
-  private var baseCtx: Ctx = null
-  private var vars: List[(Bind, PiIcit, Ty)] = Nil
+  private val baseCtxStack: mutable.ArrayBuffer[Ctx] = mutable.ArrayBuffer.empty
+  private val varsStack: mutable.ArrayBuffer[List[(Bind, PiIcit, Ty)]] =
+    mutable.ArrayBuffer.empty
 
-  def getBaseCtx: Ctx = baseCtx
+  def getBaseCtx(using ctx: Ctx): Ctx =
+    if baseCtxStack.nonEmpty then baseCtxStack.last else ctx
+  def getVars: List[(Bind, PiIcit, Ty)] =
+    if varsStack.nonEmpty then varsStack.last else Nil
+
+  def hasVars: Boolean = baseCtxStack.nonEmpty
 
   def addVars(ctx: Ctx, newvars: List[(Bind, PiIcit, Ty)]): Unit =
-    baseCtx = ctx
-    vars = vars ++ newvars
+    baseCtxStack += ctx
+    val lastVars = if varsStack.nonEmpty then varsStack.last else Nil
+    varsStack += lastVars ++ newvars
+
+  def endVars(): Unit =
+    baseCtxStack.dropRightInPlace(1)
+    varsStack.dropRightInPlace(1)
 
   def enterModule(pos: PosInfo, mod: Name): Unit =
     moduleCtx = Some(ModuleCtx(mod))
-    baseCtx = Ctx.empty(pos)
-    vars = Nil
+    baseCtxStack.clear()
+    varsStack.clear()
     globals.get(mod) match
       case None => globals += (mod -> mutable.ArrayBuffer.empty[GlobalEntry])
       case _    => ()

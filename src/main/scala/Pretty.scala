@@ -7,6 +7,7 @@ import Surface.PiIcit
 import scala.annotation.tailrec
 
 // TODO: ensure this produces syntax that can be parsed
+// TODO: handle weakenings
 object Pretty:
   private def prettyApp0(tm: Tm0)(using ns: List[Bind]): String = tm match
     case Tm0.App(f, a) => s"${prettyApp0(f)} ${prettyParen0(a)}"
