@@ -182,7 +182,8 @@ object State:
         tm: Tm1,
         ty: Val1,
         unitCon: Option[Name],
-        singleCon: Option[Name]
+        singleCon: Option[Name],
+        options: List[DataOption]
     )
     case Con0(
         pub: Boolean,
@@ -219,22 +220,22 @@ object State:
     case DeclaredData(x: Name, tm: Tm1, ty: Val1)
 
     def name: Name = this match
-      case Def0(_, x, _, _, _, _, _, _)    => x
-      case Def1(_, x, _, _, _, _)          => x
-      case Data0(_, x, _, _, _, _, _, _)   => x
-      case Con0(_, x, _, _, _, _, _, _, _) => x
-      case Data1(_, x, _, _, _, _, _, _)   => x
-      case Con1(_, x, _, _, _, _, _, _, _) => x
-      case DeclaredData(x, _, _)           => x
+      case Def0(_, x, _, _, _, _, _, _)     => x
+      case Def1(_, x, _, _, _, _)           => x
+      case Data0(_, x, _, _, _, _, _, _, _) => x
+      case Con0(_, x, _, _, _, _, _, _, _)  => x
+      case Data1(_, x, _, _, _, _, _, _)    => x
+      case Con1(_, x, _, _, _, _, _, _, _)  => x
+      case DeclaredData(x, _, _)            => x
 
     def isPublic: Boolean = this match
-      case Def0(p, _, _, _, _, _, _, _)    => p
-      case Def1(p, _, _, _, _, _)          => p
-      case Data0(p, _, _, _, _, _, _, _)   => p
-      case Con0(p, _, _, _, _, _, _, _, _) => p
-      case Data1(p, _, _, _, _, _, _, _)   => p
-      case Con1(p, _, _, _, _, _, _, _, _) => p
-      case DeclaredData(_, _, _)           => false
+      case Def0(p, _, _, _, _, _, _, _)     => p
+      case Def1(p, _, _, _, _, _)           => p
+      case Data0(p, _, _, _, _, _, _, _, _) => p
+      case Con0(p, _, _, _, _, _, _, _, _)  => p
+      case Data1(p, _, _, _, _, _, _, _)    => p
+      case Con1(p, _, _, _, _, _, _, _, _)  => p
+      case DeclaredData(_, _, _)            => false
 
   // modules
   private final case class ModuleCtx(
@@ -345,7 +346,7 @@ object State:
 
   def conIndex(mod: Name, dx: Name, cx: Name): Int =
     getGlobal(mod, dx) match
-      case Some((_, _, GlobalEntry.Data0(_, _, _, xs, _, _, _, _))) =>
+      case Some((_, _, GlobalEntry.Data0(_, _, _, xs, _, _, _, _, _))) =>
         xs.indexOf(cx)
       case Some((_, _, GlobalEntry.Data1(_, _, _, xs, _, _, _, _))) =>
         xs.indexOf(cx)

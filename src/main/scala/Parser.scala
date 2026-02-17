@@ -768,7 +768,31 @@ object Parser:
           case null => null
           case x    => List((x, Expl, Tm.Hole(pos, None)))
 
+    private def tryDataOption(): DataOption | Null =
+      if tryExactName("record") then DataOption.Record
+      else if tryExactName("wrapper") then DataOption.Wrapper
+      else null
+
+    private def dataOption(): DataOption | Null =
+      tryDataOption() match
+        case null => err(s"expected a data option")
+        case opt  => opt
+
+    private def dataOptions(): List[DataOption] =
+      if trySymbol(L_PAREN) then
+        tryDataOption() match
+          case null =>
+            symbol(R_PAREN)
+            Nil
+          case first =>
+            val res = mutable.ArrayBuffer.empty[DataOption]
+            while trySymbol(COMMA) do res += dataOption()
+            symbol(R_PAREN)
+            first :: res.toList
+      else Nil
+
     private def data(pos: PosInfo, pub: Boolean): Def =
+      val opts = dataOptions()
       val dx = nameOrOp()
       val ps = list(tryDataParam()).toList.flatten
       val univ = if trySymbol(COLON) then Some(expr()) else None
@@ -782,7 +806,7 @@ object Parser:
         while trySymbol(PIPE) do tl += dataCon(pub)
         hd :: tl.toList
       else Nil
-      Def.Data(pos, pub, isMeta, dx, ps, univ, cons)
+      Def.Data(pos, pub, isMeta, opts, dx, ps, univ, cons)
 
     private def tryDef(): Def | Null =
       val p = pos

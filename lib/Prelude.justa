@@ -35,7 +35,7 @@ pub data Option A := None | Some (value : A)
 
 pub data Either A B := Left A | Right B
 
-pub data Pair A B := MkPair (fst : A) (snd : B)
+pub data (record) Pair A B := MkPair (fst : A) (snd : B)
 
 pub def fst {A B} (p : Pair A B) : A = p.fst
 pub def snd {A B} (p : Pair A B) : B = p.snd

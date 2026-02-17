@@ -62,7 +62,12 @@ object JVM:
         retty: Ty,
         body: Tm
     )
-    case Data(acc: Access, _name: Name, constructors: List[Constructor])
+    case Data(
+        acc: Access,
+        options: List[DataOption],
+        _name: Name,
+        constructors: List[Constructor]
+    )
 
     override def toString: String = this match
       case Value(acc, x, t, v) =>
@@ -71,30 +76,34 @@ object JVM:
         s"$acc def $x () : $t = $b"
       case Function(acc, x, ps, t, b) =>
         s"$acc def $x ${ps.map((x, ty) => s"('$x : $ty)").mkString(" ")} : $t = $b"
-      case Data(acc, x, Nil) =>
-        s"$acc data $x"
-      case Data(acc, x, cs) =>
-        s"$acc data $x = ${cs.mkString(" | ")}"
+      case Data(acc, opts, x, Nil) =>
+        val sopts =
+          if opts.isEmpty then "" else s"${opts.mkString("(", ", ", ")")} "
+        s"$acc data $sopts$x"
+      case Data(acc, opts, x, cs) =>
+        val sopts =
+          if opts.isEmpty then "" else s"${opts.mkString("(", ", ", ")")} "
+        s"$acc data $sopts$x = ${cs.mkString(" | ")}"
 
     def isData: Boolean = this match
-      case Data(_, _, _) => true
-      case _             => false
+      case Data(_, _, _, _) => true
+      case _                => false
 
     def isSynth: Boolean = this match
       case Value(acc, _, _, _)       => acc == Access.Synth
       case Function(acc, _, _, _, _) => acc == Access.Synth
-      case Data(acc, _, _)           => acc == Access.Synth
+      case Data(acc, _, _, _)        => acc == Access.Synth
 
     def name: Name = this match
       case Value(_, x, _, _)       => x
       case Function(_, x, _, _, _) => x
-      case Data(_, x, _)           => x
+      case Data(_, _, x, _)        => x
 
     def globals(res: mutable.Set[(Name, Name)]): Unit =
       this match
         case Value(_, _, _, v)       => v.globals(res)
         case Function(_, _, _, _, v) => v.globals(res)
-        case Data(_, _, _)           => ()
+        case Data(_, _, _, _)        => ()
 
   enum Cases derives CanEqual:
     case Ext(x: Name, ps: List[(LocalName, Ty, Int)], body: Tm, rest: Cases)

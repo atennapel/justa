@@ -1,4 +1,4 @@
-import Common.{Name, impossible, RuntimePrimitive}
+import Common.{Name, impossible, RuntimePrimitive, DataOption}
 import Debug.debug
 import JVM.*
 
@@ -19,6 +19,7 @@ import java.lang.classfile.ClassHierarchyResolver.ClassHierarchyInfo
 // generate JVM bytecode
 object Generation:
   private val Arity0InstanceName = "INSTANCE"
+  private val RecordClassDesc = ClassDesc.of("java.lang.Record")
 
   final class GenerationError(msg: String) extends Exception(msg)
   private inline def err(msg: String): Nothing = throw new GenerationError(msg)
@@ -33,7 +34,8 @@ object Generation:
       jinnername: String,
       desc: ClassDesc,
       path: String,
-      cons: Set[Name]
+      cons: Set[Name],
+      options: List[DataOption]
   )
   private final case class ConCtx(
       jname: String,
@@ -91,14 +93,25 @@ object Generation:
       functions += (name -> mutable.Map.empty)
       values += (name -> mutable.Map.empty)
 
-    def registerDatatype(name: Name, cs: List[Constructor]): Unit =
+    def registerDatatype(
+        options: List[DataOption],
+        name: Name,
+        cs: List[Constructor]
+    ): Unit =
       val xinner = JName(name)
       val x = s"${modules(currentModule).jname}$$$xinner"
       val d = ClassDesc.of(x)
       registerClass(d)
       val p = s"$targetDir/${x.split("\\.").mkString("/")}.class"
       val cons = cs.map(_.name).toSet
-      datatypes(currentModule) += (name -> DatatypeCtx(x, xinner, d, p, cons))
+      datatypes(currentModule) += (name -> DatatypeCtx(
+        x,
+        xinner,
+        d,
+        p,
+        cons,
+        options
+      ))
 
     def registerCons(name: Name, cs: List[Constructor]): Unit =
       val dctx = getDatatype(name)
@@ -199,9 +212,14 @@ object Generation:
     val ds = m.defs.toList
     registerDefs(ds)
     ds.foreach {
-      case Def.Data(acc, x, cs) =>
-        cs.foreach(c => gen(x, c))
-        gen(acc, x, cs)
+      case Def.Data(acc, opts, x, cs) =>
+        if opts.contains(DataOption.Record) then
+          if cs.size != 1 then
+            err(s"record datatype needs exactly one constructor: $x")
+          genRecord(acc, x, cs.head)
+        else
+          cs.foreach(c => gen(x, c))
+          gen(acc, x, cs)
       case _ => ()
     }
     val bytes = ClassFile
@@ -216,12 +234,12 @@ object Generation:
 
   private def registerDefs(ds: List[Def])(using ctx: Ctx): Unit =
     ds.foreach {
-      case Def.Data(_, x, cs) => ctx.registerDatatype(x, cs)
-      case _                  => ()
+      case Def.Data(_, opts, x, cs) => ctx.registerDatatype(opts, x, cs)
+      case _                        => ()
     }
     ds.foreach {
-      case Def.Data(_, x, cs) => ctx.registerCons(x, cs)
-      case _                  => ()
+      case Def.Data(_, _, x, cs) => ctx.registerCons(x, cs)
+      case _                     => ()
     }
     ds.foreach {
       case Def.Function(_, x, params, retty, _) =>
@@ -236,8 +254,8 @@ object Generation:
   )(using ctx: Ctx, classBuilder: ClassBuilder): Unit =
     // set inner class infos for datatypes
     val innerClassInfos = ds.flatMap {
-      case Def.Data(acc, x, _) => Some(innerClassInfoForDatatype(acc, x))
-      case _                   => None
+      case Def.Data(acc, _, x, _) => Some(innerClassInfoForDatatype(acc, x))
+      case _                      => None
     }
     classBuilder.`with`(InnerClassesAttribute.of(innerClassInfos.asJava))
     // generate values and methods
@@ -281,7 +299,7 @@ object Generation:
   private def gen(acc: Access, name: Name, cs: List[Constructor])(using
       ctx: Ctx
   ): Unit =
-    debug(s"gen datatype ${name}")
+    debug(s"gen datatype $name")
     val datactx = ctx.getDatatype(name)
     val bytes = ClassFile
       .of(ClassFile.ClassHierarchyResolverOption.of(getHierarchyResolver))
@@ -293,12 +311,15 @@ object Generation:
           val innerClassInfos =
             cs.map(c => innerClassInfoForConstructor(c.acc, name, c.name))
           classBuilder.`with`(InnerClassesAttribute.of(innerClassInfos.asJava))
-          // private empty constructor
+          // protected/private empty constructor
+          val constructorFlag =
+            if cs.isEmpty then ClassFile.ACC_PRIVATE
+            else ClassFile.ACC_PROTECTED
           classBuilder
             .withMethodBody(
               ConstantDescs.INIT_NAME,
               ConstantDescs.MTD_void,
-              ClassFile.ACC_PROTECTED | ClassFile.ACC_SYNTHETIC,
+              constructorFlag | ClassFile.ACC_SYNTHETIC,
               codeBuilder =>
                 codeBuilder
                   .loadLocal(TypeKind.REFERENCE, codeBuilder.receiverSlot())
@@ -307,6 +328,78 @@ object Generation:
                   ConstantDescs.INIT_NAME,
                   ConstantDescs.MTD_void
                 )
+                codeBuilder.return_()
+            )
+      )
+    writeClass(Path.of(datactx.path), bytes)
+
+  private def genRecord(acc: Access, dx: Name, con: Constructor)(using
+      ctx: Ctx
+  ): Unit =
+    debug(s"gen record $dx")
+    val Constructor(cacc, cx, _) = con
+    val datactx = ctx.getDatatype(dx)
+    val conctx = ctx.getCon(ctx.currentModule, dx, cx)
+    val bytes = ClassFile
+      .of(ClassFile.ClassHierarchyResolverOption.of(getHierarchyResolver))
+      .build(
+        datactx.desc,
+        classBuilder =>
+          classBuilder
+            .withFlags(ClassFile.ACC_STATIC | ClassFile.ACC_FINAL | gen(acc))
+          classBuilder.withSuperclass(RecordClassDesc)
+          // fields
+          val ps = conctx.names.zip(conctx.types).zip(conctx.kinds).map {
+            case ((x, t), k) => (x, t, k)
+          }
+          ps.foreach { (px, pty, _) =>
+            classBuilder
+              .withField(px, pty, ClassFile.ACC_FINAL | ClassFile.ACC_PUBLIC)
+          }
+          // constructor
+          val constructorflag = cacc match
+            case Access.Pub if ps.isEmpty => gen(Access.Synth)
+            case _ => ClassFile.ACC_PROTECTED | ClassFile.ACC_SYNTHETIC
+          classBuilder.withMethodBody(
+            ConstantDescs.INIT_NAME,
+            conctx.initdesc,
+            constructorflag,
+            codeBuilder =>
+              codeBuilder
+                .loadLocal(TypeKind.REFERENCE, codeBuilder.receiverSlot())
+              codeBuilder.invokespecial(
+                RecordClassDesc,
+                ConstantDescs.INIT_NAME,
+                ConstantDescs.MTD_void
+              )
+              ps.zipWithIndex.foreach { case ((px, pty, pk), ix) =>
+                codeBuilder
+                  .loadLocal(TypeKind.REFERENCE, codeBuilder.receiverSlot())
+                codeBuilder.loadLocal(pk, codeBuilder.parameterSlot(ix))
+                codeBuilder.putfield(datactx.desc, px, pty)
+              }
+              codeBuilder.return_()
+          )
+          // optimization for arity 0 constructors
+          if ps.isEmpty then
+            classBuilder.withField(
+              Arity0InstanceName,
+              datactx.desc,
+              ClassFile.ACC_FINAL | ClassFile.ACC_PUBLIC | ClassFile.ACC_STATIC | ClassFile.ACC_SYNTHETIC
+            )
+            classBuilder.withMethodBody(
+              ConstantDescs.CLASS_INIT_NAME,
+              ConstantDescs.MTD_void,
+              ClassFile.ACC_PRIVATE | ClassFile.ACC_STATIC | ClassFile.ACC_SYNTHETIC,
+              codeBuilder =>
+                codeBuilder.new_(datactx.desc).dup()
+                codeBuilder.invokespecial(
+                  datactx.desc,
+                  ConstantDescs.INIT_NAME,
+                  conctx.initdesc
+                )
+                codeBuilder
+                  .putstatic(datactx.desc, Arity0InstanceName, datactx.desc)
                 codeBuilder.return_()
             )
       )
@@ -336,7 +429,7 @@ object Generation:
       .of(ClassFile.ClassHierarchyResolverOption.of(getHierarchyResolver))
       .build(
         conctx.desc,
-        classBuilder => {
+        classBuilder =>
           classBuilder.withFlags(constructorFlags(acc))
           classBuilder.withSuperclass(datactx.desc)
           // fields
@@ -393,7 +486,6 @@ object Generation:
                   .putstatic(conctx.desc, Arity0InstanceName, conctx.desc)
                 codeBuilder.return_()
             )
-        }
       )
     writeClass(Path.of(conctx.path), bytes)
 
@@ -527,24 +619,30 @@ object Generation:
             )
 
       case Tm.Con(m, dx, cx, _, args) =>
+        val datactx = ctx.getDatatype(m, dx)
+        val isRecord = datactx.options.contains(DataOption.Record)
         val conctx = ctx.getCon(m, dx, cx)
+        val receiver = if isRecord then datactx.desc else conctx.desc
         if conctx.types.isEmpty then
-          codeBuilder.getstatic(conctx.desc, Arity0InstanceName, conctx.desc)
+          codeBuilder.getstatic(receiver, Arity0InstanceName, receiver)
         else
-          codeBuilder.new_(conctx.desc).dup()
+          codeBuilder.new_(receiver).dup()
           args.foreach(gen)
           codeBuilder.invokespecial(
-            conctx.desc,
+            receiver,
             ConstantDescs.INIT_NAME,
             conctx.initdesc
           )
 
       case Tm.Select(m, dx, s, ix) =>
-        val cons = ctx.getDatatype(m, dx).cons
+        val datactx = ctx.getDatatype(m, dx)
+        val cons = datactx.cons
         if cons.size != 1 then impossible()
+        val isRecord = datactx.options.contains(DataOption.Record)
         val conctx = ctx.getCon(m, dx, cons.head)
+        val receiver = if isRecord then datactx.desc else conctx.desc
         gen(s)
-        codeBuilder.getfield(conctx.desc, conctx.names(ix), conctx.types(ix))
+        codeBuilder.getfield(receiver, conctx.names(ix), conctx.types(ix))
 
       case Tm.Join(bs, b) =>
         // TODO: use codeBuilder.block
@@ -594,6 +692,7 @@ object Generation:
       classBuilder: ClassBuilder
   ): Unit =
     val datactx = ctx.getDatatype(m, dx)
+    val isRecord = datactx.options.contains(DataOption.Record)
     // TODO: use codeBuilder.block
     cs match
       case Cases.Empty => codeBuilder.pop()
@@ -602,18 +701,19 @@ object Generation:
         gen(b)
       case Cases.Ext(cx, cps, b, r) =>
         val conctx = ctx.getCon(m, dx, cx)
+        val receiver = if isRecord then datactx.desc else conctx.desc
         val ps =
           cps.zip(conctx.names).zip(conctx.kinds).zip(conctx.types).map {
             case ((((x, _, u), px), k), ty) => (x, px, u, k, ty)
           }
         def genbody(codeBuilder: CodeBuilder): Unit =
-          if (ps.nonEmpty) codeBuilder.checkcast(conctx.desc)
+          if (ps.nonEmpty && !isRecord) codeBuilder.checkcast(conctx.desc)
           val nenv = ps.foldLeft(env) { case (env, (x, px, u, k, ty)) =>
             if u == 0 then env
             else
               val l = codeBuilder.allocateLocal(k)
               codeBuilder.dup()
-              codeBuilder.getfield(conctx.desc, px, ty)
+              codeBuilder.getfield(receiver, px, ty)
               codeBuilder.storeLocal(k, l)
               env + (x -> EnvEntry.Local(k, l))
           }
@@ -624,7 +724,7 @@ object Generation:
         else
           codeBuilder.dup()
           if ps.isEmpty then
-            codeBuilder.getstatic(conctx.desc, Arity0InstanceName, conctx.desc)
+            codeBuilder.getstatic(receiver, Arity0InstanceName, receiver)
             codeBuilder.ifThenElse(
               Opcode.IF_ACMPEQ,
               codeBuilder => genbody(codeBuilder),
@@ -632,7 +732,7 @@ object Generation:
                 gen(m, dx, endLabel, r)(using codeBuilder = codeBuilder)
             )
           else
-            codeBuilder.instanceOf(conctx.desc)
+            codeBuilder.instanceOf(receiver)
             codeBuilder.ifThenElse(
               codeBuilder => genbody(codeBuilder),
               codeBuilder =>

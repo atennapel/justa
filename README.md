@@ -24,7 +24,9 @@ https://github.com/AndrasKovacs/cctt
 - [x] Mutual recursion
 - [x] JVM bytecode generation
 - [x] JVM classes and IO access
-- [ ] Datatype annotations and optimizations
+- [x] Record-like datatypes optimization
+- [ ] Wrapper-like datatypes optimization
+- [ ] Finite-like datatypes optimization
 - [ ] Expanded representation polymorphism
 - [ ] Null handling
 

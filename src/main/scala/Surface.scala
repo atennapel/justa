@@ -52,6 +52,7 @@ object Surface:
         _pos: PosInfo,
         pub: Boolean,
         meta: Option[Boolean],
+        options: List[DataOption],
         name: Name,
         params: List[(Name, Icit, Ty)],
         univ: Option[Ty],
@@ -70,23 +71,25 @@ object Surface:
         s"${if p then "public " else ""}def $x${t.map(t => s" : $t").getOrElse("")} := $v"
       case Def1(_, p, a, x, t, v) =>
         s"${if p then "pub " else ""}${if p then "auto " else ""}def $x${t.map(t => s" : $t").getOrElse("")} = $v"
-      case Data(_, p, meta, x, ps, u, cs) =>
+      case Data(_, p, meta, opts, x, ps, u, cs) =>
         val css = cs.mkString(" | ")
         val ustr = u.fold("")(t => s" : $t")
         val df = meta.fold("|")(m => if m then "=" else ":=")
-        s"${if p then "pub " else ""}data $x ${ps.map((x, i, ty) => i.wrap(s"$x : $ty")).mkString(" ")}$ustr $df $css"
+        val sopts =
+          if opts.isEmpty then "" else s"${opts.mkString("(", ", ", ")")} "
+        s"${if p then "pub " else ""}data $sopts$x ${ps.map((x, i, ty) => i.wrap(s"$x : $ty")).mkString(" ")}$ustr $df $css"
       case DeclareData(_, x, t) => s"declare data $x : $t"
       case Variable(_, vs) =>
         vs.map((_, x, i, t) => i.wrap(s"$x : $t")).mkString(" ")
       case VariableEnd(_) => "variable end"
 
     def pos: PosInfo = this match
-      case Def0(p, _, _, _, _)       => p
-      case Def1(p, _, _, _, _, _)    => p
-      case Data(p, _, _, _, _, _, _) => p
-      case DeclareData(p, _, _)      => p
-      case Variable(p, _)            => p
-      case VariableEnd(p)            => p
+      case Def0(p, _, _, _, _)          => p
+      case Def1(p, _, _, _, _, _)       => p
+      case Data(p, _, _, _, _, _, _, _) => p
+      case DeclareData(p, _, _)         => p
+      case Variable(p, _)               => p
+      case VariableEnd(p)               => p
 
   enum ImplMode derives CanEqual:
     case Unif

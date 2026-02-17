@@ -644,7 +644,7 @@ object Elaboration:
           forceAll1(ty) match
             case V.TypeCon0(m, dx, dps) =>
               State.getGlobalDirect(m, dx) match
-                case Some(GlobalEntry.Data0(_, _, _, _, _, _, unitCon, _)) =>
+                case Some(GlobalEntry.Data0(_, _, _, _, _, _, unitCon, _, _)) =>
                   unitCon match
                     case Some(cx) =>
                       State.getGlobalDirect(m, cx) match
@@ -1196,7 +1196,7 @@ object Elaboration:
         Infer0(Tm0.Global(m, x), ty, cv)
       case Right((m, x, GlobalEntry.Def1(_, _, _, _, v, ty))) =>
         Infer1(Tm1.Global(m, x, v), ty)
-      case Right((_, _, GlobalEntry.Data0(_, _, _, _, tm, ty, _, _))) =>
+      case Right((_, _, GlobalEntry.Data0(_, _, _, _, tm, ty, _, _, _))) =>
         Infer1(tm, ty)
       case Right((_, _, GlobalEntry.Con0(_, _, _, _, _, _, tm, _, ty))) =>
         Infer1(tm, ty)
@@ -1416,7 +1416,7 @@ object Elaboration:
     forceAll1(vty) match
       case V.TypeCon0(m, dx, dps) =>
         State.getGlobalDirect(m, dx) match
-          case Some(GlobalEntry.Data0(_, _, _, _, _, _, _, singleCon)) =>
+          case Some(GlobalEntry.Data0(_, _, _, _, _, _, _, singleCon, _)) =>
             singleCon match
               case None =>
                 err(
@@ -1702,8 +1702,9 @@ object Elaboration:
       case _ =>
         err(s"expected datatype in match but got ${ctx.pretty1(vscrutty)}")
     val (dps, cons) = State.getGlobalDirect(m, dx) match
-      case Some(GlobalEntry.Data0(_, _, dps, cs, _, _, _, _)) => (dps, cs.toSet)
-      case _                                                  => impossible()
+      case Some(GlobalEntry.Data0(_, _, dps, cs, _, _, _, _, _)) =>
+        (dps, cs.toSet)
+      case _ => impossible()
     val psenv = Env(ps)
     inline def conTypes(m: Name, cx: Name): List[VTy] =
       State.getGlobalDirect(m, cx) match
@@ -1936,7 +1937,7 @@ object Elaboration:
           val (m, dx, _) = checkAutoDef(vty)
           State.addAuto(State.currentModule, x, m, dx)
         State.addGlobal(GlobalEntry.Def1(pub, x, ev, ty, vv, vty))
-      case Surface.Def.Data(_, pub, meta, x, ps, univ, cs) =>
+      case Surface.Def.Data(_, pub, meta, opts, x, ps, univ, cs) =>
         val u = univ match
           case Some(ty) =>
             val ety = check1(ty, V.Meta)
@@ -1958,8 +1959,10 @@ object Elaboration:
             // TODO: adjust this is runtime datatypes allow implicit parameters
             if hasImplParam then true
             else err(s"ambigious universe for datatype")
-        if isMeta then elaborateData1(pub, x, ps, cs)
-        else elaborateData0(pub, x, ps, cs)
+        if isMeta then
+          if opts.nonEmpty then err(s"only runtime datatypes can have options")
+          elaborateData1(pub, x, ps, cs)
+        else elaborateData0(pub, opts, x, ps, cs)
       case d @ Surface.Def.DeclareData(_, x, ty) =>
         if State.currentModuleHasName(x) || State.hasImport(x) then
           err(s"duplicate definition $x")
@@ -2125,10 +2128,13 @@ object Elaboration:
 
   private def elaborateData0(
       pub: Boolean,
+      opts: List[DataOption],
       x: Name,
       ps0: List[(Name, Icit, S)],
       cs: List[Surface.Constructor]
   )(using ctx: Ctx): Unit =
+    if opts.contains(DataOption.Record) && cs.size != 1 then
+      err(s"data with record option should have exactly on constructor: $x")
     val declaredTy = State.getDeclaredDataType(x)
     declaredTy match
       case None if State.currentModuleHasName(x) || State.hasImport(x) =>
@@ -2158,7 +2164,8 @@ object Elaboration:
         ty,
         vty,
         unitCon,
-        singleCon
+        singleCon,
+        opts
       )
     )
     val datactx =

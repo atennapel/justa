@@ -217,3 +217,12 @@ object Common:
       case Add => "add"
       case Sub => "sub"
       case Mul => "mul"
+
+  // data options
+  enum DataOption derives CanEqual:
+    case Record
+    case Wrapper
+
+    override def toString: String = this match
+      case Record  => "record"
+      case Wrapper => "wrapper"

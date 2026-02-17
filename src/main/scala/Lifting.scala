@@ -671,9 +671,10 @@ object Lifting:
   private val monoRecStore = mutable.Map.empty[MonoRecKey, Name]
 
   private def monomorphize(m: Name, dx: Name, ps: List[IR.VTy]): JVM.Ty =
-    val (pub, xs) = State.getGlobalDirect(m, dx) match
-      case Some(GlobalEntry.Data0(pub, _, _, xs, _, _, _, _)) => (pub, xs)
-      case _                                                  => impossible()
+    val (pub, xs, opts) = State.getGlobalDirect(m, dx) match
+      case Some(GlobalEntry.Data0(pub, _, _, xs, _, _, _, _, opts)) =>
+        (pub, xs, opts)
+      case _ => impossible()
     val (nx, alreadyDone) = tryMonomorphize(m, dx, ps)
     if !alreadyDone then
       val menv: State.MonoEnv =
@@ -689,7 +690,7 @@ object Lifting:
         JVM.Constructor(acc, cx, ets)
       }
       val acc = if pub then JVM.Access.Pub else JVM.Access.Priv
-      newDefs += JVM.Def.Data(acc, nx, ecs)
+      newDefs += JVM.Def.Data(acc, opts, nx, ecs)
     JVM.Ty.Data(currentModule, nx)
 
   private def tryMonomorphize(
@@ -713,7 +714,12 @@ object Lifting:
         JVM.RecordConName,
         fs.map((x, t) => (x.toOption, goVTy(t)))
       )
-      newDefs += JVM.Def.Data(JVM.Access.Pub, nx, List(con))
+      newDefs += JVM.Def.Data(
+        JVM.Access.Pub,
+        List(DataOption.Record),
+        nx,
+        List(con)
+      )
     JVM.Ty.Data(currentModule, nx)
 
   private def tryMonomorphizeRec(ps: List[IR.VTy]): (Name, Boolean) =

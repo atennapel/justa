@@ -34,3 +34,8 @@ pub def main := mainJVM mainJusta
 
 pub def main2 := mainJVM \args =>
   println "Hello, world!"
+
+-- testing
+data (record) IntPair := MkPair (fst : Int) (snd : Int)
+def p := MkPair 1 2
+def test := match p | MkPair a b => a
