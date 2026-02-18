@@ -39,3 +39,15 @@ pub def main2 := mainJVM \args =>
 data (record) IntPair := MkPair (fst : Int) (snd : Int)
 def p := MkPair 1 2
 def test := match p | MkPair a b => a
+
+data (finite Int) Three := A | B | C
+def a := C
+def test2 :=
+  match a
+  | A => 0
+  | C => 2
+  | B => 42
+
+data (finite Bool) VoidFin : vtype
+
+def test3 (x : VoidFin) : Int := match x {}

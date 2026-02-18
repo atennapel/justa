@@ -2126,6 +2126,64 @@ object Elaboration:
         )
     }
 
+  private def checkFiniteSize(
+      dx: Name,
+      cs: List[Surface.Constructor],
+      size: FiniteSize
+  )(using ctx: Ctx): Unit =
+    val csize = cs.size
+    size match
+      case FiniteSize.Bool if csize > 2 =>
+        err(
+          s"data with finite Bool option cannot have more than two constructors: $dx"
+        )
+      case FiniteSize.Int if csize > Int.MaxValue =>
+        err(
+          s"data with finite Int option cannot have more than ${Int.MaxValue} constructors: $dx"
+        )
+      case _ => ()
+
+  private def checkDataOption(
+      dx: Name,
+      cs: List[Surface.Constructor],
+      opt: DataOption
+  )(using ctx: Ctx): Unit =
+    opt match
+      case DataOption.Record if cs.size != 1 =>
+        err(s"data with record option should have exactly on constructor: $dx")
+      case DataOption.Wrapper if cs.size != 1 || cs.head.params.size != 1 =>
+        err(
+          s"data with wrapper option should have exactly one constructor with exactly one parameter: $dx"
+        )
+      case DataOption.Finite(size) if cs.exists(c => c.params.nonEmpty) =>
+        err(
+          s"data with finite option should have no constructors with parameters: $dx"
+        )
+      case DataOption.Finite(size) if cs.size > size.max =>
+        err(
+          s"data with finite $size option cannot have more than ${size.max} constructors: $dx"
+        )
+      case _ => ()
+
+  private def checkDataOptions(
+      dx: Name,
+      cs: List[Surface.Constructor],
+      opts: List[DataOption]
+  )(using ctx: Ctx): Unit =
+    opts.foreach(o => checkDataOption(dx, cs, o))
+    val fins = opts.count(_.isFinite)
+    if fins > 1 then err(s"duplicate finite data option in $dx")
+    val recs = opts.count { case DataOption.Record => true; case _ => false }
+    if recs > 1 then err(s"duplicate record data option in $dx")
+    val ws = opts.count { case DataOption.Wrapper => true; case _ => false }
+    if ws > 1 then err(s"duplicate wrapper data option in $dx")
+    if recs > 0 && ws > 0 then
+      err(s"record cannot be combined with wrapper in $dx")
+    if ws > 0 && fins > 0 then
+      err(s"wrapper cannot be combined with finite in $dx")
+    if recs > 0 && fins > 0 then
+      err(s"record cannot be combined with finite in $dx")
+
   private def elaborateData0(
       pub: Boolean,
       opts: List[DataOption],
@@ -2133,8 +2191,7 @@ object Elaboration:
       ps0: List[(Name, Icit, S)],
       cs: List[Surface.Constructor]
   )(using ctx: Ctx): Unit =
-    if opts.contains(DataOption.Record) && cs.size != 1 then
-      err(s"data with record option should have exactly on constructor: $x")
+    checkDataOptions(x, cs, opts)
     val declaredTy = State.getDeclaredDataType(x)
     declaredTy match
       case None if State.currentModuleHasName(x) || State.hasImport(x) =>

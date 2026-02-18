@@ -74,6 +74,10 @@ object Simplification:
     inline def assign(x: LocalName, v: Tm): Ctx =
       Ctx(scope, subst + (x -> v), nextFresh)
 
+    inline def newBind(): (Ctx, LocalName) =
+      val y = fresh()
+      (Ctx(scope + y, subst, y + 1), y)
+
     inline def used(x: LocalName, ty: CTy): (Ctx, LocalName) =
       val y = fresh()
       (Ctx(scope + y, subst + (x -> Tm.Local(y, ty)), y + 1), y)
@@ -315,6 +319,14 @@ object Simplification:
                 }
                 go(ty, lets, args)
           case Tm.Case(_, _, _, Cases.Otherwise(b)) => go(ty, b, args)
+          case Tm.Case(_, dty, s, Cases.Ext(cx, ps, b, Cases.Empty)) =>
+            val (nctx, y) = ctx.newBind()
+            val sv = Tm.Local(y, CTy(dty))
+            val lets = ps.zipWithIndex.foldRight(b) {
+              case (((px, ty, u), i), b) =>
+                Tm.Let(px, u, CTy(ty), Tm.Select(ty, dty, sv, i), b)
+            }
+            Tm.Let(y, -1, CTy(dty), s, go(ty, lets, args)(using nctx))
           case Tm.Case(rty, dty, s, cs) =>
             @tailrec
             def goParamsRec(

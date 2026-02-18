@@ -219,10 +219,32 @@ object Common:
       case Mul => "mul"
 
   // data options
+  enum FiniteSize derives CanEqual:
+    case Bool
+    case Int
+
+    override def toString: String = this match
+      case Bool => "Bool"
+      case Int  => "Int"
+
+    def max: Int = this match
+      case Bool => 2
+      case Int  => scala.Int.MaxValue
+
   enum DataOption derives CanEqual:
     case Record
     case Wrapper
+    case Finite(size: FiniteSize)
 
     override def toString: String = this match
-      case Record  => "record"
-      case Wrapper => "wrapper"
+      case Record    => "record"
+      case Wrapper   => "wrapper"
+      case Finite(s) => s"finite $s"
+
+    def isFinite: Boolean = this match
+      case Finite(_) => true
+      case _         => false
+
+    def getFiniteSize: Option[FiniteSize] = this match
+      case Finite(size) => Some(size)
+      case _            => None

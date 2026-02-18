@@ -771,6 +771,12 @@ object Parser:
     private def tryDataOption(): DataOption | Null =
       if tryExactName("record") then DataOption.Record
       else if tryExactName("wrapper") then DataOption.Wrapper
+      else if tryExactName("finite") then
+        val size =
+          if tryKeyword(INT) then FiniteSize.Int
+          else if tryKeyword(BOOL) then FiniteSize.Bool
+          else err("expected a finite size")
+        DataOption.Finite(size)
       else null
 
     private def dataOption(): DataOption | Null =

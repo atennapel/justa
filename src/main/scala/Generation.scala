@@ -15,11 +15,14 @@ import java.lang.classfile.constantpool.ConstantValueEntry
 import java.lang.classfile.constantpool.ConstantPoolBuilder
 import java.lang.classfile.attribute.ConstantValueAttribute
 import java.lang.classfile.ClassHierarchyResolver.ClassHierarchyInfo
+import Common.FiniteSize
+import java.lang.classfile.instruction.SwitchCase
 
 // generate JVM bytecode
 object Generation:
   private val Arity0InstanceName = "INSTANCE"
   private val RecordClassDesc = ClassDesc.of("java.lang.Record")
+  private val MaxFakeLabelsForFiniteMatch = 10
 
   final class GenerationError(msg: String) extends Exception(msg)
   private inline def err(msg: String): Nothing = throw new GenerationError(msg)
@@ -32,14 +35,20 @@ object Generation:
   private final case class DatatypeCtx(
       jname: String,
       jinnername: String,
+      typekind: TypeKind,
       desc: ClassDesc,
       path: String,
       cons: Set[Name],
-      options: List[DataOption]
-  )
+      options: List[DataOption],
+      finiteSize: Option[FiniteSize]
+  ):
+    def isRecord: Boolean = options.contains(DataOption.Record)
+    def isFinite: Boolean = finiteSize.isDefined
   private final case class ConCtx(
       jname: String,
       jinnername: String,
+      index: Int,
+      typekind: TypeKind,
       desc: ClassDesc,
       path: String,
       names: List[String],
@@ -100,27 +109,32 @@ object Generation:
     ): Unit =
       val xinner = JName(name)
       val x = s"${modules(currentModule).jname}$$$xinner"
-      val d = ClassDesc.of(x)
-      registerClass(d)
       val p = s"$targetDir/${x.split("\\.").mkString("/")}.class"
       val cons = cs.map(_.name).toSet
+      val fin = options.flatMap(_.getFiniteSize).headOption
+      val (kind, desc) = fin match
+        case Some(s) => gen(s)
+        case None =>
+          val d = ClassDesc.of(x)
+          registerClass(d)
+          (TypeKind.REFERENCE, d)
       datatypes(currentModule) += (name -> DatatypeCtx(
         x,
         xinner,
-        d,
+        kind,
+        desc,
         p,
         cons,
-        options
+        options,
+        fin
       ))
 
     def registerCons(name: Name, cs: List[Constructor]): Unit =
       val dctx = getDatatype(name)
       val dx = dctx.jname
-      cs.foreach { case Constructor(_, cx, ps) =>
+      cs.zipWithIndex.foreach { case (Constructor(_, cx, ps), ix) =>
         val xcinner = JName(cx)
         val jcx = s"$dx$$$xcinner"
-        val dc = ClassDesc.of(jcx)
-        registerClass(dc, dctx.desc)
         val pc = s"$targetDir/${jcx.split("\\.").mkString("/")}.class"
         val eps = ps.map((_, t) => gen(t)(using this))
         val names = ps.zipWithIndex.map { case ((x, _), i) =>
@@ -130,9 +144,18 @@ object Generation:
         val kinds = eps.map(_._1)
         val initd =
           MethodTypeDesc.of(ConstantDescs.CD_void, types.asJava)
+        val (kind, dc) = dctx.finiteSize match
+          case Some(size)            => gen(size)
+          case None if dctx.isRecord => (TypeKind.REFERENCE, dctx.desc)
+          case None =>
+            val dc = ClassDesc.of(jcx)
+            registerClass(dc, dctx.desc)
+            (TypeKind.REFERENCE, dc)
         constructors(currentModule) += ((name, cx) -> ConCtx(
           jcx,
           xcinner,
+          ix,
+          kind,
           dc,
           pc,
           names,
@@ -217,6 +240,7 @@ object Generation:
           if cs.size != 1 then
             err(s"record datatype needs exactly one constructor: $x")
           genRecord(acc, x, cs.head)
+        else if opts.count(_.isFinite) > 0 then ()
         else
           cs.foreach(c => gen(x, c))
           gen(acc, x, cs)
@@ -254,8 +278,9 @@ object Generation:
   )(using ctx: Ctx, classBuilder: ClassBuilder): Unit =
     // set inner class infos for datatypes
     val innerClassInfos = ds.flatMap {
-      case Def.Data(acc, _, x, _) => Some(innerClassInfoForDatatype(acc, x))
-      case _                      => None
+      case Def.Data(acc, opts, x, _) if opts.count(_.isFinite) == 0 =>
+        Some(innerClassInfoForDatatype(acc, x))
+      case _ => None
     }
     classBuilder.`with`(InnerClassesAttribute.of(innerClassInfos.asJava))
     // generate values and methods
@@ -283,12 +308,19 @@ object Generation:
 
   private def gen(ty: Ty)(using ctx: Ctx): (TypeKind, ClassDesc) =
     ty match
-      case Ty.Void       => (TypeKind.VOID, ConstantDescs.CD_void)
-      case Ty.Bool       => (TypeKind.BOOLEAN, ConstantDescs.CD_boolean)
-      case Ty.Int        => (TypeKind.INT, ConstantDescs.CD_int)
-      case Ty.Data(m, x) => (TypeKind.REFERENCE, ctx.datatypes(m)(x).desc)
-      case Ty.Class(c)   => (TypeKind.REFERENCE, ClassDesc.of(c))
-      case Ty.Array(ty)  => (TypeKind.REFERENCE, gen(ty)._2.arrayType())
+      case Ty.Void => (TypeKind.VOID, ConstantDescs.CD_void)
+      case Ty.Bool => (TypeKind.BOOLEAN, ConstantDescs.CD_boolean)
+      case Ty.Int  => (TypeKind.INT, ConstantDescs.CD_int)
+      case Ty.Data(m, x) =>
+        val datactx = ctx.getDatatype(m, x)
+        (datactx.typekind, datactx.desc)
+      case Ty.Class(c)  => (TypeKind.REFERENCE, ClassDesc.of(c))
+      case Ty.Array(ty) => (TypeKind.REFERENCE, gen(ty)._2.arrayType())
+
+  private def gen(f: FiniteSize): (TypeKind, ClassDesc) =
+    f match
+      case FiniteSize.Bool => (TypeKind.BOOLEAN, ConstantDescs.CD_boolean)
+      case FiniteSize.Int  => (TypeKind.INT, ConstantDescs.CD_int)
 
   private def gen(acc: Access): Int =
     acc match
@@ -620,10 +652,10 @@ object Generation:
 
       case Tm.Con(m, dx, cx, _, args) =>
         val datactx = ctx.getDatatype(m, dx)
-        val isRecord = datactx.options.contains(DataOption.Record)
         val conctx = ctx.getCon(m, dx, cx)
-        val receiver = if isRecord then datactx.desc else conctx.desc
-        if conctx.types.isEmpty then
+        val receiver = conctx.desc
+        if datactx.isFinite then gen(conctx.index)
+        else if conctx.types.isEmpty then
           codeBuilder.getstatic(receiver, Arity0InstanceName, receiver)
         else
           codeBuilder.new_(receiver).dup()
@@ -638,9 +670,8 @@ object Generation:
         val datactx = ctx.getDatatype(m, dx)
         val cons = datactx.cons
         if cons.size != 1 then impossible()
-        val isRecord = datactx.options.contains(DataOption.Record)
         val conctx = ctx.getCon(m, dx, cons.head)
-        val receiver = if isRecord then datactx.desc else conctx.desc
+        val receiver = conctx.desc
         gen(s)
         codeBuilder.getfield(receiver, conctx.names(ix), conctx.types(ix))
 
@@ -671,9 +702,10 @@ object Generation:
         codeBuilder.labelBinding(retLabel)
 
       case Tm.Case(m, dx, s, cs) =>
-        gen(s)
         val endLabel = codeBuilder.newLabel()
-        gen(m, dx, endLabel, cs)
+        if ctx.getDatatype(m, dx).isFinite then
+          genFinMatch(m, dx, s, endLabel, cs)
+        else gen(m, dx, s, endLabel, cs)
         codeBuilder.labelBinding(endLabel)
 
       case Tm.UnsafeRunIO(tm) => gen(tm)
@@ -685,59 +717,171 @@ object Generation:
           else (l, "")
         handleUnsafe(rt, io, op, rest, args)
 
-  private def gen(m: Name, dx: Name, endLabel: Label, cs: Cases)(using
+  private def gen(m: Name, dx: Name, scrut: Tm, endLabel: Label, cs: Cases)(
+      using
       ctx: Ctx,
       codeBuilder: CodeBuilder,
       env: Env,
       classBuilder: ClassBuilder
   ): Unit =
-    val datactx = ctx.getDatatype(m, dx)
-    val isRecord = datactx.options.contains(DataOption.Record)
     // TODO: use codeBuilder.block
-    cs match
-      case Cases.Empty => codeBuilder.pop()
-      case Cases.Otherwise(b) =>
-        codeBuilder.pop()
-        gen(b)
-      case Cases.Ext(cx, cps, b, r) =>
-        val conctx = ctx.getCon(m, dx, cx)
-        val receiver = if isRecord then datactx.desc else conctx.desc
-        val ps =
-          cps.zip(conctx.names).zip(conctx.kinds).zip(conctx.types).map {
-            case ((((x, _, u), px), k), ty) => (x, px, u, k, ty)
-          }
-        def genbody(codeBuilder: CodeBuilder): Unit =
-          if (ps.nonEmpty && !isRecord) codeBuilder.checkcast(conctx.desc)
-          val nenv = ps.foldLeft(env) { case (env, (x, px, u, k, ty)) =>
-            if u == 0 then env
-            else
-              val l = codeBuilder.allocateLocal(k)
-              codeBuilder.dup()
-              codeBuilder.getfield(receiver, px, ty)
-              codeBuilder.storeLocal(k, l)
-              env + (x -> EnvEntry.Local(k, l))
-          }
-          codeBuilder.pop()
-          gen(b)(using codeBuilder = codeBuilder, env = nenv)
-          codeBuilder.goto_(endLabel)
-        if r == Cases.Empty then genbody(codeBuilder)
-        else
-          codeBuilder.dup()
-          if ps.isEmpty then
-            codeBuilder.getstatic(receiver, Arity0InstanceName, receiver)
-            codeBuilder.ifThenElse(
-              Opcode.IF_ACMPEQ,
-              codeBuilder => genbody(codeBuilder),
-              codeBuilder =>
-                gen(m, dx, endLabel, r)(using codeBuilder = codeBuilder)
-            )
+    gen(scrut)
+    val datactx = ctx.getDatatype(m, dx)
+    go(cs)
+    def go(cs: Cases)(using codeBuilder: CodeBuilder, env: Env): Unit =
+      cs match
+        case Cases.Empty        => codeBuilder.pop(); genImpossible()
+        case Cases.Otherwise(b) => codeBuilder.pop(); gen(b)
+        case Cases.Ext(cx, cps, b, r) =>
+          val conctx = ctx.getCon(m, dx, cx)
+          val receiver = conctx.desc
+          val ps =
+            cps.zip(conctx.names).zip(conctx.kinds).zip(conctx.types).map {
+              case ((((x, _, u), px), k), ty) => (x, px, u, k, ty)
+            }
+          def genbody(codeBuilder: CodeBuilder): Unit =
+            if (ps.nonEmpty && !datactx.isRecord)
+              codeBuilder.checkcast(conctx.desc)
+            val nenv = ps.foldLeft(env) { case (env, (x, px, u, k, ty)) =>
+              if u == 0 then env
+              else
+                val l = codeBuilder.allocateLocal(k)
+                codeBuilder.dup()
+                codeBuilder.getfield(receiver, px, ty)
+                codeBuilder.storeLocal(k, l)
+                env + (x -> EnvEntry.Local(k, l))
+            }
+            codeBuilder.pop()
+            gen(b)(using codeBuilder = codeBuilder, env = nenv)
+            codeBuilder.goto_(endLabel)
+          if r == Cases.Empty then genbody(codeBuilder)
           else
-            codeBuilder.instanceOf(receiver)
-            codeBuilder.ifThenElse(
-              codeBuilder => genbody(codeBuilder),
-              codeBuilder =>
-                gen(m, dx, endLabel, r)(using codeBuilder = codeBuilder)
-            )
+            codeBuilder.dup()
+            if ps.isEmpty then
+              codeBuilder.getstatic(receiver, Arity0InstanceName, receiver)
+              codeBuilder.ifThenElse(
+                Opcode.IF_ACMPEQ,
+                codeBuilder => genbody(codeBuilder),
+                codeBuilder => go(r)(using codeBuilder = codeBuilder)
+              )
+            else
+              codeBuilder.instanceOf(receiver)
+              codeBuilder.ifThenElse(
+                codeBuilder => genbody(codeBuilder),
+                codeBuilder => go(r)(using codeBuilder = codeBuilder)
+              )
+
+  private def genFinMatch(
+      mx: Name,
+      dx: Name,
+      scrut: Tm,
+      endLabel: Label,
+      cs: Cases
+  )(using
+      ctx: Ctx,
+      codeBuilder: CodeBuilder,
+      env: Env,
+      classBuilder: ClassBuilder
+  ): Unit =
+    def cases(cs: Cases): (Map[Int, Tm], Option[Tm]) =
+      cs match
+        case Cases.Ext(cx, _, b, r) =>
+          val (m, o) = cases(r)
+          val ix = ctx.getCon(mx, dx, cx).index
+          (m + (ix -> b), o)
+        case Cases.Otherwise(b) => (Map.empty, Some(b))
+        case Cases.Empty        => (Map.empty, None)
+    val datactx = ctx.getDatatype(mx, dx)
+    val size = datactx.finiteSize.get
+    val (m, o) = cases(cs)
+    gen(scrut)
+    if m.isEmpty then
+      codeBuilder.pop()
+      o match
+        case Some(b) => gen(b)
+        case None    => genImpossible()
+    else
+      val sorted = m.toList.sortBy((i, _) => i)
+      val min = sorted.head._1
+      val nfake = sorted
+        .foldLeft((0, min)) { case ((nfake, cur), (ix, b)) =>
+          if ix == cur then (nfake, cur + 1)
+          else
+            val d = ix - cur
+            (nfake + d, ix + 1)
+        }
+        ._1
+      if nfake > MaxFakeLabelsForFiniteMatch then
+        // use lookupswitch
+        val otherlabel = codeBuilder.newLabel()
+        val jvmes = sorted.map { (ix, b) =>
+          val caselabel = codeBuilder.newLabel()
+          SwitchCase.of(ix, caselabel)
+        }
+        codeBuilder.lookupswitch(otherlabel, jvmes.asJava)
+        sorted.zip(jvmes).foreach { case ((ix, b), e) =>
+          codeBuilder.labelBinding(e.target)
+          gen(b)
+          codeBuilder.goto_(endLabel)
+        }
+        codeBuilder.labelBinding(otherlabel)
+        o match
+          case Some(o) => gen(o)
+          case None    => genImpossible()
+      else
+        // use tableswitch
+        val otherlabel = codeBuilder.newLabel()
+        val es = sorted
+          .foldLeft((List.empty[FinEntry], min)) { case ((res, cur), (ix, b)) =>
+            if ix == cur then (res :+ FinEntry.Real(ix, b), cur + 1)
+            else
+              val d = ix - cur
+              val fs = (0 until d).map(i => FinEntry.Fake(cur + i))
+              (res ++ fs :+ FinEntry.Real(ix, b), ix + 1)
+          }
+          ._1
+        val jvmes = es.map {
+          case FinEntry.Fake(ix) =>
+            val caselabel = codeBuilder.newLabel()
+            SwitchCase.of(ix, caselabel)
+          case FinEntry.Real(ix, b) =>
+            val caselabel = codeBuilder.newLabel()
+            SwitchCase.of(ix, caselabel)
+        }
+        codeBuilder.tableswitch(otherlabel, jvmes.asJava)
+        es.zip(jvmes).foreach {
+          case (FinEntry.Fake(ix), e) =>
+            codeBuilder.labelBinding(e.target)
+            codeBuilder.goto_(otherlabel)
+          case (FinEntry.Real(ix, b), e) =>
+            codeBuilder.labelBinding(e.target)
+            gen(b)
+            codeBuilder.goto_(endLabel)
+        }
+        codeBuilder.labelBinding(otherlabel)
+        o match
+          case Some(o) => gen(o)
+          case None    => genImpossible()
+
+  private enum FinEntry derives CanEqual:
+    case Real(ix: Int, body: Tm)
+    case Fake(ix: Int)
+
+  private def genImpossible()(using
+      codeBuilder: CodeBuilder,
+      classBuilder: ClassBuilder
+  ): Unit =
+    val exc = ClassDesc.of("java.lang.RuntimeException")
+    codeBuilder.new_(exc)
+    codeBuilder.dup()
+    val entry = classBuilder.constantPool().stringEntry("impossible")
+    codeBuilder.ldc(entry)
+    codeBuilder.invokespecial(
+      exc,
+      ConstantDescs.INIT_NAME,
+      MethodTypeDesc.of(ConstantDescs.CD_void, ConstantDescs.CD_String)
+    )
+    codeBuilder.athrow()
 
   private def gen(n: Int)(using codeBuilder: CodeBuilder): Unit =
     n match
@@ -754,9 +898,10 @@ object Generation:
 
   private def isConstant(tm: Tm): Boolean =
     tm match
-      case Tm.BoolLit(_) => true
-      case Tm.IntLit(_)  => true
-      case _             => false
+      case Tm.BoolLit(_)   => true
+      case Tm.IntLit(_)    => true
+      case Tm.StringLit(_) => true
+      case _               => false
 
   private def constant(tm: Tm)(using
       pool: ConstantPoolBuilder
@@ -764,8 +909,9 @@ object Generation:
     tm match
       case Tm.BoolLit(v) =>
         if v then Some(pool.intEntry(1)) else Some(pool.intEntry(0))
-      case Tm.IntLit(v) => Some(pool.intEntry(v))
-      case _            => None
+      case Tm.IntLit(v)    => Some(pool.intEntry(v))
+      case Tm.StringLit(v) => Some(pool.stringEntry(v))
+      case _               => None
 
   private def writeClass(path: Path, bytes: Array[Byte]): Unit =
     debug(s"write class $path")
