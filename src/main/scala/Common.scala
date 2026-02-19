@@ -245,6 +245,10 @@ object Common:
       case Finite(_) => true
       case _         => false
 
+    def isWrapper: Boolean = this match
+      case Wrapper => true
+      case _       => false
+
     def getFiniteSize: Option[FiniteSize] = this match
       case Finite(size) => Some(size)
       case _            => None

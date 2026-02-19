@@ -26,7 +26,7 @@ https://github.com/AndrasKovacs/cctt
 - [x] JVM classes and IO access
 - [x] Record-like datatypes optimization
 - [x] Finite-like datatypes optimization
-- [ ] Wrapper-like datatypes optimization
+- [x] Wrapper-like datatypes optimization
 - [ ] Expanded representation polymorphism
 - [ ] Null handling
 

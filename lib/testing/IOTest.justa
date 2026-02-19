@@ -51,3 +51,9 @@ def test2 :=
 data (finite Bool) VoidFin : vtype
 
 def test3 (x : VoidFin) : Int := match x {}
+
+data (wrapper) MyId := MkMyId Int
+def id := MkMyId 42
+def test4 := match id | MkMyId n => n
+def test5 := id.0
+

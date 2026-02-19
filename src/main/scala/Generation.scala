@@ -40,10 +40,12 @@ object Generation:
       path: String,
       cons: Set[Name],
       options: List[DataOption],
-      finiteSize: Option[FiniteSize]
+      finiteSize: Option[FiniteSize],
+      wrapper: Option[(TypeKind, ClassDesc)]
   ):
     def isRecord: Boolean = options.contains(DataOption.Record)
     def isFinite: Boolean = finiteSize.isDefined
+    def isWrapper: Boolean = wrapper.isDefined
   private final case class ConCtx(
       jname: String,
       jinnername: String,
@@ -112,12 +114,18 @@ object Generation:
       val p = s"$targetDir/${x.split("\\.").mkString("/")}.class"
       val cons = cs.map(_.name).toSet
       val fin = options.flatMap(_.getFiniteSize).headOption
-      val (kind, desc) = fin match
-        case Some(s) => gen(s)
-        case None =>
+      val wrapper =
+        if options.contains(DataOption.Wrapper) then
+          Some(gen(cs.head.params.head._2)(using this))
+        else None
+      val (kind, desc) = (fin, wrapper) match
+        case (Some(s), None)      => gen(s)
+        case (None, Some((k, d))) => (k, d)
+        case (None, None) =>
           val d = ClassDesc.of(x)
           registerClass(d)
           (TypeKind.REFERENCE, d)
+        case _ => impossible()
       datatypes(currentModule) += (name -> DatatypeCtx(
         x,
         xinner,
@@ -126,7 +134,8 @@ object Generation:
         p,
         cons,
         options,
-        fin
+        fin,
+        wrapper
       ))
 
     def registerCons(name: Name, cs: List[Constructor]): Unit =
@@ -240,7 +249,7 @@ object Generation:
           if cs.size != 1 then
             err(s"record datatype needs exactly one constructor: $x")
           genRecord(acc, x, cs.head)
-        else if opts.count(_.isFinite) > 0 then ()
+        else if opts.count(o => o.isFinite || o.isWrapper) > 0 then ()
         else
           cs.foreach(c => gen(x, c))
           gen(acc, x, cs)
@@ -278,7 +287,8 @@ object Generation:
   )(using ctx: Ctx, classBuilder: ClassBuilder): Unit =
     // set inner class infos for datatypes
     val innerClassInfos = ds.flatMap {
-      case Def.Data(acc, opts, x, _) if opts.count(_.isFinite) == 0 =>
+      case Def.Data(acc, opts, x, _)
+          if opts.count(o => o.isFinite || o.isWrapper) == 0 =>
         Some(innerClassInfoForDatatype(acc, x))
       case _ => None
     }
@@ -652,28 +662,32 @@ object Generation:
 
       case Tm.Con(m, dx, cx, _, args) =>
         val datactx = ctx.getDatatype(m, dx)
-        val conctx = ctx.getCon(m, dx, cx)
-        val receiver = conctx.desc
-        if datactx.isFinite then gen(conctx.index)
-        else if conctx.types.isEmpty then
-          codeBuilder.getstatic(receiver, Arity0InstanceName, receiver)
+        if datactx.isWrapper then gen(args.head)
         else
-          codeBuilder.new_(receiver).dup()
-          args.foreach(gen)
-          codeBuilder.invokespecial(
-            receiver,
-            ConstantDescs.INIT_NAME,
-            conctx.initdesc
-          )
+          val conctx = ctx.getCon(m, dx, cx)
+          val receiver = conctx.desc
+          if datactx.isFinite then gen(conctx.index)
+          else if conctx.types.isEmpty then
+            codeBuilder.getstatic(receiver, Arity0InstanceName, receiver)
+          else
+            codeBuilder.new_(receiver).dup()
+            args.foreach(gen)
+            codeBuilder.invokespecial(
+              receiver,
+              ConstantDescs.INIT_NAME,
+              conctx.initdesc
+            )
 
       case Tm.Select(m, dx, s, ix) =>
         val datactx = ctx.getDatatype(m, dx)
-        val cons = datactx.cons
-        if cons.size != 1 then impossible()
-        val conctx = ctx.getCon(m, dx, cons.head)
-        val receiver = conctx.desc
-        gen(s)
-        codeBuilder.getfield(receiver, conctx.names(ix), conctx.types(ix))
+        if datactx.isWrapper then gen(s)
+        else
+          val cons = datactx.cons
+          if cons.size != 1 then impossible()
+          val conctx = ctx.getCon(m, dx, cons.head)
+          val receiver = conctx.desc
+          gen(s)
+          codeBuilder.getfield(receiver, conctx.names(ix), conctx.types(ix))
 
       case Tm.Join(bs, b) =>
         // TODO: use codeBuilder.block
@@ -703,8 +717,21 @@ object Generation:
 
       case Tm.Case(m, dx, s, cs) =>
         val endLabel = codeBuilder.newLabel()
-        if ctx.getDatatype(m, dx).isFinite then
-          genFinMatch(m, dx, s, endLabel, cs)
+        val datactx = ctx.getDatatype(m, dx)
+        if datactx.isFinite then genFinMatch(m, dx, s, endLabel, cs)
+        else if datactx.isWrapper then
+          gen(s)
+          cs match
+            case Cases.Ext(_, List((px, _, u)), b, Cases.Empty) =>
+              if u == 0 then
+                codeBuilder.pop(); gen(b)
+              else
+                val k = datactx.wrapper.get._1
+                val l = codeBuilder.allocateLocal(k)
+                codeBuilder.storeLocal(k, l)
+                gen(b)(using env = env + (px -> EnvEntry.Local(k, l)))
+            case Cases.Otherwise(b) => codeBuilder.pop(); gen(b)
+            case _                  => impossible()
         else gen(m, dx, s, endLabel, cs)
         codeBuilder.labelBinding(endLabel)
 
@@ -896,22 +923,32 @@ object Generation:
       case n if n >= -32768 && n <= 32767 => codeBuilder.sipush(n)
       case n                              => codeBuilder.ldc(n)
 
-  private def isConstant(tm: Tm): Boolean =
+  private def isConstant(tm: Tm)(using ctx: Ctx): Boolean =
     tm match
-      case Tm.BoolLit(_)   => true
-      case Tm.IntLit(_)    => true
-      case Tm.StringLit(_) => true
-      case _               => false
+      case Tm.BoolLit(_)             => true
+      case Tm.IntLit(_)              => true
+      case Tm.StringLit(_)           => true
+      case Tm.Con(m, dx, cx, _, Nil) => ctx.getDatatype(m, dx).isFinite
+      case Tm.Con(m, dx, cx, _, List(arg)) =>
+        if ctx.getDatatype(m, dx).isWrapper then isConstant(arg)
+        else false
+      case _ => false
 
   private def constant(tm: Tm)(using
       pool: ConstantPoolBuilder
-  ): Option[ConstantValueEntry] =
+  )(using ctx: Ctx): Option[ConstantValueEntry] =
     tm match
       case Tm.BoolLit(v) =>
         if v then Some(pool.intEntry(1)) else Some(pool.intEntry(0))
       case Tm.IntLit(v)    => Some(pool.intEntry(v))
       case Tm.StringLit(v) => Some(pool.stringEntry(v))
-      case _               => None
+      case Tm.Con(m, dx, cx, ix, Nil) =>
+        if ctx.getDatatype(m, dx).isFinite then Some(pool.intEntry(ix))
+        else None
+      case Tm.Con(m, dx, cx, _, List(arg)) =>
+        if ctx.getDatatype(m, dx).isWrapper then constant(arg)
+        else None
+      case _ => None
 
   private def writeClass(path: Path, bytes: Array[Byte]): Unit =
     debug(s"write class $path")

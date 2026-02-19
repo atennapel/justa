@@ -2208,11 +2208,12 @@ object Elaboration:
     val unitCon =
       if unitCons.size == 1 then Some(unitCons.head.name) else None
     val singleCon = if cs.size == 1 then Some(cs.head.name) else None
+    val isWrapper = opts.contains(DataOption.Wrapper)
     val ty = Tm1.TypeCon0(State.currentModule, x)
     val vty = ps.foldRight(V.TypeV)((_, rt) => V.fun1(V.TypeV, rt))
     declaredTy.foreach(vty2 => unify(vty2, vty))
     if pub then checkAccessibility(vty)
-    State.addGlobal(
+    def addDatatypeGlobal() = State.addGlobal(
       GlobalEntry.Data0(
         pub,
         x,
@@ -2225,6 +2226,7 @@ object Elaboration:
         opts
       )
     )
+    if !isWrapper then addDatatypeGlobal()
     val datactx =
       ps.foldLeft(ctx)((ctx, x) => ctx.bind1(x.toBind, Tm1.TypeV, V.TypeV))
     cs.zipWithIndex.foreach {
@@ -2232,10 +2234,10 @@ object Elaboration:
         given conctx: Ctx = datactx.enter(pos)
         if State.currentModuleHasName(cx) || State.hasImport(cx) then
           err(s"duplicate name $cx")
-        val eps = cps.map { (x, i, t) =>
+        val eps = cps.map { (px, i, t) =>
           if (i.isImpl)
             err("runtime datatype constructors cannot have implicit parameters")
-          (x, check1(t, V.TypeV))
+          (px, check1(t, V.TypeV))
         }
         val tyapp =
           ps.indices.foldRight(ty)((i, ty) =>
@@ -2265,6 +2267,7 @@ object Elaboration:
           )
         )
     }
+    if isWrapper then addDatatypeGlobal()
 
   private def elaborateDef(d: Surface.Def): Unit =
     debug(s"elaborate $d")

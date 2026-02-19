@@ -1,8 +1,9 @@
-import Common.{impossible, Name, RuntimePrimitive}
+import Common.{impossible, Name, RuntimePrimitive, DataOption}
 import IR.*
 import Debug.debug
 
 import scala.annotation.tailrec
+import State.GlobalEntry
 
 // eta-expand, remove dead lets, inlining, constant folding, remove closures
 object Simplification:
@@ -352,15 +353,27 @@ object Simplification:
                 case Cases.Empty        => Cases.Empty
             Tm.Case(rty, dty, go(CTy(dty), s, Nil), goCases(cs))
 
+  // TODO: finite and wrapper constructors could be small
   private def isSmall(t: Tm): Boolean = t match
-    case Tm.Local(_, _)                  => true
-    case Tm.Global(_, _, _)              => true
-    case Tm.Prim(_)                      => true
-    case Tm.BoolLit(_)                   => true
-    case Tm.IntLit(_)                    => true
-    case Tm.StringLit(_)                 => true
-    case Tm.CRecord(Nil)                 => true
-    case Tm.Con(_, _, _, _, _, Nil)      => true
+    case Tm.Local(_, _)     => true
+    case Tm.Global(_, _, _) => true
+    case Tm.Prim(_)         => true
+    case Tm.BoolLit(_)      => true
+    case Tm.IntLit(_)       => true
+    case Tm.StringLit(_)    => true
+    case Tm.CRecord(Nil)    => true
+    case Tm.Con(m, dx, _, _, _, Nil) =>
+      State.getGlobalDirect(m, dx) match
+        case Some(GlobalEntry.Data0(_, _, _, _, _, _, _, _, opts))
+            if opts.count(_.isFinite) > 0 =>
+          true
+        case _ => false
+    case Tm.Con(m, dx, _, _, _, List((arg, _))) =>
+      State.getGlobalDirect(m, dx) match
+        case Some(GlobalEntry.Data0(_, _, _, _, _, _, _, _, opts))
+            if opts.contains(DataOption.Wrapper) =>
+          isSmall(arg)
+        case _ => false
     case Tm.Record(_, Nil)               => true
     case Tm.ReturnIO(_, v) if isSmall(v) => true
     case _                               => false
